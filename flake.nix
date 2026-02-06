@@ -22,18 +22,15 @@
           packages = [
             pkgs.python3
             pkgs.uv
+            pkgs.python3Packages.jupyterlab
             pkgs.pyright
             pkgs.black
           ];
 
           shellHook = ''
-            echo "--- Python Dev Environment (Stable) ---"
-            echo "Python:  $(python --version)"
-            echo "LSP:     Pyright $(pyright --version | grep -oE '[0-9.]+')"
-            echo "Format:  Black $(black --version | grep -oE '[0-9.]+')"
-
-            # Ensures uv doesn't download its own Python
             export UV_PYTHON_DOWNLOADS=never
+            echo "--- Nix-Managed Jupyter Sandbox ---"
+            echo "Jupyter is now provided by Nixpkgs (Stable 25.11)"
           '';
         };
       }
