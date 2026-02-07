@@ -1,105 +1,87 @@
 from collections import deque
-from typing import List, Tuple, Optional, Set
-import numpy as np
+from typing import List, Tuple, Optional
+from .base import MazeSolverBase, MazeEnvironment
+from .generator import MazeGenerator
 
 
 class MazeJudge:
-    def __init__(self, grid: np.ndarray, start: Tuple[int, int], end: Tuple[int, int]):
-        self.grid = grid
-        self.start = start
-        self.end = end
-        self.optimal_path = self._find_shortest_path()
-        self.min_steps = len(self.optimal_path) if self.optimal_path else float("inf")
+    def __init__(self):
+        self.generator = MazeGenerator()
 
-    def _find_shortest_path(self) -> Optional[List[Tuple[int, int]]]:
-        """Exhaustive BFS to find the absolute shortest path."""
-        queue = deque([(self.start, [self.start])])
-        visited = {self.start}
+    def _get_min_steps(self, env: MazeEnvironment) -> int:
+        """Internal BFS to find the true shortest path for optimality check."""
+        start = env.get_start()
+        end = env.get_end()
+        queue = deque([(start, 0)])
+        visited = {start}
 
         while queue:
-            (curr_r, curr_c), path = queue.popleft()
-            if (curr_r, curr_c) == self.end:
-                return path
-
-            for dr, dc in [(0, 1), (0, -1), (1, 0), (-1, 0)]:
-                nr, nc = curr_r + dr, curr_c + dc
-                if (
-                    0 <= nr < self.grid.shape[0]
-                    and 0 <= nc < self.grid.shape[1]
-                    and self.grid[nr, nc] == 0
-                    and (nr, nc) not in visited
-                ):
-                    visited.add((nr, nc))
-                    queue.append(((nr, nc), path + [(nr, nc)]))
-        return None
+            curr, dist = queue.popleft()
+            if curr == end:
+                return dist
+            for neighbor in env.get_successors(curr):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append((neighbor, dist + 1))
+        return float("inf")
 
     def validate(
-        self, learner_path: List[Tuple[int, int]], mode: str = "feasible"
+        self, path: List[Tuple[int, int]], env: MazeEnvironment, mode: str = "feasible"
     ) -> bool:
-        """
-        Modes:
-        - 'feasible': Checks if the path is valid and reaches the goal.
-        - 'optimal': Checks if the path is the shortest possible.
-        """
-        # 1. Basic Validity (Walls, Jumps, Bounds)
-        if not self._is_valid_structure(learner_path):
+        """Checks if the path is valid and optionally optimal."""
+        if not path or not isinstance(path, list):
+            print("❌ Result is not a valid list of coordinates.")
             return False
 
-        # 2. Feasibility Check (Did they reach the end?)
-        if learner_path[-1] != self.end:
-            print(f"❌ Path ends at {learner_path[-1]}, but goal is {self.end}")
+        start = env.get_start()
+        end = env.get_end()
+
+        # 1. Start/End Check
+        if path[0] != start:
+            print(f"❌ Path must start at {start}.")
+            return False
+        if path[-1] != end:
+            print(f"❌ Path must end at {end}.")
             return False
 
-        if mode == "feasible":
-            print(f"✅ Feasible path found! Length: {len(learner_path)}")
-            return True
+        # 2. Movement Check
+        for i in range(1, len(path)):
+            prev = path[i - 1]
+            curr = path[i]
 
-        # 3. Optimality Check
+            # Distance must be 1
+            dist = abs(curr[0] - prev[0]) + abs(curr[1] - prev[1])
+            if dist != 1:
+                print(f"❌ Illegal jump from {prev} to {curr}.")
+                return False
+
+            # Must be a valid neighbor (not a wall)
+            if curr not in env.get_successors(prev):
+                print(f"❌ Collision! {curr} is a wall or out of bounds.")
+                return False
+
+        # 3. Optimality
+        actual_steps = len(path) - 1  # edges, not nodes
         if mode == "optimal":
-            if len(learner_path) <= self.min_steps:
-                print(
-                    f"🌟 Perfect! You found the optimal path of {len(learner_path)} steps."
-                )
+            min_steps = self._get_min_steps(env)
+            if actual_steps <= min_steps:
+                print(f"🌟 Perfect! Optimal path found: {actual_steps} steps.")
                 return True
             else:
                 print(
-                    f"❌ Path is feasible, but not optimal. Your steps: {len(learner_path)}, Best: {self.min_steps}"
+                    f"❌ Feasible, but not optimal. Your steps: {actual_steps}, Best: {min_steps}"
                 )
                 return False
 
-        return False
-
-    def _is_valid_structure(self, path: List[Tuple[int, int]]) -> bool:
-        if path is None:
-            print("❌ Result is None. No path found.")
-            return False
-
-        # 1. Check Start and End
-        if path[0] != self.start or path[-1] != self.end:
-            print(f"❌ Path must start at {self.start} and end at {self.end}.")
-            return False
-
-        # 2. Check Continuity and Walls
-        for i in range(len(path)):
-            r, c = path[i]
-
-            # Is it inside the grid?
-            if not (0 <= r < self.grid.shape[0] and 0 <= c < self.grid.shape[1]):
-                print(f"❌ Step {path[i]} is outside the grid!")
-                return False
-
-            # Is it a wall?
-            if self.grid[r, c] == 1:
-                print(f"❌ Collision! Step {path[i]} is a wall.")
-                return False
-
-            # Is it a valid move from the previous step? (Distance = 1)
-            if i > 0:
-                prev_r, prev_c = path[i - 1]
-                dist = abs(r - prev_r) + abs(c - prev_c)
-                if dist != 1:
-                    print(f"❌ Illegal jump from {path[i-1]} to {path[i]}.")
-                    return False
-
-        print("✅ Success! You found a valid path.")
+        print(f"✅ Feasible path found! Length: {actual_steps} steps.")
         return True
+
+    def test_on_random(self, solver: MazeSolverBase, seed: int = 42):
+        """Standard testing suite for learners."""
+        print(f"--- Running Random Test (Seed: {seed}) ---")
+        env = self.generator._generate_random(seed=seed)
+        try:
+            path = solver.search(env)
+            self.validate(path, env, mode="optimal")
+        except Exception as e:
+            print(f"❌ Solver crashed during random test: {e}")
