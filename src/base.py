@@ -25,7 +25,7 @@ class MazeEnvironment(ABC):
 
     @abstractmethod
     def get_heuristic(self, pos: Tuple[int, int]) -> float:
-        """Returns Manhattan distance from pos to the goal."""
+        """Returns the estimated distance from pos to the goal."""
         pass
 
     @abstractmethod
@@ -48,4 +48,20 @@ class MazeSolverBase(ABC):
         Learner implementation.
         Should return a list of (r, c) tuples from start to end.
         """
+        pass
+
+
+class MazeGeneratorBase(ABC):
+    """
+    Base class for different types of maze generators (Standard, Faulty, etc.)
+    """
+
+    @abstractmethod
+    def generate_fixed(self) -> MazeEnvironment:
+        """Generates a known, static maze."""
+        pass
+
+    @abstractmethod
+    def _generate_random(self, seed: Optional[int] = None) -> MazeEnvironment:
+        """Generates a maze with randomized start/end and layout."""
         pass
