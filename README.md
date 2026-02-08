@@ -27,9 +27,10 @@ This will automatically provide:
 ### **2. Initialize the Project**
 
 If this is a new setup, initialize your Python environment:  
-# Install dependencies from pyproject.toml  
+# Install dependencies from pyproject.toml
+```
 uv sync
-
+```
 # Create and register the Jupyter Kernel  
 ```
 uv run ipython kernel install --user --name="ai-sandbox" --display-name "Python (AI Sandbox)"
