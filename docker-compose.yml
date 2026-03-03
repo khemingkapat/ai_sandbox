@@ -13,29 +13,54 @@ services:
       - slurm_net
     environment:
       - SLURM_NODES=worker[1-3]
-    command: >
-      bash -c "apt-get update && apt-get install -y docker.io && 
-               /usr/sbin/slurmctld -D -vvv"
+    entrypoint: 
+      - bash
+      - -c
+      - |
+        mkdir -p /var/spool/slurmctld /var/run/munge /var/lib/slurm /var/log/slurm
+        chown munge:munge /var/run/munge
+        chmod 0755 /var/run/munge
+        chown slurm:slurm /var/spool/slurmctld /var/lib/slurm /var/log/slurm
+        /sbin/create-munge-key
+        su -s /bin/bash munge -c "/usr/sbin/munged"
+        # The -y flag is critical to prevent hanging
+        yum install -y docker
+        exec /usr/sbin/slurmctld -Dvvv
 
   worker1: &worker_base
     image: slaclab/slurm-docker:22.05
     container_name: worker1
     hostname: worker1
+    privileged: true
+    user: root
     volumes:
       - ./data:/data
+      - ./data/slurm.conf:/etc/slurm/slurm.conf:ro
     networks:
       - slurm_net
     profiles:
       - workers 
-    command: /usr/sbin/slurmd -D -vvv
+    entrypoint:
+      - bash
+      - -c
+      - |
+        mkdir -p /var/spool/slurmd /var/run/munge /var/lib/slurm /var/log/slurm
+        chown munge:munge /var/run/munge
+        chmod 0755 /var/run/munge
+        chown slurm:slurm /var/spool/slurmd /var/lib/slurm /var/log/slurm
+        /sbin/create-munge-key
+        su -s /bin/bash munge -c "/usr/sbin/munged"
+        exec /usr/sbin/slurmd -Dvvv
 
   worker2:
     <<: *worker_base
     container_name: worker2
+    hostname: worker2
 
   worker3:
     <<: *worker_base
     container_name: worker3
+    hostname: worker3
 
 networks:
   slurm_net:
