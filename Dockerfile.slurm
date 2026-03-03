@@ -9,8 +9,17 @@ RUN dnf install -y epel-release && \
       munge-libs \
       bash \
       procps-ng \
+      python3 \
+      python3-pip \
       && \
-    dnf clean all
+    dnf clean all && \
+    ln -sf /usr/bin/python3 /usr/bin/python
+
+# Install Python packages globally — add whatever your jobs need here
+RUN pip3 install --no-cache-dir \
+      numpy \
+      pandas \
+      scipy
 
 RUN groupadd -r slurm 2>/dev/null || true && \
     useradd -r -g slurm -d /var/lib/slurm -s /sbin/nologin slurm 2>/dev/null || true && \
@@ -36,7 +45,6 @@ RUN mkdir -p \
       /var/run/munge \
       /var/lib/munge
 
-# Generate default munge key — overwritten at runtime by shared volume
 RUN /sbin/create-munge-key
 
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
