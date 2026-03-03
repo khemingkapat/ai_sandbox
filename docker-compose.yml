@@ -9,6 +9,7 @@ services:
       - ./data:/data
       - ./data/slurm.conf:/etc/slurm/slurm.conf:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker:ro
     networks:
       - slurm_net
     environment:
@@ -21,10 +22,19 @@ services:
         chown munge:munge /var/run/munge
         chmod 0755 /var/run/munge
         chown slurm:slurm /var/spool/slurmctld /var/lib/slurm /var/log/slurm
-        /sbin/create-munge-key
+        
+        # Check if munge key exists to avoid the "Overwrite?" prompt
+        if [ ! -f /etc/munge/munge.key ]; then
+            /sbin/create-munge-key
+        fi
+        
         su -s /bin/bash munge -c "/usr/sbin/munged"
-        # The -y flag is critical to prevent hanging
-        yum install -y docker
+        
+        # Install docker-cli if not present; use -y to prevent hanging
+        if ! command -v docker &> /dev/null; then
+            yum install -y docker
+        fi
+        
         exec /usr/sbin/slurmctld -Dvvv
 
   worker1: &worker_base
@@ -48,7 +58,11 @@ services:
         chown munge:munge /var/run/munge
         chmod 0755 /var/run/munge
         chown slurm:slurm /var/spool/slurmd /var/lib/slurm /var/log/slurm
-        /sbin/create-munge-key
+        
+        if [ ! -f /etc/munge/munge.key ]; then
+            /sbin/create-munge-key
+        fi
+        
         su -s /bin/bash munge -c "/usr/sbin/munged"
         exec /usr/sbin/slurmd -Dvvv
 
