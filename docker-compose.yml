@@ -1,7 +1,6 @@
 volumes:
   etc_munge:
   slurm_state:
-  slurm_jobdir:
 
 services:
   slurmctld:
@@ -16,7 +15,7 @@ services:
     volumes:
       - etc_munge:/etc/munge
       - slurm_state:/var/spool/slurmctld
-      - slurm_jobdir:/data
+      - ./data:/data                          # bind mount — host ./data = /data in container
       - ./data/slurm.conf:/etc/slurm/slurm.conf:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - /usr/bin/docker:/usr/bin/docker:ro
@@ -31,7 +30,7 @@ services:
     command: ["slurmd"]
     volumes:
       - etc_munge:/etc/munge
-      - slurm_jobdir:/data
+      - ./data:/data                          # same bind mount on every worker
       - ./data/slurm.conf:/etc/slurm/slurm.conf:ro
     networks:
       - slurm_net
