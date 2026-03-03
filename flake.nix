@@ -27,10 +27,11 @@
           ];
 
           shellHook = ''
-            export UV_PYTHON_DOWNLOADS=never
-            echo "--- HPC Local Simulation Shell ---"
-            echo "Tools available: docker-compose, uv, python3"
-            echo "Run 'docker-compose up -d' to start your local cluster."
+                        export UV_PYTHON_DOWNLOADS=never
+            	    export DOCKER_DEFAULT_PLATFORM=linux/arm64
+                        echo "--- HPC Local Simulation Shell ---"
+                        echo "Tools available: docker-compose, uv, python3"
+                        echo "Run 'docker-compose up -d' to start your local cluster."
           '';
         };
       }
