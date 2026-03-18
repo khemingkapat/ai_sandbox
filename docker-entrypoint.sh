@@ -1,41 +1,51 @@
 #!/bin/bash
 set -e
 
-# Fix MUNGE permissions
+# Fix munge key permissions
 chmod 400 /etc/munge/munge.key 2>/dev/null || true
 chown munge:munge /etc/munge/munge.key 2>/dev/null || true
 
-# Start Munge
+# Start munged as munge user
 su -s /bin/bash munge -c "munged"
 sleep 1
 
-# Ensure sandbox-user home
-mkdir -p /home/sandbox-user
-chown 1000:1000 /home/sandbox-user
-
+# Phase 1: Ensure directory structure in the shared mount
+# (Only the controller needs to initialize the structure if empty)
 if [ "$1" = "slurmctld" ]; then
-    echo "---> Initializing Shared Storage..."
+    echo "---> Initializing Storage Structure..."
     mkdir -p /mnt/storage/users /mnt/storage/projects /mnt/storage/public
-    chown -R 1000:1000 /mnt/storage/
+    # Set permissions so our sandbox-user can write to them
+    chown 1000:1000 /mnt/storage/users /mnt/storage/projects /mnt/storage/public
     
     echo "---> Starting slurmctld..."
-    mkdir -p /var/spool/slurmctld /var/log/slurm /var/run/slurm
-    chown -R slurm:slurm /var/spool/slurmctld /var/log/slurm /var/run/slurm
-    exec slurmctld -D -v
+    mkdir -p /var/spool/slurmctld /var/log/slurm
+    chown slurm:slurm /var/spool/slurmctld /var/log/slurm 2>/dev/null || true
+    exec slurmctld -Dvvv
 
 elif [ "$1" = "slurmd" ]; then
-    echo "---> Waiting for slurmctld..."
+
+    # Force cgroup v1 plugin explicitly
+    cat > /etc/slurm/cgroup.conf << 'EOF'
+CgroupPlugin=cgroup/v1
+CgroupAutomount=yes
+CgroupMountpoint=/sys/fs/cgroup
+ConstrainCores=no
+ConstrainRAMSpace=no
+ConstrainSwapSpace=no
+ConstrainDevices=no
+EOF
+
+    echo "---> Waiting for slurmctld port 6817..."
     until bash -c ">/dev/tcp/slurmctld/6817" 2>/dev/null; do
+        echo "--- slurmctld not ready, retrying in 2s..."
         sleep 2
     done
-    
-    echo "---> Starting slurmd..."
-    mkdir -p /var/spool/slurmd /var/log/slurm /var/run/slurm
-    chown -R slurm:slurm /var/spool/slurmd /var/log/slurm /var/run/slurm
-    
-    # We explicitly do NOT create a cgroup.conf to avoid triggering the plugin
-    
-    exec slurmd -D -v
+    echo "---> slurmctld is up, starting slurmd..."
+
+    mkdir -p /var/spool/slurmd /var/log/slurm
+    chown slurm:slurm /var/spool/slurmd /var/log/slurm 2>/dev/null || true
+
+    exec slurmd -Dvvv
 
 else
     exec "$@"
