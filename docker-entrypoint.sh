@@ -1,45 +1,41 @@
 #!/bin/bash
 set -e
 
-# Fix munge key permissions
+# Fix MUNGE permissions
 chmod 400 /etc/munge/munge.key 2>/dev/null || true
 chown munge:munge /etc/munge/munge.key 2>/dev/null || true
 
-# Start munged as munge user
+# Start Munge
 su -s /bin/bash munge -c "munged"
 sleep 1
 
+# Ensure sandbox-user home
+mkdir -p /home/sandbox-user
+chown 1000:1000 /home/sandbox-user
+
 if [ "$1" = "slurmctld" ]; then
+    echo "---> Initializing Shared Storage..."
+    mkdir -p /mnt/storage/users /mnt/storage/projects /mnt/storage/public
+    chown -R 1000:1000 /mnt/storage/
+    
     echo "---> Starting slurmctld..."
-    mkdir -p /var/spool/slurmctld /var/log/slurm
-    chown slurm:slurm /var/spool/slurmctld /var/log/slurm 2>/dev/null || true
-    exec slurmctld -Dvvv
+    mkdir -p /var/spool/slurmctld /var/log/slurm /var/run/slurm
+    chown -R slurm:slurm /var/spool/slurmctld /var/log/slurm /var/run/slurm
+    exec slurmctld -D -v
 
 elif [ "$1" = "slurmd" ]; then
-
-    # Force cgroup v1 plugin explicitly — v2 requires dbus which is not
-    # available inside containers without a full systemd init
-    cat > /etc/slurm/cgroup.conf << 'EOF'
-CgroupPlugin=cgroup/v1
-CgroupAutomount=yes
-CgroupMountpoint=/sys/fs/cgroup
-ConstrainCores=no
-ConstrainRAMSpace=no
-ConstrainSwapSpace=no
-ConstrainDevices=no
-EOF
-
-    echo "---> Waiting for slurmctld port 6817..."
+    echo "---> Waiting for slurmctld..."
     until bash -c ">/dev/tcp/slurmctld/6817" 2>/dev/null; do
-        echo "--- slurmctld not ready, retrying in 2s..."
         sleep 2
     done
-    echo "---> slurmctld is up, starting slurmd..."
-
-    mkdir -p /var/spool/slurmd /var/log/slurm
-    chown slurm:slurm /var/spool/slurmd /var/log/slurm 2>/dev/null || true
-
-    exec slurmd -Dvvv
+    
+    echo "---> Starting slurmd..."
+    mkdir -p /var/spool/slurmd /var/log/slurm /var/run/slurm
+    chown -R slurm:slurm /var/spool/slurmd /var/log/slurm /var/run/slurm
+    
+    # We explicitly do NOT create a cgroup.conf to avoid triggering the plugin
+    
+    exec slurmd -D -v
 
 else
     exec "$@"

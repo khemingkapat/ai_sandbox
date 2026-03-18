@@ -11,14 +11,19 @@ services:
     container_name: slurmctld
     hostname: slurmctld
     privileged: true
+    security_opt:
+      - seccomp:unconfined
+    # Phase 1 Fix: Start in a directory the user actually owns
+    working_dir: /home/sandbox-user
     command: ["slurmctld"]
     volumes:
       - etc_munge:/etc/munge
       - slurm_state:/var/spool/slurmctld
-      - ./data:/data                          # bind mount — host ./data = /data in container
+      - ./data:/data
       - ./data/slurm.conf:/etc/slurm/slurm.conf:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/docker:/usr/bin/docker:ro
+      - ./storage/users:/mnt/storage/users
+      - ./storage/projects:/mnt/storage/projects
+      - ./storage/public:/mnt/storage/public
     networks:
       - slurm_net
 
@@ -27,11 +32,22 @@ services:
     container_name: worker1
     hostname: worker1
     privileged: true
+    security_opt:
+      - seccomp:unconfined
+    cap_add:
+      - SYS_ADMIN
+      - SETUID
+      - SETGID
+    # Phase 1 Fix: Workers should also have a safe working dir
+    working_dir: /home/sandbox-user
     command: ["slurmd"]
     volumes:
       - etc_munge:/etc/munge
-      - ./data:/data                          # same bind mount on every worker
+      - ./data:/data
       - ./data/slurm.conf:/etc/slurm/slurm.conf:ro
+      - ./storage/users:/mnt/storage/users
+      - ./storage/projects:/mnt/storage/projects
+      - ./storage/public:/mnt/storage/public
     networks:
       - slurm_net
     depends_on:
