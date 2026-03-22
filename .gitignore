@@ -1,2 +1,4 @@
 data/logs/*
 data/results/*
+.env
+storage/
