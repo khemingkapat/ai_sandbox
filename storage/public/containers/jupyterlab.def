@@ -1,0 +1,19 @@
+Bootstrap: docker
+From: python:3.11-slim
+
+%post
+    apt-get update && apt-get install -y libgomp1
+    pip install --no-cache-dir \
+        jupyterlab \
+        numpy \
+        pandas \
+        matplotlib \
+        seaborn \
+        scipy \
+        plotly
+
+%test
+    python3 -c "import jupyterlab, numpy, pandas; print('Build Successful')"
+
+%runscript
+    exec jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
