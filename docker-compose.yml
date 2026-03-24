@@ -106,6 +106,8 @@ services:
     image: giovtorres/slurm-docker-cluster:${SLURM_VERSION:-25.11.2}
     command: ["slurmd-cpu"]
     privileged: true
+    ports:
+    - "8888:8888"
     environment:
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-ai_sandbox}
     volumes:
