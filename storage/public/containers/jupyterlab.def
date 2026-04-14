@@ -16,4 +16,4 @@ From: python:3.11-slim
     python3 -c "import jupyterlab, numpy, pandas; print('Build Successful')"
 
 %runscript
-    exec jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
+    exec jupyter lab --ip=1.0.0.0 --port=8888 --no-browser --allow-root
