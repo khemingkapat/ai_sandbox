@@ -1,2 +1,9 @@
 data/logs/*
 data/results/*
+data/examples/*
+.env
+jobs/
+storage/*
+!storage/public/
+storage/public/containers/*
+!storage/public/containers/*.def
