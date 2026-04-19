@@ -46,7 +46,9 @@ services:
       start_period: 20s
 
   slurmctld:
-    image: giovtorres/slurm-docker-cluster:${SLURM_VERSION:-25.11.2}
+    build:
+      context: .
+      dockerfile: Dockerfile.controller
     command: ["slurmctld"]
     container_name: slurmctld
     hostname: slurmctld
@@ -58,9 +60,7 @@ services:
       - etc_slurm:/etc/slurm
       - slurm_jobdir:/data
       - var_log_slurm:/var/log/slurm
-      # our entrypoint override
       - ./docker-entrypoint.sh:/usr/local/bin/sandbox-entrypoint.sh
-      # Phase 1: mock NFS shared storage
       - ./storage/users:/mnt/storage/users
       - ./storage/projects:/mnt/storage/projects
       - ./storage/public:/mnt/storage/public
@@ -103,19 +103,16 @@ services:
       start_period: 20s
 
   cpu-worker:
-    image: giovtorres/slurm-docker-cluster:${SLURM_VERSION:-25.11.2}
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     command: ["slurmd-cpu"]
     privileged: true
     security_opt:
-    - seccomp=unconfined
-    - apparmor=unconfined
-    cap_add:
-    - SYS_ADMIN
-    - DAC_OVERRIDE
-    - SETUID
-    - SETGID
+      - seccomp=unconfined
+      - apparmor=unconfined
     ports:
-    - "8888:8888"
+      - "8888:8888"
     environment:
       COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-ai_sandbox}
     volumes:
@@ -123,7 +120,6 @@ services:
       - etc_slurm:/etc/slurm
       - slurm_jobdir:/data
       - var_log_slurm:/var/log/slurm
-      # Phase 1: same storage mount on every worker
       - ./storage/users:/mnt/storage/users
       - ./storage/projects:/mnt/storage/projects
       - ./storage/public:/mnt/storage/public
