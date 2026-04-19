@@ -1,5 +1,6 @@
 data/logs/*
 data/results/*
+data/examples/*
 .env
 jobs/
 storage/*
