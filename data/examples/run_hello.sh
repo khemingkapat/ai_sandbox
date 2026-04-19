@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=hello_python
-#SBATCH --nodes=2
+#SBATCH --nodes=1
 #SBATCH --ntasks=2
 #SBATCH --output=/data/logs/hello_%j.out
 #SBATCH --error=/data/logs/hello_%j.err
