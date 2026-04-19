@@ -1,0 +1,29 @@
+layout {
+    // This template applies the bars to every tab automatically
+    default_tab_template {
+        pane size=1 borderless=true {
+            plugin location="zellij:tab-bar"
+        }
+        children
+        pane size=1 borderless=true {
+            plugin location="zellij:status-bar"
+        }
+    }
+
+    // Now define your tabs
+    tab name="main" {
+        pane
+    }
+
+    tab name="user" {
+        pane command="bash" {
+            args "-c" "docker exec -it -u user1 slurmctld bash || bash"
+        }
+    }
+
+    tab name="root" {
+        pane command="bash" {
+            args "-c" "docker exec -it slurmctld bash || bash"
+        }
+    }
+}
