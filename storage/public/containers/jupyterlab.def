@@ -1,9 +1,9 @@
 Bootstrap: docker
-From: python:3.11-slim
+From: rockylinux:9
 
 %post
-    apt-get update && apt-get install -y libgomp1
-    pip install --no-cache-dir \
+    dnf install -y python3 python3-pip && \
+    pip3 install --no-cache-dir \
         jupyterlab \
         numpy \
         pandas \
@@ -16,4 +16,4 @@ From: python:3.11-slim
     python3 -c "import jupyterlab, numpy, pandas; print('Build Successful')"
 
 %runscript
-    exec jupyter lab --ip=1.0.0.0 --port=8888 --no-browser --allow-root
+    exec jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root
