@@ -56,6 +56,7 @@ services:
     working_dir: /data
     entrypoint: ["/usr/local/bin/sandbox-entrypoint.sh"]
     volumes:
+      - slurm_state:/var/spool/slurmctld
       - etc_munge:/etc/munge
       - etc_slurm:/etc/slurm
       - slurm_jobdir:/data
@@ -176,12 +177,34 @@ services:
               count: all
               capabilities: [gpu, compute, utility]
 
+  portal:
+    build:
+      context: ./portal
+      dockerfile: Dockerfile.portal
+    container_name: portal
+    hostname: portal
+    ports:
+      - "8080:8080"
+    environment:
+      SLURMRESTD_URL: http://slurmrestd:6820
+      JWT_KEY_PATH: /etc/slurm/jwt_hs256.key
+      TOKEN_LIFESPAN: "1800"
+    volumes:
+      - etc_slurm:/etc/slurm:ro               # ← change slurm_state to etc_slurm
+      - ./storage/users:/mnt/storage/users:ro
+    depends_on:
+      slurmrestd:
+        condition: service_healthy
+    networks:
+      - slurm-network
+
 volumes:
   etc_munge:
   etc_slurm:
   slurm_jobdir:
   var_lib_mysql:
   var_log_slurm:
+  slurm_state:
 
 networks:
   slurm-network:
