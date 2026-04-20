@@ -11,3 +11,6 @@ storage/users/user1/*/
 !storage/public/
 storage/public/containers/*
 !storage/public/containers/*.def
+
+traefik-dynamic/*
+!traefik-dynamic/.gitkeep
