@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+<!-- (Keep your entire existing <head> with styles) -->
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -447,7 +448,7 @@
           <div class="app-desc">{{ app.description }}</div>
           <div class="app-tags">
             <span class="tag">apptainer</span>
-            <span class="tag">port 8888</span>
+            <span class="tag">proxied URL</span>
             <span class="tag">interactive</span>
           </div>
         </div>
@@ -474,8 +475,8 @@
         <div class="connect-label">↗ Connect</div>
         <div class="connect-url"><a id="connect-link" href="#" target="_blank"></a></div>
         <div class="connect-note">
-          JupyterLab is running on the compute node.<br>
-          Open the link above. Token auth is disabled.
+          JupyterLab is running securely behind Traefik.<br>
+          Open the link above to access it.
         </div>
       </div>
 
@@ -506,7 +507,6 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  // Session countdown — expires_in comes from the server (seconds remaining)
   let secondsLeft = {{ expires_in }};
   let pollInterval = null;
   let currentJobId = null;
@@ -524,9 +524,7 @@
     const dot = document.getElementById('session-dot');
     timer.textContent = formatTime(Math.max(0, secondsLeft));
 
-    if (secondsLeft <= 300) {  // warn at 5 min
-      dot.classList.add('warn');
-    }
+    if (secondsLeft <= 300) { dot.classList.add('warn'); }
 
     if (secondsLeft <= 0) {
       clearInterval(sessionTick);
@@ -538,7 +536,6 @@
   const sessionTick = setInterval(tickSession, 1000);
   document.getElementById('session-timer').textContent = formatTime(secondsLeft);
 
-  // Job submission
   function showToast(msg) {
     const t = document.getElementById('toast');
     t.textContent = msg;
@@ -550,14 +547,14 @@
     document.querySelectorAll('.btn-launch').forEach(b => b.disabled = disabled);
   }
 
-  function updateState(state, connectUrl) {
+  function updateState(state, proxyUrl) {
     const dot = document.getElementById('state-dot');
     const text = document.getElementById('state-text');
     dot.className = 'state-indicator';
 
     const states = {
       PENDING:   ['pending', 'Queued — waiting for a compute node...'],
-      RUNNING:   ['running', connectUrl ? 'Running — JupyterLab is ready' : 'Running — waiting for JupyterLab to initialise...'],
+      RUNNING:   ['running', proxyUrl ? 'Running — JupyterLab is ready' : 'Running — waiting for JupyterLab to start...'],
       COMPLETED: ['done',    'Job completed.'],
       FAILED:    ['error',   'Job failed.'],
       CANCELLED: ['error',   'Job cancelled.'],
@@ -579,14 +576,15 @@
         return;
       }
       const data = await resp.json();
-      updateState(data.state, data.connect_url);
+      updateState(data.state, data.proxy_url);
 
-      if (data.connect_url) {
+      // Now we use the proxy_url instead of the old connect_url
+      if (data.proxy_url) {
         const box = document.getElementById('connect-box');
         const link = document.getElementById('connect-link');
         box.style.display = 'block';
-        link.href = data.connect_url;
-        link.textContent = data.connect_url;
+        link.href = data.proxy_url;
+        link.textContent = data.proxy_url;
       }
 
       if (logVisible) await fetchLog();

@@ -6,20 +6,27 @@ from pathlib import Path
 from fastapi import FastAPI, Request, Form, HTTPException, Cookie
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from port_manager import PortManager
 
 app = FastAPI(title="HPC Portal")
 templates = Jinja2Templates(directory="templates")
 
 SLURMRESTD_URL = os.getenv("SLURMRESTD_URL", "http://slurmrestd:6820")
 JWT_KEY_PATH = os.getenv("JWT_KEY_PATH", "/var/spool/slurmctld/jwt_hs256.key")
-TOKEN_LIFESPAN = int(os.getenv("TOKEN_LIFESPAN", "1800"))  # seconds, default 30min
+TOKEN_LIFESPAN = int(os.getenv("TOKEN_LIFESPAN", "1800"))
+
+# Initialize Port Manager inside the Portal
+port_manager = PortManager(
+    db_path=os.getenv("PORT_DB_PATH", "/var/lib/portal/leases.db"),
+    port_range=(30000, 31000),
+    traefik_config_dir=os.getenv("TRAEFIK_CONFIG_DIR", "/etc/traefik/dynamic"),
+)
 
 APPS = [
     {
         "id": "jupyterlab",
         "name": "JupyterLab",
         "description": "Interactive Python notebook environment",
-        "script_path": "/mnt/storage/users/{username}/run_jupyterlab.sh",
         "icon": "⬡",
     }
 ]
@@ -27,84 +34,41 @@ APPS = [
 USERS = ["user1", "root"]
 
 
-# ---------------------------------------------------------------------------
-# JWT helpers
-# ---------------------------------------------------------------------------
-
-
 def _read_slurm_key() -> str:
     key_path = Path(JWT_KEY_PATH)
     if not key_path.exists():
-        raise HTTPException(
-            status_code=500,
-            detail=f"Slurm JWT key not found at {JWT_KEY_PATH}. "
-            "Check that the slurm_state volume is mounted correctly.",
-        )
-    # Key may be raw binary or text — read as bytes to handle both
+        raise HTTPException(status_code=500, detail="Slurm JWT key not found.")
     return key_path.read_bytes()
 
 
 def make_slurm_token(username: str) -> str:
-    """
-    Sign a Slurm-compatible JWT using the cluster's own HS256 key.
-    The token is valid for TOKEN_LIFESPAN seconds and can be sent
-    directly to slurmrestd as X-SLURM-USER-TOKEN — no translation needed.
-    """
-    key = _read_slurm_key()
-    now = int(time.time())
     payload = {
-        "sun": username,  # Slurm's username claim
-        "iat": now,
-        "exp": now + TOKEN_LIFESPAN,
+        "sun": username,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + TOKEN_LIFESPAN,
     }
-    return jwt.encode(payload, key, algorithm="HS256")
+    return jwt.encode(payload, _read_slurm_key(), algorithm="HS256")
 
 
 def verify_session_token(token: str) -> str:
-    """
-    Verify the session cookie and return the username.
-    Same key, so one token works for both session validation
-    and Slurm API calls — no separate session store needed.
-    """
-    key = _read_slurm_key()
     try:
-        payload = jwt.decode(token, key, algorithms=["HS256"])
+        payload = jwt.decode(token, _read_slurm_key(), algorithms=["HS256"])
         return payload["sun"]
-    except jwt.ExpiredSignatureError:
-        raise HTTPException(status_code=401, detail="Session expired")
-    except jwt.InvalidTokenError:
+    except Exception:
         raise HTTPException(status_code=401, detail="Invalid session")
 
 
-def slurm_headers(token: str, username: str) -> dict:
-    return {
-        "X-SLURM-USER-TOKEN": token,
-        "X-SLURM-USER-NAME": username,
-        "Content-Type": "application/json",
-    }
-
-
 def get_current_user(session: str | None) -> tuple[str, str]:
-    """Return (username, token) from session cookie or raise 401."""
     if not session:
         raise HTTPException(status_code=401, detail="Not logged in")
-    username = verify_session_token(session)
-    return username, session  # the session cookie IS the Slurm token
+    return verify_session_token(session), session
 
 
-# ---------------------------------------------------------------------------
-# Auth routes
-# ---------------------------------------------------------------------------
-
-
+# --- AUTH ROUTES ---
 @app.get("/login", response_class=HTMLResponse)
 async def login_page(request: Request):
     return templates.TemplateResponse(
-        "login.html",
-        {
-            "request": request,
-            "users": USERS,
-        },
+        "login.html", {"request": request, "users": USERS}
     )
 
 
@@ -112,16 +76,12 @@ async def login_page(request: Request):
 async def login(username: str = Form(...)):
     if username not in USERS:
         raise HTTPException(status_code=400, detail="Unknown user")
-
-    token = make_slurm_token(username)
-
     response = RedirectResponse(url="/", status_code=303)
     response.set_cookie(
         key="session",
-        value=token,
+        value=make_slurm_token(username),
         httponly=True,
         max_age=TOKEN_LIFESPAN,
-        samesite="lax",
     )
     return response
 
@@ -133,23 +93,17 @@ async def logout():
     return response
 
 
-# ---------------------------------------------------------------------------
-# Main portal — requires valid session
-# ---------------------------------------------------------------------------
-
-
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request, session: str | None = Cookie(default=None)):
     if not session:
         return RedirectResponse(url="/login")
     try:
         username = verify_session_token(session)
-    except HTTPException:
+        expires_in = jwt.decode(session, _read_slurm_key(), algorithms=["HS256"])[
+            "exp"
+        ] - int(time.time())
+    except Exception:
         return RedirectResponse(url="/login")
-
-    key = _read_slurm_key()
-    payload = jwt.decode(session, key, algorithms=["HS256"])
-    expires_in = payload["exp"] - int(time.time())
 
     return templates.TemplateResponse(
         "index.html",
@@ -162,33 +116,58 @@ async def index(request: Request, session: str | None = Cookie(default=None)):
     )
 
 
-# ---------------------------------------------------------------------------
-# Job routes
-# ---------------------------------------------------------------------------
-
-
+# --- JOB SUBMISSION (WITH DYNAMIC PORT INJECTION) ---
 @app.post("/jobs/submit")
 async def submit_job(
-    app_id: str = Form(...),
-    session: str | None = Cookie(default=None),
+    app_id: str = Form(...), session: str | None = Cookie(default=None)
 ):
     username, token = get_current_user(session)
-
-    app_def = next((a for a in APPS if a["id"] == app_id), None)
-    if not app_def:
-        raise HTTPException(status_code=400, detail="Unknown app")
-
-    # Read script directly from mounted storage — no docker exec needed
-    script_path = Path(app_def["script_path"].format(username=username))
-    if not script_path.exists():
-        raise HTTPException(
-            status_code=500,
-            detail=f"Script not found at {script_path}. "
-            "Ensure the storage volume is mounted.",
-        )
-    script_content = script_path.read_text()
-
     home = f"/mnt/storage/users/{username}" if username != "root" else "/root"
+
+    # --- THIS IS THE FULL, UPDATED SCRIPT TEMPLATE ---
+    script_template = """#!/bin/bash
+#SBATCH --job-name=jupyter_server
+#SBATCH --output={home}/logs/jupyterlab_%j.out
+#SBATCH --error={home}/logs/jupyterlab_%j.err
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=2
+#SBATCH --mem=2G
+
+mkdir -p {home}/logs
+NODE_IP=$(hostname -I | awk '{{print $1}}')
+NODE_HOSTNAME=$(hostname)
+
+echo "Requesting port from Portal..."
+# Call the portal's internal API to get a port
+RESPONSE=$(curl -s -X POST http://portal:8080/api/internal/allocate-port \\
+    -H "Content-Type: application/json" \\
+    -d '{{"job_id": "'$SLURM_JOB_ID'", "username": "{username}", "node_hostname": "'$NODE_HOSTNAME'", "node_ip": "'$NODE_IP'"}}')
+
+# Extract port securely using python
+ALLOCATED_PORT=$(python3 -c "import sys, json; print(json.loads(sys.stdin.read()).get('port', ''))" <<< "$RESPONSE")
+
+if [ -z "$ALLOCATED_PORT" ]; then
+    echo "ERROR: Failed to allocate port. $RESPONSE"
+    exit 1
+fi
+
+echo "Allocated port: $ALLOCATED_PORT"
+
+# Tell JupyterLab its exact base URL so it works behind the proxy
+BASE_URL="/{username}/jupyter/$SLURM_JOB_ID"
+
+apptainer exec --bind /mnt/storage:/mnt/storage \\
+    /mnt/storage/public/containers/jupyterlab.sif \\
+    bash -c "jupyter lab --ip=0.0.0.0 --port=$ALLOCATED_PORT --no-browser --ServerApp.base_url=$BASE_URL --ServerApp.token='' --allow-root"
+
+echo "Releasing port..."
+curl -s -X POST http://portal:8080/api/internal/release-port \\
+    -H "Content-Type: application/json" \\
+    -d '{{"job_id": "'$SLURM_JOB_ID'"}}'
+"""
+    # --- END OF SCRIPT TEMPLATE ---
+
     payload = {
         "job": {
             "current_working_directory": home,
@@ -198,13 +177,17 @@ async def submit_job(
                 "USER": username,
             },
         },
-        "script": script_content,
+        "script": script_template.format(home=home, username=username),
     }
 
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{SLURMRESTD_URL}/slurm/v0.0.42/job/submit",
-            headers=slurm_headers(token, username),
+            headers={
+                "X-SLURM-USER-TOKEN": token,
+                "X-SLURM-USER-NAME": username,
+                "Content-Type": "application/json",
+            },
             json=payload,
             timeout=15,
         )
@@ -225,41 +208,29 @@ async def job_status(job_id: int, session: str | None = Cookie(default=None)):
     async with httpx.AsyncClient() as client:
         resp = await client.get(
             f"{SLURMRESTD_URL}/slurm/v0.0.42/job/{job_id}",
-            headers=slurm_headers(token, username),
+            headers={
+                "X-SLURM-USER-TOKEN": token,
+                "X-SLURM-USER-NAME": username,
+                "Content-Type": "application/json",
+            },
             timeout=10,
         )
 
-    data = resp.json()
-    jobs = data.get("jobs", [])
+    jobs = resp.json().get("jobs", [])
     if not jobs:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    job = jobs[0]
-    state = job.get("job_state", ["UNKNOWN"])
-    state_str = state[0] if isinstance(state, list) else state
-    node = job.get("nodes", "")
+    state_str = jobs[0].get("job_state", ["UNKNOWN"])[0]
 
-    # Read log directly from mounted volume — no docker exec needed
-    connect_url = None
-    node_ip = None
-    if state_str == "RUNNING" and node:
-        log_path = Path(f"/mnt/storage/users/{username}/logs/jupyterlab_{job_id}.out")
-        if log_path.exists():
-            for line in log_path.read_text().splitlines():
-                if "Node IP:" in line:
-                    node_ip = line.split("Node IP:")[-1].strip()
-                    connect_url = f"http://{node_ip}:8888"
-                    break
+    # Get Traefik Proxy URL from our Port Manager database
+    proxy_url = None
+    if state_str == "RUNNING":
+        lease = port_manager.get_lease_by_job(job_id)
+        if lease:
+            # Pointing to Traefik on port 8000
+            proxy_url = f"http://localhost:8000/{lease.username}/jupyter/{lease.job_id}"
 
-    return JSONResponse(
-        {
-            "job_id": job_id,
-            "state": state_str,
-            "node": node,
-            "node_ip": node_ip,
-            "connect_url": connect_url,
-        }
-    )
+    return JSONResponse({"job_id": job_id, "state": state_str, "proxy_url": proxy_url})
 
 
 @app.get("/jobs/{job_id}/log")
@@ -268,3 +239,21 @@ async def job_log(job_id: int, session: str | None = Cookie(default=None)):
     log_path = Path(f"/mnt/storage/users/{username}/logs/jupyterlab_{job_id}.out")
     content = log_path.read_text() if log_path.exists() else "Log not yet available."
     return JSONResponse({"log": content})
+
+
+# --- INTERNAL API FOR THE COMPUTE NODES ---
+@app.post("/api/internal/allocate-port")
+async def allocate_port(request: dict):
+    port = port_manager.allocate_port(
+        int(request["job_id"]),
+        request["username"],
+        request["node_hostname"],
+        request["node_ip"],
+    )
+    return JSONResponse({"port": port})
+
+
+@app.post("/api/internal/release-port")
+async def release_port(request: dict):
+    port_manager.release_port(int(request["job_id"]))
+    return JSONResponse({"status": "released"})
