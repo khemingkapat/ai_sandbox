@@ -22,8 +22,7 @@ RUN curl -fsSL \
     chmod +x /usr/local/bin/proot
 
 # Configure Apptainer: disable setuid (triggers proot fallback) and set proot path
-RUN sed -i 's/^allow setuid = yes/allow setuid = no/' /etc/apptainer/apptainer.conf && \
-    echo "proot path = /usr/local/bin/proot" >> /etc/apptainer/apptainer.conf
+RUN echo "proot path = /usr/local/bin/proot" >> /etc/apptainer/apptainer.conf
 
 # Add user1 subuid/subgid inside the container
 RUN echo "user1:100000:65536" >> /etc/subuid && \
