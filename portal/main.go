@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	"gopkg.in/yaml.v3"
 )
 
 var (
@@ -24,6 +26,47 @@ var (
 	tokenLifespan int
 	portManager   *PortManager
 )
+
+// AppManifest represents an application configuration loaded from a yaml file
+type AppManifest struct {
+	ID          string            `yaml:"id"`
+	Name        string            `yaml:"name"`
+	Description string            `yaml:"description"`
+	Icon        string            `yaml:"icon"`
+	ImageFile   string            `yaml:"image_file"`
+	ExecCommand string            `yaml:"exec_command"`
+	SourcePath  string            `yaml:"-"` // We fill this manually
+	SlurmArgs   map[string]string `yaml:"slurm_args"`
+}
+
+// scanApps finds all manifest.yaml files in common storage and the user's project storage
+func scanApps(project string) []AppManifest {
+	var apps []AppManifest
+
+	searchPaths := []string{
+		"/mnt/storage/common/software/*/manifest.yaml",
+		fmt.Sprintf("/mnt/storage/projects/%s/software/*/manifest.yaml", project),
+	}
+
+	for _, searchPath := range searchPaths {
+		files, _ := filepath.Glob(searchPath)
+		for _, file := range files {
+			data, err := os.ReadFile(file)
+			if err == nil {
+				var app AppManifest
+				if err := yaml.Unmarshal(data, &app); err == nil {
+					app.SourcePath = filepath.Dir(file)
+					// Initialize map if missing
+					if app.SlurmArgs == nil {
+						app.SlurmArgs = make(map[string]string)
+					}
+					apps = append(apps, app)
+				}
+			}
+		}
+	}
+	return apps
+}
 
 // Template renderer for Echo
 type TemplateRenderer struct {
@@ -54,18 +97,13 @@ func makeSlurmToken(username string, project string) (string, error) {
 	return token.SignedString(key)
 }
 
-// Dynamically fetch user-to-project associations from Slurm REST API
 func fetchAccessMatrix() map[string][]string {
 	matrix := make(map[string][]string)
-
-	// Create a temporary admin token to query the API
 	adminToken, err := makeSlurmToken("root", "root")
 	if err != nil {
-		fmt.Println("Error making admin token:", err)
 		return matrix
 	}
 
-	// Call the slurmdb associations endpoint
 	req, err := http.NewRequest("GET", slurmRestURL+"/slurmdb/v0.0.42/associations", nil)
 	if err != nil {
 		return matrix
@@ -78,18 +116,14 @@ func fetchAccessMatrix() map[string][]string {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Println("SlurmDB API Error:", err)
 		return matrix
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		fmt.Println("SlurmDB API returned status", resp.StatusCode, string(body))
 		return matrix
 	}
 
-	// Parse the JSON response
 	var result struct {
 		Associations []struct {
 			User    string `json:"user"`
@@ -98,23 +132,18 @@ func fetchAccessMatrix() map[string][]string {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		fmt.Println("SlurmDB API Decode Error:", err)
 		return matrix
 	}
 
-	// Populate the matrix
 	for _, assoc := range result.Associations {
-		// Slurm returns parent accounts with an empty user string, so we skip those
 		if assoc.User != "" && assoc.Account != "" {
 			matrix[assoc.User] = append(matrix[assoc.User], assoc.Account)
 		}
 	}
 
-	// Always ensure root has access just in case the API fails
 	if len(matrix["root"]) == 0 {
 		matrix["root"] = []string{"root_project"}
 	}
-
 	return matrix
 }
 
@@ -166,10 +195,8 @@ func main() {
 }
 
 func loginPage(c echo.Context) error {
-	// Dynamically get the map from Slurm REST API
 	accessMatrix := fetchAccessMatrix()
 	matrixJSON, _ := json.Marshal(accessMatrix)
-	
 	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
 		"accessJSON": string(matrixJSON),
 	})
@@ -179,10 +206,7 @@ func loginAction(c echo.Context) error {
 	username := c.FormValue("username")
 	project := c.FormValue("project")
 
-	// Dynamically get the map from Slurm REST API
 	accessMatrix := fetchAccessMatrix()
-
-	// Validate Access
 	validProject := false
 	for _, p := range accessMatrix[username] {
 		if p == project {
@@ -221,12 +245,8 @@ func indexPage(c echo.Context) error {
 	exp := int64(claims["exp"].(float64))
 	expiresIn := exp - time.Now().Unix()
 
-	apps := []map[string]string{{
-		"id":          "jupyterlab",
-		"name":        "JupyterLab",
-		"description": "Interactive Python notebook environment",
-		"icon":        "⬡",
-	}}
+	// Dynamically scan for apps
+	apps := scanApps(project)
 
 	return c.Render(http.StatusOK, "index.html", map[string]interface{}{
 		"username":   username,
@@ -243,28 +263,61 @@ func submitJob(c echo.Context) error {
 	project := claims["prj"].(string)
 	tokenString := userToken.Raw
 
+	appID := c.FormValue("app_id")
+
+	// Find the targeted AppManifest
+	apps := scanApps(project)
+	var targetApp *AppManifest
+	for _, app := range apps {
+		if app.ID == appID {
+			targetApp = &app
+			break
+		}
+	}
+
+	if targetApp == nil {
+		return c.String(http.StatusBadRequest, "Application not found")
+	}
+
 	workspace := "/mnt/storage/projects/" + project
 	if username == "root" {
 		workspace = "/root"
 	}
 
-	scriptTemplate := fmt.Sprintf(`#!/bin/bash
-#SBATCH --job-name=jupyter_server
-#SBATCH --output=%s/logs/jupyterlab_%%j.out
-#SBATCH --error=%s/logs/jupyterlab_%%j.err
-#SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=2
-#SBATCH --mem=2G
+	// 1. Prepare Slurm arguments (Override defaults with Form data)
+	finalSlurmArgs := make(map[string]string)
+	for k, v := range targetApp.SlurmArgs {
+		finalSlurmArgs[k] = v // copy defaults
+	}
 
-mkdir -p %s/logs
+	formParams, _ := c.FormParams()
+	for key, values := range formParams {
+		if strings.HasPrefix(key, "slurm_") && len(values) > 0 && values[0] != "" {
+			argName := strings.TrimPrefix(key, "slurm_")
+			finalSlurmArgs[argName] = values[0]
+		}
+	}
+
+	// 2. Build the #SBATCH header block
+	sbatchHeader := "#!/bin/bash\n"
+	sbatchHeader += fmt.Sprintf("#SBATCH --job-name=%s\n", targetApp.ID)
+	sbatchHeader += fmt.Sprintf("#SBATCH --output=%s/logs/%s_%%j.out\n", workspace, targetApp.ID)
+	sbatchHeader += fmt.Sprintf("#SBATCH --error=%s/logs/%s_%%j.err\n", workspace, targetApp.ID)
+
+	for key, value := range finalSlurmArgs {
+		sbatchHeader += fmt.Sprintf("#SBATCH --%s=%s\n", key, value)
+	}
+
+	// 3. Build the bash logic
+	scriptBody := fmt.Sprintf(`
+mkdir -p %[1]s/logs
 NODE_IP=$(hostname -I | awk '{print $1}')
 NODE_HOSTNAME=$(hostname)
 
 echo "Requesting port from Portal..."
 RESPONSE=$(curl -s -X POST http://portal:8080/api/internal/allocate-port \
     -H "Content-Type: application/json" \
-    -d '{"job_id": "'$SLURM_JOB_ID'", "username": "%s", "node_hostname": "'$NODE_HOSTNAME'", "node_ip": "'$NODE_IP'"}')
+    -d '{"job_id": "'$SLURM_JOB_ID'", "username": "%[2]s", "node_hostname": "'$NODE_HOSTNAME'", "node_ip": "'$NODE_IP'"}')
 
 ALLOCATED_PORT=$(python3 -c "import sys, json; print(json.loads(sys.stdin.read()).get('port', ''))" <<< "$RESPONSE")
 
@@ -275,18 +328,23 @@ fi
 
 echo "Allocated port: $ALLOCATED_PORT"
 
-BASE_URL="/%s/jupyter/$SLURM_JOB_ID"
+# Export these variables so the target ExecCommand can use them
+export WORKSPACE="%[1]s"
+export BASE_URL="/%[2]s/jupyter/$SLURM_JOB_ID"
+export ALLOCATED_PORT=$ALLOCATED_PORT
 
-apptainer exec --bind %s:%s \
+apptainer exec --bind %[1]s:%[1]s \
     --bind /mnt/storage/common:/mnt/storage/common:ro \
-    /mnt/storage/common/software/jupyterlab.sif \
-    bash -c "jupyter lab --ip=0.0.0.0 --port=$ALLOCATED_PORT --no-browser --ServerApp.base_url=$BASE_URL --ServerApp.token='' --allow-root --notebook-dir=%s"
+    %[3]s/%[4]s \
+    bash -c "%[5]s"
 
 echo "Releasing port..."
 curl -s -X POST http://portal:8080/api/internal/release-port \
     -H "Content-Type: application/json" \
     -d '{"job_id": "'$SLURM_JOB_ID'"}'
-`, workspace, workspace, workspace, username, username, workspace, workspace, workspace)
+`, workspace, username, targetApp.SourcePath, targetApp.ImageFile, targetApp.ExecCommand)
+
+	scriptTemplate := sbatchHeader + "\n" + scriptBody
 
 	payload := map[string]interface{}{
 		"job": map[string]interface{}{
@@ -392,10 +450,15 @@ func jobStatus(c echo.Context) error {
 
 func jobLog(c echo.Context) error {
 	jobID := c.Param("job_id")
+	appID := c.QueryParam("app_id") // Pass app id to locate the log file
+	if appID == "" {
+		appID = "jupyterlab" // fallback
+	}
+
 	userToken := c.Get("user").(*jwt.Token)
 	project := userToken.Claims.(jwt.MapClaims)["prj"].(string)
 
-	logPath := fmt.Sprintf("/mnt/storage/projects/%s/logs/jupyterlab_%s.out", project, jobID)
+	logPath := fmt.Sprintf("/mnt/storage/projects/%s/logs/%s_%s.out", project, appID, jobID)
 	content, err := os.ReadFile(logPath)
 	if err != nil {
 		return c.JSON(http.StatusOK, map[string]interface{}{"log": "Log not yet available."})
