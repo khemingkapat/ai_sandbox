@@ -3,15 +3,11 @@ data/results/*
 data/examples/*
 .env
 jobs/
-storage/*
-!storage/users
-storage/users/*
-!storage/users/user1
-storage/users/user1/*/
-storage/users/user1/slurm-*.out
-!storage/public/
-storage/public/containers/*
-!storage/public/containers/*.def
+
+/storage/*
+!/storage/**/
+!/storage/**/*.def
+/storage/**/*.sif
 
 storage.bak/
 
