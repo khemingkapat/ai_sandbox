@@ -166,11 +166,6 @@
       <label for="username">// Select Identity</label>
       <select name="username" id="username" class="form-select" onchange="updateProjects()" required>
         <option value="" disabled selected>-- Choose User --</option>
-        <option value="user1">user1</option>
-        <option value="user2">user2</option>
-        <option value="user3">user3</option>
-        <option value="user4">user4</option>
-        <option value="root">root (admin)</option>
       </select>
     </div>
 
@@ -193,13 +188,22 @@
 </div>
 
 <script>
-  // Load the access matrix securely from the Go backend
+  // Load the access matrix dynamically queried from SlurmREST
   const accessMatrixStr = '{{ .accessJSON }}';
   
   let accessMatrix = {};
   if (accessMatrixStr) {
       accessMatrix = JSON.parse(accessMatrixStr);
   }
+
+  // Populate the User dropdown automatically
+  const userSelect = document.getElementById("username");
+  Object.keys(accessMatrix).sort().forEach(user => {
+      const opt = document.createElement("option");
+      opt.value = user;
+      opt.textContent = user;
+      userSelect.appendChild(opt);
+  });
 
   function updateProjects() {
       const user = document.getElementById("username").value;
@@ -210,6 +214,7 @@
       projSelect.innerHTML = "";
       
       if (accessMatrix[user]) {
+          // Add the projects associated with the selected user
           accessMatrix[user].forEach(p => {
               const opt = document.createElement("option");
               opt.value = p; 

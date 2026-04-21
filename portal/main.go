@@ -38,7 +38,6 @@ func readSlurmKey() ([]byte, error) {
 	return os.ReadFile(jwtKeyPath)
 }
 
-// UPDATED: Token now holds both username AND active project
 func makeSlurmToken(username string, project string) (string, error) {
 	key, err := readSlurmKey()
 	if err != nil {
@@ -53,6 +52,70 @@ func makeSlurmToken(username string, project string) (string, error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(key)
+}
+
+// Dynamically fetch user-to-project associations from Slurm REST API
+func fetchAccessMatrix() map[string][]string {
+	matrix := make(map[string][]string)
+
+	// Create a temporary admin token to query the API
+	adminToken, err := makeSlurmToken("root", "root")
+	if err != nil {
+		fmt.Println("Error making admin token:", err)
+		return matrix
+	}
+
+	// Call the slurmdb associations endpoint
+	req, err := http.NewRequest("GET", slurmRestURL+"/slurmdb/v0.0.42/associations", nil)
+	if err != nil {
+		return matrix
+	}
+
+	req.Header.Set("X-SLURM-USER-TOKEN", adminToken)
+	req.Header.Set("X-SLURM-USER-NAME", "root")
+	req.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		fmt.Println("SlurmDB API Error:", err)
+		return matrix
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		fmt.Println("SlurmDB API returned status", resp.StatusCode, string(body))
+		return matrix
+	}
+
+	// Parse the JSON response
+	var result struct {
+		Associations []struct {
+			User    string `json:"user"`
+			Account string `json:"account"`
+		} `json:"associations"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		fmt.Println("SlurmDB API Decode Error:", err)
+		return matrix
+	}
+
+	// Populate the matrix
+	for _, assoc := range result.Associations {
+		// Slurm returns parent accounts with an empty user string, so we skip those
+		if assoc.User != "" && assoc.Account != "" {
+			matrix[assoc.User] = append(matrix[assoc.User], assoc.Account)
+		}
+	}
+
+	// Always ensure root has access just in case the API fails
+	if len(matrix["root"]) == 0 {
+		matrix["root"] = []string{"root_project"}
+	}
+
+	return matrix
 }
 
 func main() {
@@ -103,16 +166,8 @@ func main() {
 }
 
 func loginPage(c echo.Context) error {
-	// Access Matrix maps Users to their assigned Projects
-	accessMatrix := map[string][]string{
-		"user1": {"project1"},
-		"user2": {"project1"},
-		"user3": {"project2"},
-		"user4": {"project3"},
-		"root":  {"root_project"},
-	}
-	
-	// Convert to JSON so we can pass it easily to the Javascript in the frontend
+	// Dynamically get the map from Slurm REST API
+	accessMatrix := fetchAccessMatrix()
 	matrixJSON, _ := json.Marshal(accessMatrix)
 	
 	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
@@ -124,13 +179,8 @@ func loginAction(c echo.Context) error {
 	username := c.FormValue("username")
 	project := c.FormValue("project")
 
-	accessMatrix := map[string][]string{
-		"user1": {"project1"},
-		"user2": {"project1"},
-		"user3": {"project2"},
-		"user4": {"project3"},
-		"root":  {"root_project"},
-	}
+	// Dynamically get the map from Slurm REST API
+	accessMatrix := fetchAccessMatrix()
 
 	// Validate Access
 	validProject := false
@@ -193,7 +243,6 @@ func submitJob(c echo.Context) error {
 	project := claims["prj"].(string)
 	tokenString := userToken.Raw
 
-	// UPDATED: Using the new project-based directory
 	workspace := "/mnt/storage/projects/" + project
 	if username == "root" {
 		workspace = "/root"
@@ -228,7 +277,6 @@ echo "Allocated port: $ALLOCATED_PORT"
 
 BASE_URL="/%s/jupyter/$SLURM_JOB_ID"
 
-# UPDATED: Mount only the active project workspace, and bind the common software as Read-Only (:ro)
 apptainer exec --bind %s:%s \
     --bind /mnt/storage/common:/mnt/storage/common:ro \
     /mnt/storage/common/software/jupyterlab.sif \
@@ -347,7 +395,6 @@ func jobLog(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
 	project := userToken.Claims.(jwt.MapClaims)["prj"].(string)
 
-    // UPDATED: Logs are now in the active project directory
 	logPath := fmt.Sprintf("/mnt/storage/projects/%s/logs/jupyterlab_%s.out", project, jobID)
 	content, err := os.ReadFile(logPath)
 	if err != nil {
