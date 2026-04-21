@@ -101,6 +101,7 @@ func main() {
 	ui.POST("/jobs/submit", submitJob)
 	ui.GET("/jobs/:job_id", jobStatus)
 	ui.GET("/jobs/:job_id/log", jobLog)
+	ui.DELETE("/jobs/:job_id", cancelJob)
 
 	e.Logger.Fatal(e.Start(":8080"))
 }
@@ -359,4 +360,25 @@ func getEnv(key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func cancelJob(c echo.Context) error {
+	jobID := c.Param("job_id")
+	userToken := c.Get("user").(*jwt.Token)
+	username := userToken.Claims.(jwt.MapClaims)["sun"].(string)
+	tokenString := userToken.Raw
+
+    // The Slurm REST API uses DELETE to cancel a job
+	req, _ := http.NewRequest("DELETE", slurmRestURL+"/slurm/v0.0.42/job/"+jobID, nil)
+	req.Header.Set("X-SLURM-USER-TOKEN", tokenString)
+	req.Header.Set("X-SLURM-USER-NAME", username)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil || resp.StatusCode >= 400 {
+		return c.String(http.StatusInternalServerError, "Failed to cancel job")
+	}
+	defer resp.Body.Close()
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "cancelled"})
 }

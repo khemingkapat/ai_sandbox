@@ -462,7 +462,11 @@
   <div id="result-panel">
     <div class="result-header">
       <span class="result-title">// Job status</span>
-      <span class="job-badge" id="job-badge">—</span>
+      <div>
+        <span class="job-badge" id="job-badge">—</span>
+        <!-- Terminate button -->
+        <button id="btn-cancel" onclick="cancelJob()" style="display: none; border: 1px solid var(--err); color: var(--err); background: transparent; padding: 2px 8px; border-radius: 2px; cursor: pointer; margin-left: 10px; font-size: 11px;">Terminate</button>
+      </div>
     </div>
     <div class="result-body">
       <div class="state-row">
@@ -577,7 +581,6 @@
       const data = await resp.json();
       updateState(data.state, data.proxy_url);
 
-      // Now we use the proxy_url instead of the old connect_url
       if (data.proxy_url) {
         const box = document.getElementById('connect-box');
         const link = document.getElementById('connect-link');
@@ -591,6 +594,8 @@
       if (['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT'].includes(data.state)) {
         clearInterval(pollInterval);
         setLaunchButtons(false);
+        // Hide the cancel button when the job is no longer running
+        document.getElementById('btn-cancel').style.display = 'none';
       }
     } catch (e) {
       console.error('Poll error', e);
@@ -620,6 +625,13 @@
     document.getElementById('job-badge').textContent = 'submitting...';
     document.getElementById('connect-box').style.display = 'none';
     document.getElementById('log-box').textContent = 'Waiting for log output...';
+    
+    // Show the cancel button when we start submitting
+    const btnCancel = document.getElementById('btn-cancel');
+    btnCancel.style.display = 'inline-block';
+    btnCancel.textContent = 'Terminate';
+    btnCancel.disabled = false;
+
     updateState('PENDING', null);
 
     if (pollInterval) clearInterval(pollInterval);
@@ -640,6 +652,7 @@
         showToast('Submit failed: ' + (data.detail || 'Unknown error'));
         setLaunchButtons(false);
         panel.className = '';
+        btnCancel.style.display = 'none'; // hide if failed to submit
         return;
       }
 
@@ -652,6 +665,31 @@
     } catch (e) {
       showToast('Network error: ' + e.message);
       setLaunchButtons(false);
+      btnCancel.style.display = 'none'; // hide on error
+    }
+  }
+
+  async function cancelJob() {
+    if (!currentJobId) return;
+    
+    const btn = document.getElementById('btn-cancel');
+    btn.textContent = "Canceling...";
+    btn.disabled = true;
+
+    try {
+      const resp = await fetch(`/jobs/${currentJobId}`, { method: 'DELETE' });
+      if (resp.ok) {
+        showToast('Job termination requested');
+        pollStatus(); 
+      } else {
+        showToast('Failed to cancel job');
+        btn.textContent = "Terminate";
+        btn.disabled = false;
+      }
+    } catch (e) {
+      showToast('Network error while canceling');
+      btn.textContent = "Terminate";
+      btn.disabled = false;
     }
   }
 </script>
