@@ -62,7 +62,6 @@ services:
       - slurm_jobdir:/data
       - var_log_slurm:/var/log/slurm
       - ./docker-entrypoint.sh:/usr/local/bin/sandbox-entrypoint.sh
-      # --- UPDATED: Switched from users/public to projects/common ---
       - ./storage/projects:/mnt/storage/projects
       - ./storage/common:/mnt/storage/common
     expose:
@@ -119,7 +118,6 @@ services:
       - etc_slurm:/etc/slurm
       - slurm_jobdir:/data
       - var_log_slurm:/var/log/slurm
-      # --- UPDATED: Switched from users/public to projects/common ---
       - ./storage/projects:/mnt/storage/projects
       - ./storage/common:/mnt/storage/common
     expose:
@@ -170,8 +168,10 @@ services:
       TRAEFIK_CONFIG_DIR: /etc/traefik/dynamic
     volumes:
       - etc_slurm:/etc/slurm:ro
-      - portal_data:/var/lib/portal                  # For SQLite DB
-      - ./traefik-dynamic:/etc/traefik/dynamic       # To write proxy rules
+      - portal_data:/var/lib/portal
+      - ./traefik-dynamic:/etc/traefik/dynamic
+      - ./storage/projects:/mnt/storage/projects:ro
+      - ./storage/common:/mnt/storage/common:ro
     depends_on:
       slurmrestd:
         condition: service_healthy
