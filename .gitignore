@@ -13,6 +13,8 @@ storage/users/user1/slurm-*.out
 storage/public/containers/*
 !storage/public/containers/*.def
 
+storage.bak/
+
 traefik-dynamic/*
 !traefik-dynamic/.gitkeep
 
