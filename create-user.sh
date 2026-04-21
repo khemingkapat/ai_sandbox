@@ -35,9 +35,15 @@ done
 echo " -> Configuring Project Directory: /mnt/storage/projects/$ACCOUNT"
 docker exec -u root slurmctld bash -c "
 mkdir -p /mnt/storage/projects/$ACCOUNT
-chown root:$ACCOUNT /mnt/storage/projects/$ACCOUNT
-# 2770 = SetGID bit (2), full access for Owner (7) and Group (7), no access for Others (0)
-chmod 2770 /mnt/storage/projects/$ACCOUNT
+
+# Recursively force the group ownership to the project account
+chown -R root:$ACCOUNT /mnt/storage/projects/$ACCOUNT
+
+# Add read, write, and execute (for directories/scripts) to the group recursively
+chmod -R g+rwX /mnt/storage/projects/$ACCOUNT
+
+# Enforce SetGID on all directories so future files automatically inherit the project group
+find /mnt/storage/projects/$ACCOUNT -type d -exec chmod g+s {} +
 "
 
 echo "✓ User $USERNAME setup complete."
