@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -68,8 +69,11 @@ func main() {
 	e.Use(middleware.Recover())
 
 	// Templates
+	// ADDED: Register the "upper" function here so the HTML templates can use it
 	e.Renderer = &TemplateRenderer{
-		templates: template.Must(template.ParseGlob("templates/*.html")),
+		templates: template.Must(template.New("").Funcs(template.FuncMap{
+			"upper": strings.ToUpper,
+		}).ParseGlob("templates/*.html")),
 	}
 
 	// Internal APIs for Compute Nodes

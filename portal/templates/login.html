@@ -1,31 +1,227 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HPC Portal - Login</title>
-    <style>
-        body { font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; background-color: #f4f4f9; }
-        .login-box { background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); width: 300px; }
-        input, select, button { width: 100%; padding: 10px; margin-top: 10px; box-sizing: border-box; }
-        button { background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
-        button:hover { background: #0056b3; }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HPC Portal — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --border: #1e2229;
+    --border-bright: #2d3340;
+    --accent: #00d4aa;
+    --accent-dim: rgba(0,212,170,0.12);
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --text-muted: #334155;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,170,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,170,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 400px;
+    padding: 40px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 2px;
+    animation: fadeIn 0.25s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo-label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  .logo-title {
+    font-family: var(--sans);
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    margin-bottom: 32px;
+  }
+
+  .logo-title span { color: var(--accent); }
+
+  .field-label {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  .user-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 28px;
+  }
+
+  .user-card { position: relative; cursor: pointer; }
+
+  .user-card input[type="radio"] {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+  }
+
+  .user-card label {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border: 1px solid var(--border);
+    background: var(--bg);
+    cursor: pointer;
+    transition: all 0.15s ease;
+    border-radius: 2px;
+  }
+
+  .user-card label:hover { border-color: var(--border-bright); }
+
+  .user-card input:checked + label {
+    border-color: var(--accent);
+    background: var(--accent-dim);
+  }
+
+  .user-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 2px;
+    background: var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-dim);
+    flex-shrink: 0;
+    transition: all 0.15s;
+  }
+
+  .user-card input:checked + label .user-avatar {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .user-info { display: flex; flex-direction: column; gap: 3px; }
+  .user-name { font-size: 13px; font-weight: 500; }
+  .user-role { font-size: 10px; color: var(--text-dim); }
+
+  .session-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    line-height: 1.6;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+  }
+
+  .session-note span { color: var(--accent); }
+
+  .btn-login {
+    width: 100%;
+    padding: 14px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-login::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .btn-login:hover::before { transform: translateX(0); }
+  .btn-login:hover { color: var(--bg); }
+  .btn-login span { position: relative; z-index: 1; }
+</style>
 </head>
 <body>
-    <div class="login-box">
-        <h2>HPC Portal Login</h2>
-        <form action="/login" method="POST">
-            <label for="username">Select User:</label>
-            <select name="username" id="username">
-                <!-- Go Template Loop -->
-                {{ range .users }}
-                    <option value="{{ . }}">{{ . }}</option>
-                {{ end }}
-            </select>
-            
-            <button type="submit">Login</button>
-        </form>
+<div class="card">
+  <div class="logo-label">Local HPC Cluster</div>
+  <h1 class="logo-title">HPC <span>Portal</span></h1>
+
+  <form method="POST" action="/login">
+    <div class="field-label">// Select user</div>
+    <div class="user-grid">
+      {{ range $index, $user := .users }}
+      <div class="user-card">
+        <input type="radio" name="username" id="u-{{ $user }}" value="{{ $user }}"
+          {{ if eq $index 0 }}checked{{ end }}>
+        <label for="u-{{ $user }}">
+          <div class="user-avatar">{{ slice $user 0 1 | upper }}</div>
+          <div class="user-info">
+            <span class="user-name">{{ $user }}</span>
+            <span class="user-role">{{ if eq $user "root" }}administrator{{ else }}compute user{{ end }}</span>
+          </div>
+        </label>
+      </div>
+      {{ end }}
     </div>
+
+    <div class="session-note">
+      Session expires in <span>30 minutes</span>.<br>
+      You will be redirected to this page when your session ends.
+    </div>
+
+    <button type="submit" class="btn-login">
+      <span>→ Start session</span>
+    </button>
+  </form>
+</div>
 </body>
 </html>
