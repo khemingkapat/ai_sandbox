@@ -22,4 +22,16 @@ echo ""
 # User 4 in a DIFFERENT org, DIFFERENT project
 ./create-user.sh user4 project3 other_org 1004 2003
 
+# --- Persistence Patch: Add user2 to project2 ---
+echo "Configuring additional project access for user2..."
+
+# 1. Update Slurm accounting for user2
+docker exec slurmctld sacctmgr -i add user user2 account=project2
+
+# 2. Add user2 to the project2 group on all nodes
+for container in $(docker ps --filter "name=slurmctld" --filter "name=cpu-worker" --format "{{.Names}}"); do
+    docker exec -u root "$container" usermod -aG project2 user2
+done
+# ------------------------------------------------
+
 echo "All sandbox users initialized successfully!"
