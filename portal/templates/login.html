@@ -80,71 +80,36 @@
 
   .logo-title span { color: var(--accent); }
 
-  .field-label {
+  .form-group {
+    margin-bottom: 24px;
+  }
+
+  .form-group label {
     font-size: 10px;
     letter-spacing: 0.15em;
     text-transform: uppercase;
     color: var(--text-muted);
-    margin-bottom: 12px;
+    margin-bottom: 8px;
+    display: block;
   }
 
-  .user-grid {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    margin-bottom: 28px;
-  }
-
-  .user-card { position: relative; cursor: pointer; }
-
-  .user-card input[type="radio"] {
-    position: absolute;
-    opacity: 0;
-    width: 0;
-  }
-
-  .user-card label {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 14px 16px;
-    border: 1px solid var(--border);
+  .form-select {
+    width: 100%;
+    padding: 14px;
     background: var(--bg);
-    cursor: pointer;
-    transition: all 0.15s ease;
-    border-radius: 2px;
-  }
-
-  .user-card label:hover { border-color: var(--border-bright); }
-
-  .user-card input:checked + label {
-    border-color: var(--accent);
-    background: var(--accent-dim);
-  }
-
-  .user-avatar {
-    width: 34px;
-    height: 34px;
-    border-radius: 2px;
-    background: var(--border);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
     font-size: 13px;
-    font-weight: 600;
-    color: var(--text-dim);
-    flex-shrink: 0;
-    transition: all 0.15s;
+    border-radius: 2px;
+    appearance: none;
+    outline: none;
+    transition: border-color 0.15s;
   }
 
-  .user-card input:checked + label .user-avatar {
-    background: var(--accent);
-    color: var(--bg);
+  .form-select:focus {
+    border-color: var(--accent);
   }
-
-  .user-info { display: flex; flex-direction: column; gap: 3px; }
-  .user-name { font-size: 13px; font-weight: 500; }
-  .user-role { font-size: 10px; color: var(--text-dim); }
 
   .session-note {
     font-size: 11px;
@@ -196,32 +161,70 @@
   <h1 class="logo-title">HPC <span>Portal</span></h1>
 
   <form method="POST" action="/login">
-    <div class="field-label">// Select user</div>
-    <div class="user-grid">
-      {{ range $index, $user := .users }}
-      <div class="user-card">
-        <input type="radio" name="username" id="u-{{ $user }}" value="{{ $user }}"
-          {{ if eq $index 0 }}checked{{ end }}>
-        <label for="u-{{ $user }}">
-          <div class="user-avatar">{{ slice $user 0 1 | upper }}</div>
-          <div class="user-info">
-            <span class="user-name">{{ $user }}</span>
-            <span class="user-role">{{ if eq $user "root" }}administrator{{ else }}compute user{{ end }}</span>
-          </div>
-        </label>
-      </div>
-      {{ end }}
+    
+    <div class="form-group">
+      <label for="username">// Select Identity</label>
+      <select name="username" id="username" class="form-select" onchange="updateProjects()" required>
+        <option value="" disabled selected>-- Choose User --</option>
+        <option value="user1">user1</option>
+        <option value="user2">user2</option>
+        <option value="user3">user3</option>
+        <option value="user4">user4</option>
+        <option value="root">root (admin)</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="project">// Active Project Workspace</label>
+      <select name="project" id="project" class="form-select" required>
+        <option value="" disabled selected>-- Select a Project --</option>
+        <!-- Populated via Javascript -->
+      </select>
     </div>
 
     <div class="session-note">
-      Session expires in <span>30 minutes</span>.<br>
-      You will be redirected to this page when your session ends.
+      Your workspace will be securely isolated to the selected project directory.
     </div>
 
-    <button type="submit" class="btn-login">
+    <button type="submit" class="btn-login" id="login-btn" disabled>
       <span>→ Start session</span>
     </button>
   </form>
 </div>
+
+<script>
+  // Load the access matrix securely from the Go backend
+  const accessMatrixStr = '{{ .accessJSON }}';
+  
+  let accessMatrix = {};
+  if (accessMatrixStr) {
+      accessMatrix = JSON.parse(accessMatrixStr);
+  }
+
+  function updateProjects() {
+      const user = document.getElementById("username").value;
+      const projSelect = document.getElementById("project");
+      const loginBtn = document.getElementById("login-btn");
+      
+      // Clear current options
+      projSelect.innerHTML = "";
+      
+      if (accessMatrix[user]) {
+          accessMatrix[user].forEach(p => {
+              const opt = document.createElement("option");
+              opt.value = p; 
+              opt.textContent = p;
+              projSelect.appendChild(opt);
+          });
+          loginBtn.disabled = false;
+      } else {
+          loginBtn.disabled = true;
+          const opt = document.createElement("option");
+          opt.value = ""; 
+          opt.textContent = "-- Select a Project --";
+          projSelect.appendChild(opt);
+      }
+  }
+</script>
 </body>
 </html>

@@ -38,7 +38,8 @@ func readSlurmKey() ([]byte, error) {
 	return os.ReadFile(jwtKeyPath)
 }
 
-func makeSlurmToken(username string) (string, error) {
+// UPDATED: Token now holds both username AND active project
+func makeSlurmToken(username string, project string) (string, error) {
 	key, err := readSlurmKey()
 	if err != nil {
 		return "", err
@@ -46,6 +47,7 @@ func makeSlurmToken(username string) (string, error) {
 
 	claims := jwt.MapClaims{
 		"sun": username,
+		"prj": project,
 		"iat": time.Now().Unix(),
 		"exp": time.Now().Add(time.Duration(tokenLifespan) * time.Second).Unix(),
 	}
@@ -54,7 +56,6 @@ func makeSlurmToken(username string) (string, error) {
 }
 
 func main() {
-	// Setup Environment Variables
 	slurmRestURL = getEnv("SLURMRESTD_URL", "http://slurmrestd:6820")
 	jwtKeyPath = getEnv("JWT_KEY_PATH", "/etc/slurm/jwt_hs256.key")
 	tokenLifespan, _ = strconv.Atoi(getEnv("TOKEN_LIFESPAN", "1800"))
@@ -68,24 +69,19 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
-	// Templates
-	// ADDED: Register the "upper" function here so the HTML templates can use it
 	e.Renderer = &TemplateRenderer{
 		templates: template.Must(template.New("").Funcs(template.FuncMap{
 			"upper": strings.ToUpper,
 		}).ParseGlob("templates/*.html")),
 	}
 
-	// Internal APIs for Compute Nodes
 	e.POST("/api/internal/allocate-port", handleAllocatePort)
 	e.POST("/api/internal/release-port", handleReleasePort)
 
-	// Auth Routes
 	e.GET("/login", loginPage)
 	e.POST("/login", loginAction)
 	e.GET("/logout", logoutAction)
 
-	// Protected UI Routes
 	ui := e.Group("")
 	ui.Use(echojwt.WithConfig(echojwt.Config{
 		TokenLookup: "cookie:session",
@@ -106,20 +102,49 @@ func main() {
 	e.Logger.Fatal(e.Start(":8080"))
 }
 
-// --- Route Handlers ---
-
 func loginPage(c echo.Context) error {
-	users := []string{"user1", "root"}
-	return c.Render(http.StatusOK, "login.html", map[string]interface{}{"users": users})
+	// Access Matrix maps Users to their assigned Projects
+	accessMatrix := map[string][]string{
+		"user1": {"project1"},
+		"user2": {"project1"},
+		"user3": {"project2"},
+		"user4": {"project3"},
+		"root":  {"root_project"},
+	}
+	
+	// Convert to JSON so we can pass it easily to the Javascript in the frontend
+	matrixJSON, _ := json.Marshal(accessMatrix)
+	
+	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
+		"accessJSON": string(matrixJSON),
+	})
 }
 
 func loginAction(c echo.Context) error {
 	username := c.FormValue("username")
-	if username != "user1" && username != "root" {
-		return c.String(http.StatusBadRequest, "Unknown user")
+	project := c.FormValue("project")
+
+	accessMatrix := map[string][]string{
+		"user1": {"project1"},
+		"user2": {"project1"},
+		"user3": {"project2"},
+		"user4": {"project3"},
+		"root":  {"root_project"},
 	}
 
-	token, err := makeSlurmToken(username)
+	// Validate Access
+	validProject := false
+	for _, p := range accessMatrix[username] {
+		if p == project {
+			validProject = true
+			break
+		}
+	}
+	if !validProject {
+		return c.String(http.StatusForbidden, "User does not have access to this project")
+	}
+
+	token, err := makeSlurmToken(username, project)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Key error")
 	}
@@ -142,6 +167,7 @@ func indexPage(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
 	claims := userToken.Claims.(jwt.MapClaims)
 	username := claims["sun"].(string)
+	project := claims["prj"].(string)
 	exp := int64(claims["exp"].(float64))
 	expiresIn := exp - time.Now().Unix()
 
@@ -154,6 +180,7 @@ func indexPage(c echo.Context) error {
 
 	return c.Render(http.StatusOK, "index.html", map[string]interface{}{
 		"username":   username,
+		"project":    project,
 		"apps":       apps,
 		"expires_in": expiresIn,
 	})
@@ -163,14 +190,15 @@ func submitJob(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
 	claims := userToken.Claims.(jwt.MapClaims)
 	username := claims["sun"].(string)
+	project := claims["prj"].(string)
 	tokenString := userToken.Raw
 
-	home := "/mnt/storage/users/" + username
+	// UPDATED: Using the new project-based directory
+	workspace := "/mnt/storage/projects/" + project
 	if username == "root" {
-		home = "/root"
+		workspace = "/root"
 	}
 
-	// This is the EXACT script template you used in Python
 	scriptTemplate := fmt.Sprintf(`#!/bin/bash
 #SBATCH --job-name=jupyter_server
 #SBATCH --output=%s/logs/jupyterlab_%%j.out
@@ -200,22 +228,24 @@ echo "Allocated port: $ALLOCATED_PORT"
 
 BASE_URL="/%s/jupyter/$SLURM_JOB_ID"
 
-apptainer exec --bind /mnt/storage:/mnt/storage \
-    /mnt/storage/public/containers/jupyterlab.sif \
-    bash -c "jupyter lab --ip=0.0.0.0 --port=$ALLOCATED_PORT --no-browser --ServerApp.base_url=$BASE_URL --ServerApp.token='' --allow-root"
+# UPDATED: Mount only the active project workspace, and bind the common software as Read-Only (:ro)
+apptainer exec --bind %s:%s \
+    --bind /mnt/storage/common:/mnt/storage/common:ro \
+    /mnt/storage/common/software/jupyterlab.sif \
+    bash -c "jupyter lab --ip=0.0.0.0 --port=$ALLOCATED_PORT --no-browser --ServerApp.base_url=$BASE_URL --ServerApp.token='' --allow-root --notebook-dir=%s"
 
 echo "Releasing port..."
 curl -s -X POST http://portal:8080/api/internal/release-port \
     -H "Content-Type: application/json" \
     -d '{"job_id": "'$SLURM_JOB_ID'"}'
-`, home, home, home, username, username)
+`, workspace, workspace, workspace, username, username, workspace, workspace, workspace)
 
 	payload := map[string]interface{}{
 		"job": map[string]interface{}{
-			"current_working_directory": home,
+			"current_working_directory": workspace,
 			"environment": map[string]string{
 				"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-				"HOME": home,
+				"HOME": workspace,
 				"USER": username,
 			},
 		},
@@ -279,8 +309,6 @@ func jobStatus(c echo.Context) error {
 		return c.String(http.StatusInternalServerError, "Invalid job format")
 	}
 
-	// ---> BULLETPROOF STATE PARSING <---
-	// Safely checks if Slurm returned a string or a list of strings
 	var stateStr string
 	switch v := jobData["job_state"].(type) {
 	case string:
@@ -300,7 +328,6 @@ func jobStatus(c echo.Context) error {
 		jID, err := strconv.Atoi(jobID)
 		if err == nil {
 			lease, _ := portManager.GetLeaseByJob(jID)
-			// Wait until the compute node has fully run "curl allocate-port" and saved to SQLite
 			if lease != nil {
 				url := fmt.Sprintf("http://localhost:8000/%s/jupyter/%d", lease.Username, lease.JobID)
 				proxyURL = &url
@@ -318,9 +345,10 @@ func jobStatus(c echo.Context) error {
 func jobLog(c echo.Context) error {
 	jobID := c.Param("job_id")
 	userToken := c.Get("user").(*jwt.Token)
-	username := userToken.Claims.(jwt.MapClaims)["sun"].(string)
+	project := userToken.Claims.(jwt.MapClaims)["prj"].(string)
 
-	logPath := fmt.Sprintf("/mnt/storage/users/%s/logs/jupyterlab_%s.out", username, jobID)
+    // UPDATED: Logs are now in the active project directory
+	logPath := fmt.Sprintf("/mnt/storage/projects/%s/logs/jupyterlab_%s.out", project, jobID)
 	content, err := os.ReadFile(logPath)
 	if err != nil {
 		return c.JSON(http.StatusOK, map[string]interface{}{"log": "Log not yet available."})
@@ -368,7 +396,6 @@ func cancelJob(c echo.Context) error {
 	username := userToken.Claims.(jwt.MapClaims)["sun"].(string)
 	tokenString := userToken.Raw
 
-    // The Slurm REST API uses DELETE to cancel a job
 	req, _ := http.NewRequest("DELETE", slurmRestURL+"/slurm/v0.0.42/job/"+jobID, nil)
 	req.Header.Set("X-SLURM-USER-TOKEN", tokenString)
 	req.Header.Set("X-SLURM-USER-NAME", username)
