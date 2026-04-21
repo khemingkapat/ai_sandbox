@@ -8,9 +8,11 @@ storage/*
 storage/users/*
 !storage/users/user1
 storage/users/user1/*/
+storage/users/user1/slurm-*.out
 !storage/public/
 storage/public/containers/*
 !storage/public/containers/*.def
 
 traefik-dynamic/*
 !traefik-dynamic/.gitkeep
+
