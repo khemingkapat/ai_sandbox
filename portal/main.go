@@ -308,16 +308,23 @@ func submitJob(c echo.Context) error {
 		sbatchHeader += fmt.Sprintf("#SBATCH --%s=%s\n", key, value)
 	}
 
-	// 3. Build the bash logic
-	scriptBody := fmt.Sprintf(`
-mkdir -p %[1]s/logs
+	// 3. Build the bash logic dynamically
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("mkdir -p %s/logs\n", workspace))
+	sb.WriteString(fmt.Sprintf("export WORKSPACE=\"%s\"\n", workspace))
+
+	needsPort := strings.Contains(targetApp.ExecCommand, "$ALLOCATED_PORT")
+	
+	// Conditionally allocate port only if the app needs it
+	if needsPort {
+		sb.WriteString(fmt.Sprintf(`
 NODE_IP=$(hostname -I | awk '{print $1}')
 NODE_HOSTNAME=$(hostname)
 
 echo "Requesting port from Portal..."
 RESPONSE=$(curl -s -X POST http://portal:8080/api/internal/allocate-port \
     -H "Content-Type: application/json" \
-    -d '{"job_id": "'$SLURM_JOB_ID'", "username": "%[2]s", "node_hostname": "'$NODE_HOSTNAME'", "node_ip": "'$NODE_IP'"}')
+    -d '{"job_id": "'$SLURM_JOB_ID'", "username": "%[1]s", "node_hostname": "'$NODE_HOSTNAME'", "node_ip": "'$NODE_IP'"}')
 
 ALLOCATED_PORT=$(python3 -c "import sys, json; print(json.loads(sys.stdin.read()).get('port', ''))" <<< "$RESPONSE")
 
@@ -327,38 +334,73 @@ if [ -z "$ALLOCATED_PORT" ]; then
 fi
 
 echo "Allocated port: $ALLOCATED_PORT"
-
-# Export these variables so the target ExecCommand can use them
-export WORKSPACE="%[1]s"
-export BASE_URL="/%[2]s/jupyter/$SLURM_JOB_ID"
 export ALLOCATED_PORT=$ALLOCATED_PORT
+export BASE_URL="/%[1]s/jupyter/$SLURM_JOB_ID"
+`, username))
+	}
 
+	// Conditionally run in Apptainer or directly on the host
+	if targetApp.ImageFile != "" {
+		sb.WriteString(fmt.Sprintf(`
 apptainer exec --bind %[1]s:%[1]s \
     --bind /mnt/storage/common:/mnt/storage/common:ro \
-    %[3]s/%[4]s \
-    bash -c "%[5]s"
+    %[2]s/%[3]s \
+    bash -c "%[4]s"
+`, workspace, targetApp.SourcePath, targetApp.ImageFile, targetApp.ExecCommand))
+	} else {
+		sb.WriteString(fmt.Sprintf(`
+bash -c "%s"
+`, targetApp.ExecCommand))
+	}
 
+	// Conditionally release the port
+	if needsPort {
+		sb.WriteString(`
 echo "Releasing port..."
 curl -s -X POST http://portal:8080/api/internal/release-port \
     -H "Content-Type: application/json" \
     -d '{"job_id": "'$SLURM_JOB_ID'"}'
-`, workspace, username, targetApp.SourcePath, targetApp.ImageFile, targetApp.ExecCommand)
+`)
+	}
 
-	scriptTemplate := sbatchHeader + "\n" + scriptBody
+	scriptTemplate := sbatchHeader + "\n" + sb.String()
+
+	jobProps := map[string]interface{}{
+		"current_working_directory": workspace,
+		"environment": map[string]string{
+			"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+			"HOME": workspace,
+			"USER": username,
+		},
+		"name":            targetApp.ID,
+		"standard_output": fmt.Sprintf("%s/logs/%s_%%j.out", workspace, targetApp.ID),
+		"standard_error":  fmt.Sprintf("%s/logs/%s_%%j.err", workspace, targetApp.ID),
+	}
+
+	// Map common Slurm arguments directly to the REST API fields
+	if val, ok := finalSlurmArgs["ntasks"]; ok {
+		if v, err := strconv.Atoi(val); err == nil {
+			jobProps["tasks"] = v
+		}
+	}
+	if val, ok := finalSlurmArgs["nodes"]; ok {
+		if v, err := strconv.Atoi(val); err == nil {
+			jobProps["minimum_nodes"] = v
+		}
+	}
+	if val, ok := finalSlurmArgs["cpus-per-task"]; ok {
+		if v, err := strconv.Atoi(val); err == nil {
+			jobProps["cpus_per_task"] = v
+		}
+	}
 
 	payload := map[string]interface{}{
-		"job": map[string]interface{}{
-			"current_working_directory": workspace,
-			"environment": map[string]string{
-				"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-				"HOME": workspace,
-				"USER": username,
-			},
-		},
+		"job":    jobProps,
 		"script": scriptTemplate,
 	}
 
 	body, _ := json.Marshal(payload)
+
 	req, _ := http.NewRequest("POST", slurmRestURL+"/slurm/v0.0.42/job/submit", bytes.NewBuffer(body))
 	req.Header.Set("X-SLURM-USER-TOKEN", tokenString)
 	req.Header.Set("X-SLURM-USER-NAME", username)
