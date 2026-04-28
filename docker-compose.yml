@@ -1,52 +1,194 @@
-volumes:
-  etc_munge:
-  slurm_state:
-
 services:
+  mysql:
+    image: mariadb:12
+    hostname: mysql
+    container_name: mysql
+    environment:
+      MYSQL_RANDOM_ROOT_PASSWORD: "yes"
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-slurm_acct_db}
+      MYSQL_USER: ${MYSQL_USER:-slurm}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-password}
+    volumes:
+      - var_lib_mysql:/var/lib/mysql
+    networks:
+      - slurm-network
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+  slurmdbd:
+    image: giovtorres/slurm-docker-cluster:${SLURM_VERSION:-25.11.2}
+    command: ["slurmdbd"]
+    container_name: slurmdbd
+    hostname: slurmdbd
+    environment:
+      MYSQL_USER: ${MYSQL_USER:-slurm}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-password}
+    volumes:
+      - etc_munge:/etc/munge
+      - etc_slurm:/etc/slurm
+      - var_log_slurm:/var/log/slurm
+    expose:
+      - "6819"
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - slurm-network
+    healthcheck:
+      test: ["CMD-SHELL", "pidof slurmdbd"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   slurmctld:
     build:
       context: .
-      dockerfile: Dockerfile.slurm
-    image: local-slurm:latest
+      dockerfile: Dockerfile.controller
+    command: ["slurmctld"]
     container_name: slurmctld
     hostname: slurmctld
     privileged: true
-    command: ["slurmctld"]
+    working_dir: /data
+    entrypoint: ["/usr/local/bin/sandbox-entrypoint.sh"]
     volumes:
-      - etc_munge:/etc/munge
       - slurm_state:/var/spool/slurmctld
-      - ./data:/data                          # bind mount — host ./data = /data in container
-      - ./data/slurm.conf:/etc/slurm/slurm.conf:ro
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /usr/bin/docker:/usr/bin/docker:ro
+      - etc_munge:/etc/munge
+      - etc_slurm:/etc/slurm
+      - slurm_jobdir:/data
+      - var_log_slurm:/var/log/slurm
+      - ./docker-entrypoint.sh:/usr/local/bin/sandbox-entrypoint.sh
+      - ./storage/projects:/mnt/storage/projects
+      - ./storage/common:/mnt/storage/common
+    expose:
+      - "6817"
+    depends_on:
+      slurmdbd:
+        condition: service_healthy
     networks:
-      - slurm_net
+      - slurm-network
+    healthcheck:
+      test: ["CMD-SHELL", "scontrol ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
-  worker1: &worker_base
-    image: local-slurm:latest
-    container_name: worker1
-    hostname: worker1
+  slurmrestd:
+    image: giovtorres/slurm-docker-cluster:${SLURM_VERSION:-25.11.2}
+    command: ["slurmrestd"]
+    container_name: slurmrestd
+    hostname: slurmrestd
     privileged: true
-    command: ["slurmd"]
     volumes:
       - etc_munge:/etc/munge
-      - ./data:/data                          # same bind mount on every worker
-      - ./data/slurm.conf:/etc/slurm/slurm.conf:ro
-    networks:
-      - slurm_net
+      - etc_slurm:/etc/slurm
+      - var_log_slurm:/var/log/slurm
+    ports:
+      - "6820:6820"
     depends_on:
-      - slurmctld
+      slurmctld:
+        condition: service_healthy
+    networks:
+      - slurm-network
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /var/run/slurmrestd/slurmrestd.socket"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
-  worker2:
-    <<: *worker_base
-    container_name: worker2
-    hostname: worker2
+  cpu-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    command: ["slurmd-cpu"]
+    privileged: true
+    security_opt:
+      - seccomp=unconfined
+      - apparmor=unconfined
+    environment:
+      COMPOSE_PROJECT_NAME: ${COMPOSE_PROJECT_NAME:-ai_sandbox}
+    volumes:
+      - etc_munge:/etc/munge
+      - etc_slurm:/etc/slurm
+      - slurm_jobdir:/data
+      - var_log_slurm:/var/log/slurm
+      - ./storage/projects:/mnt/storage/projects
+      - ./storage/common:/mnt/storage/common
+    expose:
+      - "6818"
+    depends_on:
+      slurmctld:
+        condition: service_healthy
+    networks:
+      - slurm-network
+    healthcheck:
+      test: ["CMD-SHELL", "pidof slurmd"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    deploy:
+      replicas: ${CPU_WORKER_COUNT:-2}
 
-  worker3:
-    <<: *worker_base
-    container_name: worker3
-    hostname: worker3
+  traefik:
+    image: traefik:v3.0
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
+    ports:
+      - "8000:80"     # Main access for users
+      - "8081:8080"   # Traefik dashboard
+    volumes:
+      - ./traefik-dynamic:/etc/traefik/dynamic
+    networks:
+      - slurm-network
+
+  portal:
+    build:
+      context: ./portal
+      dockerfile: Dockerfile.portal
+    container_name: portal
+    hostname: portal
+    ports:
+      - "8080:8080"
+    environment:
+      SLURMRESTD_URL: http://slurmrestd:6820
+      JWT_KEY_PATH: /etc/slurm/jwt_hs256.key
+      TOKEN_LIFESPAN: "1800"
+      PORT_DB_PATH: /var/lib/portal/leases.db
+      TRAEFIK_CONFIG_DIR: /etc/traefik/dynamic
+    volumes:
+      - etc_slurm:/etc/slurm:ro
+      - portal_data:/var/lib/portal
+      - ./traefik-dynamic:/etc/traefik/dynamic
+      - ./storage/projects:/mnt/storage/projects:ro
+      - ./storage/common:/mnt/storage/common:ro
+    depends_on:
+      slurmrestd:
+        condition: service_healthy
+      traefik:
+        condition: service_started
+    networks:
+      - slurm-network
+
+volumes:
+  etc_munge:
+  etc_slurm:
+  slurm_jobdir:
+  var_lib_mysql:
+  var_log_slurm:
+  slurm_state:
+  portal_data:
 
 networks:
-  slurm_net:
+  slurm-network:
     driver: bridge

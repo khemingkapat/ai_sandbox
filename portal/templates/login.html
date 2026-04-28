@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HPC Portal — Login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0c0f;
+    --surface: #111318;
+    --border: #1e2229;
+    --border-bright: #2d3340;
+    --accent: #00d4aa;
+    --accent-dim: rgba(0,212,170,0.12);
+    --text: #e2e8f0;
+    --text-dim: #64748b;
+    --text-muted: #334155;
+    --mono: 'JetBrains Mono', monospace;
+    --sans: 'Syne', sans-serif;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(0,212,170,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,212,170,0.025) 1px, transparent 1px);
+    background-size: 40px 40px;
+    pointer-events: none;
+  }
+
+  .card {
+    position: relative;
+    z-index: 1;
+    width: 100%;
+    max-width: 400px;
+    padding: 40px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    border-radius: 2px;
+    animation: fadeIn 0.25s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  .logo-label {
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+  }
+
+  .logo-title {
+    font-family: var(--sans);
+    font-size: 26px;
+    font-weight: 800;
+    color: var(--text);
+    letter-spacing: -0.02em;
+    margin-bottom: 32px;
+  }
+
+  .logo-title span { color: var(--accent); }
+
+  .form-group {
+    margin-bottom: 24px;
+  }
+
+  .form-group label {
+    font-size: 10px;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    margin-bottom: 8px;
+    display: block;
+  }
+
+  .form-select {
+    width: 100%;
+    padding: 14px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    border-radius: 2px;
+    appearance: none;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .form-select:focus {
+    border-color: var(--accent);
+  }
+
+  .session-note {
+    font-size: 11px;
+    color: var(--text-muted);
+    margin-bottom: 20px;
+    line-height: 1.6;
+    padding: 10px 12px;
+    border: 1px solid var(--border);
+    border-radius: 2px;
+  }
+
+  .session-note span { color: var(--accent); }
+
+  .btn-login {
+    width: 100%;
+    padding: 14px;
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .btn-login::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: translateX(-100%);
+    transition: transform 0.2s ease;
+  }
+
+  .btn-login:hover::before { transform: translateX(0); }
+  .btn-login:hover { color: var(--bg); }
+  .btn-login span { position: relative; z-index: 1; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo-label">Local HPC Cluster</div>
+  <h1 class="logo-title">HPC <span>Portal</span></h1>
+
+  <form method="POST" action="/login">
+    
+    <div class="form-group">
+      <label for="username">// Select Identity</label>
+      <select name="username" id="username" class="form-select" onchange="updateProjects()" required>
+        <option value="" disabled selected>-- Choose User --</option>
+      </select>
+    </div>
+
+    <div class="form-group">
+      <label for="project">// Active Project Workspace</label>
+      <select name="project" id="project" class="form-select" required>
+        <option value="" disabled selected>-- Select a Project --</option>
+        <!-- Populated via Javascript -->
+      </select>
+    </div>
+
+    <div class="session-note">
+      Your workspace will be securely isolated to the selected project directory.
+    </div>
+
+    <button type="submit" class="btn-login" id="login-btn" disabled>
+      <span>→ Start session</span>
+    </button>
+  </form>
+</div>
+
+<script>
+  // Load the access matrix dynamically queried from SlurmREST
+  const accessMatrixStr = '{{ .accessJSON }}';
+  
+  let accessMatrix = {};
+  if (accessMatrixStr) {
+      accessMatrix = JSON.parse(accessMatrixStr);
+  }
+
+  // Populate the User dropdown automatically
+  const userSelect = document.getElementById("username");
+  Object.keys(accessMatrix).sort().forEach(user => {
+      const opt = document.createElement("option");
+      opt.value = user;
+      opt.textContent = user;
+      userSelect.appendChild(opt);
+  });
+
+  function updateProjects() {
+      const user = document.getElementById("username").value;
+      const projSelect = document.getElementById("project");
+      const loginBtn = document.getElementById("login-btn");
+      
+      // Clear current options
+      projSelect.innerHTML = "";
+      
+      if (accessMatrix[user]) {
+          // Add the projects associated with the selected user
+          accessMatrix[user].forEach(p => {
+              const opt = document.createElement("option");
+              opt.value = p; 
+              opt.textContent = p;
+              projSelect.appendChild(opt);
+          });
+          loginBtn.disabled = false;
+      } else {
+          loginBtn.disabled = true;
+          const opt = document.createElement("option");
+          opt.value = ""; 
+          opt.textContent = "-- Select a Project --";
+          projSelect.appendChild(opt);
+      }
+  }
+</script>
+</body>
+</html>
