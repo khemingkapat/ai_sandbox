@@ -3,9 +3,11 @@ set -e
 
 # Only run storage init on the controller node
 if [ "$1" = "slurmctld" ]; then
-    echo "---> Initializing shared storage structure..."
-    mkdir -p /mnt/storage/users /mnt/storage/projects /mnt/storage/public
-    chown -R 990:990 /mnt/storage/users /mnt/storage/projects /mnt/storage/public
+    echo "---> Initializing shared project & common storage structure..."
+    mkdir -p /mnt/storage/projects /mnt/storage/common/software /mnt/storage/common/kaggle_cache
+    
+    # We assign basic ownership, but the setup-users script will handle the strict group permissions later
+    chown -R 990:990 /mnt/storage/projects /mnt/storage/common
     echo "---> Storage ready."
 fi
 

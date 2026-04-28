@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- (Keep your entire existing <head> with styles) -->
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -149,19 +148,23 @@
   /* App card */
   .apps-section { margin-bottom: 40px; }
 
-  .app-card {
+  .app-card-wrapper {
     border: 1px solid var(--border);
     background: var(--surface);
-    padding: 24px;
     border-radius: 2px;
+    margin-bottom: 16px;
+    transition: border-color 0.2s;
+  }
+
+  .app-card-wrapper:hover { border-color: var(--border-bright); }
+
+  .app-card {
+    padding: 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 24px;
-    transition: border-color 0.2s;
   }
-
-  .app-card:hover { border-color: var(--border-bright); }
 
   .app-left { display: flex; align-items: center; gap: 20px; }
 
@@ -182,19 +185,75 @@
   .app-name { font-family: var(--sans); font-size: 18px; font-weight: 700; }
   .app-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
 
-  .app-tags { display: flex; gap: 6px; margin-top: 8px; }
-  .tag {
-    font-size: 10px;
-    padding: 2px 8px;
-    border: 1px solid var(--border-bright);
-    color: var(--text-muted);
-    border-radius: 1px;
-    letter-spacing: 0.05em;
+  .app-actions {
+    display: flex;
+    gap: 12px;
   }
 
-  /* Launch button */
+  /* Config / Options panel */
+  .app-config {
+    display: none;
+    padding: 0 24px 24px 24px;
+    border-top: 1px dashed var(--border-bright);
+    margin-top: -8px; /* overlap padding */
+    padding-top: 16px;
+  }
+
+  .app-config.open {
+    display: block;
+  }
+
+  .config-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 12px;
+  }
+
+  .config-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .config-group label {
+    font-size: 10px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+  }
+
+  .config-group input {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 8px 10px;
+    font-family: var(--mono);
+    font-size: 12px;
+    border-radius: 2px;
+  }
+
+  /* Buttons */
+  .btn-secondary {
+    padding: 12px 20px;
+    background: transparent;
+    border: 1px solid var(--border-bright);
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    border-radius: 2px;
+    transition: all 0.15s ease;
+  }
+
+  .btn-secondary:hover {
+    color: var(--text);
+    border-color: var(--text-muted);
+  }
+
   .btn-launch {
-    flex-shrink: 0;
     padding: 12px 28px;
     background: transparent;
     border: 1px solid var(--accent);
@@ -429,7 +488,7 @@
     <div class="header-right">
       <div class="session-bar">
         <div class="session-dot" id="session-dot"></div>
-        <span>{{ username }}</span>
+        <span>{{ .username }}</span>
         <span>·</span>
         <span id="session-timer">--:--</span>
       </div>
@@ -439,31 +498,51 @@
 
   <section class="apps-section">
     <div class="section-label">// Available applications</div>
-    {% for app in apps %}
-    <div class="app-card">
-      <div class="app-left">
-        <div class="app-icon">{{ app.icon }}</div>
-        <div class="app-meta">
-          <div class="app-name">{{ app.name }}</div>
-          <div class="app-desc">{{ app.description }}</div>
-          <div class="app-tags">
-            <span class="tag">apptainer</span>
-            <span class="tag">proxied URL</span>
-            <span class="tag">interactive</span>
+    {{ if not .apps }}
+      <p style="font-size: 13px; color: var(--text-dim);">No applications found. Add a manifest.yaml file to your software folders.</p>
+    {{ end }}
+
+    {{ range .apps }}
+    <div class="app-card-wrapper">
+      <div class="app-card">
+        <div class="app-left">
+          <div class="app-icon">{{ .Icon }}</div>
+          <div class="app-meta">
+            <div class="app-name">{{ .Name }}</div>
+            <div class="app-desc">{{ .Description }}</div>
           </div>
         </div>
+        <div class="app-actions">
+          <button class="btn-secondary" onclick="toggleConfig('{{ .ID }}')">Options</button>
+          <button class="btn-launch" onclick="submitJob('{{ .ID }}')">
+            <span>→ Launch</span>
+          </button>
+        </div>
       </div>
-      <button class="btn-launch" onclick="submitJob('{{ app.id }}')">
-        <span>→ Launch</span>
-      </button>
+
+      <!-- Slurm Arguments Configuration Panel -->
+      <div class="app-config" id="config-{{ .ID }}">
+        <div class="section-label" style="margin-bottom: 12px;">// Slurm Resource Request</div>
+        <div class="config-grid">
+          {{ range $key, $value := .SlurmArgs }}
+          <div class="config-group">
+            <label>{{ $key }}</label>
+            <input type="text" name="slurm_{{ $key }}" value="{{ $value }}">
+          </div>
+          {{ end }}
+        </div>
+      </div>
     </div>
-    {% endfor %}
+    {{ end }}
   </section>
 
   <div id="result-panel">
     <div class="result-header">
       <span class="result-title">// Job status</span>
-      <span class="job-badge" id="job-badge">—</span>
+      <div>
+        <span class="job-badge" id="job-badge">—</span>
+        <button id="btn-cancel" onclick="cancelJob()" style="display: none; border: 1px solid var(--err); color: var(--err); background: transparent; padding: 2px 8px; border-radius: 2px; cursor: pointer; margin-left: 10px; font-size: 11px;">Terminate</button>
+      </div>
     </div>
     <div class="result-body">
       <div class="state-row">
@@ -475,7 +554,7 @@
         <div class="connect-label">↗ Connect</div>
         <div class="connect-url"><a id="connect-link" href="#" target="_blank"></a></div>
         <div class="connect-note">
-          JupyterLab is running securely behind Traefik.<br>
+          Application is running securely behind Traefik.<br>
           Open the link above to access it.
         </div>
       </div>
@@ -507,9 +586,10 @@
 <div class="toast" id="toast"></div>
 
 <script>
-  let secondsLeft = {{ expires_in }};
+  let secondsLeft = {{ .expires_in }};
   let pollInterval = null;
   let currentJobId = null;
+  let currentAppId = null;
   let logVisible = false;
 
   function formatTime(s) {
@@ -547,6 +627,11 @@
     document.querySelectorAll('.btn-launch').forEach(b => b.disabled = disabled);
   }
 
+  function toggleConfig(appId) {
+    const configPanel = document.getElementById(`config-${appId}`);
+    configPanel.classList.toggle('open');
+  }
+
   function updateState(state, proxyUrl) {
     const dot = document.getElementById('state-dot');
     const text = document.getElementById('state-text');
@@ -554,7 +639,7 @@
 
     const states = {
       PENDING:   ['pending', 'Queued — waiting for a compute node...'],
-      RUNNING:   ['running', proxyUrl ? 'Running — JupyterLab is ready' : 'Running — waiting for JupyterLab to start...'],
+      RUNNING:   ['running', proxyUrl ? 'Running — Application is ready' : 'Running — waiting for application to start...'],
       COMPLETED: ['done',    'Job completed.'],
       FAILED:    ['error',   'Job failed.'],
       CANCELLED: ['error',   'Job cancelled.'],
@@ -578,7 +663,6 @@
       const data = await resp.json();
       updateState(data.state, data.proxy_url);
 
-      // Now we use the proxy_url instead of the old connect_url
       if (data.proxy_url) {
         const box = document.getElementById('connect-box');
         const link = document.getElementById('connect-link');
@@ -592,6 +676,7 @@
       if (['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT'].includes(data.state)) {
         clearInterval(pollInterval);
         setLaunchButtons(false);
+        document.getElementById('btn-cancel').style.display = 'none';
       }
     } catch (e) {
       console.error('Poll error', e);
@@ -599,7 +684,7 @@
   }
 
   async function fetchLog() {
-    const resp = await fetch(`/jobs/${currentJobId}/log`);
+    const resp = await fetch(`/jobs/${currentJobId}/log?app_id=${currentAppId}`);
     const data = await resp.json();
     const box = document.getElementById('log-box');
     box.textContent = data.log || 'No output yet.';
@@ -615,18 +700,31 @@
 
   async function submitJob(appId) {
     setLaunchButtons(true);
+    currentAppId = appId;
 
     const panel = document.getElementById('result-panel');
     panel.className = 'visible';
     document.getElementById('job-badge').textContent = 'submitting...';
     document.getElementById('connect-box').style.display = 'none';
     document.getElementById('log-box').textContent = 'Waiting for log output...';
+    
+    const btnCancel = document.getElementById('btn-cancel');
+    btnCancel.style.display = 'inline-block';
+    btnCancel.textContent = 'Terminate';
+    btnCancel.disabled = false;
+
     updateState('PENDING', null);
 
     if (pollInterval) clearInterval(pollInterval);
 
+    // 1. Gather all inputs from the form elements
     const form = new FormData();
     form.append('app_id', appId);
+
+    const inputs = document.querySelectorAll(`#config-${appId} input`);
+    inputs.forEach(input => {
+      form.append(input.name, input.value); // Appends all slurm_* fields!
+    });
 
     try {
       const resp = await fetch('/jobs/submit', { method: 'POST', body: form });
@@ -641,6 +739,7 @@
         showToast('Submit failed: ' + (data.detail || 'Unknown error'));
         setLaunchButtons(false);
         panel.className = '';
+        btnCancel.style.display = 'none';
         return;
       }
 
@@ -653,6 +752,31 @@
     } catch (e) {
       showToast('Network error: ' + e.message);
       setLaunchButtons(false);
+      btnCancel.style.display = 'none';
+    }
+  }
+
+  async function cancelJob() {
+    if (!currentJobId) return;
+    
+    const btn = document.getElementById('btn-cancel');
+    btn.textContent = "Canceling...";
+    btn.disabled = true;
+
+    try {
+      const resp = await fetch(`/jobs/${currentJobId}`, { method: 'DELETE' });
+      if (resp.ok) {
+        showToast('Job termination requested');
+        pollStatus(); 
+      } else {
+        showToast('Failed to cancel job');
+        btn.textContent = "Terminate";
+        btn.disabled = false;
+      }
+    } catch (e) {
+      showToast('Network error while canceling');
+      btn.textContent = "Terminate";
+      btn.disabled = false;
     }
   }
 </script>
