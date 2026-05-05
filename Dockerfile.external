@@ -29,15 +29,32 @@ RUN curl -fsSL \
 # 4. Configure Apptainer: disable setuid (triggers proot fallback) and set proot path
 RUN echo "proot path = /usr/local/bin/proot" >> /etc/apptainer/apptainer.conf
 
-# 5. Create user1 and setup SSH keys/passwords
-# We create user1 because your script adds subuid/subgid for it
-RUN useradd -m user1 && \
+
+# 5. Hardcode Test Users and Groups for Proof of Concept
+# Project 1 (GID 2001) for User 1 and 2
+RUN groupadd -g 2001 project1 && \
+    useradd -m -u 1001 -g 2001 -s /bin/bash user1 && \
+    useradd -m -u 1002 -g 2001 -s /bin/bash user2 && \
     echo 'user1:password' | chpasswd && \
+    echo 'user2:password' | chpasswd && \
     usermod -aG wheel user1
 
-# 6. Add user1 subuid/subgid inside the container
-RUN echo "user1:100000:65536" >> /etc/subuid && \
-    echo "user1:100000:65536" >> /etc/subgid
+# Project 2 (GID 2002) for User 3
+RUN groupadd -g 2002 project2 && \
+    useradd -m -u 1003 -g 2002 -s /bin/bash user3 && \
+    echo 'user3:password' | chpasswd
+
+# Project 3 (GID 2003) for User 4
+RUN groupadd -g 2003 project3 && \
+    useradd -m -u 1004 -g 2003 -s /bin/bash user4 && \
+    echo 'user4:password' | chpasswd
+
+# 6. Add SubUID/SubGID for all users to support Apptainer proot
+RUN echo "user1:100000:65536" >> /etc/subuid && echo "user1:100000:65536" >> /etc/subgid && \
+    echo "user2:165536:65536" >> /etc/subuid && echo "user2:165536:65536" >> /etc/subgid && \
+    echo "user3:231072:65536" >> /etc/subuid && echo "user3:231072:65536" >> /etc/subgid && \
+    echo "user4:296608:65536" >> /etc/subuid && echo "user4:296608:65536" >> /etc/subgid
+
 
 # 7. Fix newuidmap/newgidmap setuid bits
 RUN chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
