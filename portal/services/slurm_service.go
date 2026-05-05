@@ -120,43 +120,66 @@ func (s *SlurmService) Do(ctx context.Context, method, path, username, token str
 	client := &http.Client{Timeout: 15 * time.Second}
 	return client.Do(req)
 }
-
+// SlurmJob represents a single job
 type SlurmJob struct {
-	JobState string `json:"job_state"`
+	JobState []string `json:"job_state"`
 }
 
-// SlurmJobsResponse represents the list of jobs from the API
+// SlurmJobsResponse represents the list of jobs
 type SlurmJobsResponse struct {
 	Jobs []SlurmJob `json:"jobs"`
 }
 
-// CheckPendingQueue checks if there is any job with a PENDING state.
+// SlurmNode represents a single compute node
+type SlurmNode struct {
+	State []string `json:"state"`
+}
+
+// SlurmNodesResponse represents the list of nodes from the API
+type SlurmNodesResponse struct {
+	Nodes []SlurmNode `json:"nodes"`
+}
+
+// CheckPendingQueue checks if the number of active/pending jobs 
+// is greater than or equal to the number of available nodes.
 func (s *SlurmService) CheckPendingQueue(ctx context.Context, username, token string) (bool, error) {
-	// Call the jobs endpoint. We use v0.0.42 to match your slurmdb version.
-	path := "/slurm/v0.0.42/jobs"
-	
-	resp, err := s.Do(ctx, http.MethodGet, path, username, token, nil)
+	// 1. Get total number of nodes
+	nodeResp, err := s.Do(ctx, http.MethodGet, "/slurm/v0.0.42/nodes", username, token, nil)
 	if err != nil {
-		return false, fmt.Errorf("failed to call slurm API: %w", err)
+		return false, fmt.Errorf("failed to fetch nodes: %w", err)
 	}
-	defer resp.Body.Close()
+	defer nodeResp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("slurm API returned status: %d", resp.StatusCode)
+	var nodesResult SlurmNodesResponse
+	if err := json.NewDecoder(nodeResp.Body).Decode(&nodesResult); err != nil {
+		return false, fmt.Errorf("failed to decode nodes: %w", err)
+	}
+	totalNodes := len(nodesResult.Nodes)
+
+	// 2. Get current jobs
+	jobResp, err := s.Do(ctx, http.MethodGet, "/slurm/v0.0.42/jobs", username, token, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to fetch jobs: %w", err)
+	}
+	defer jobResp.Body.Close()
+
+	var jobsResult SlurmJobsResponse
+	if err := json.NewDecoder(jobResp.Body).Decode(&jobsResult); err != nil {
+		return false, fmt.Errorf("failed to decode jobs: %w", err)
 	}
 
-	var result SlurmJobsResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return false, fmt.Errorf("failed to read JSON: %w", err)
-	}
-
-	// Loop through all jobs. If one is PENDING, return true.
-	for _, job := range result.Jobs {
-		if job.JobState == "PENDING" {
-			return true, nil
+	// 3. Count jobs that are taking up a "slot" (Running or Pending)
+	activeJobCount := 0
+	for _, job := range jobsResult.Jobs {
+		if len(job.JobState) > 0 {
+			state := job.JobState[0]
+			if state == "RUNNING" || state == "PENDING" {
+				activeJobCount++
+			}
 		}
 	}
 
-	// No pending jobs found
-	return false, nil
+	// 4. Return true if we are at or over capacity
+	// Example: 2 nodes, 2 jobs (Running) -> returns true (the next job will queue)
+	return activeJobCount >= totalNodes, nil
 }
