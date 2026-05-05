@@ -9,8 +9,12 @@ import (
 	"os"
 	"time"
 
+	"portal/models"
+
 	"github.com/golang-jwt/jwt/v5"
+	"golang.org/x/crypto/ssh" // Added here
 )
+
 
 // SlurmService handles all communication with the Slurm REST API.
 type SlurmService struct {
@@ -183,3 +187,48 @@ func (s *SlurmService) CheckPendingQueue(ctx context.Context, username, token st
 	// Example: 2 nodes, 2 jobs (Running) -> returns true (the next job will queue)
 	return activeJobCount >= totalNodes, nil
 }
+
+// SubmitExternalJob connects via SSH using a password and runs Apptainer directly.
+func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, app *models.AppManifest, workspace string) (string, error) {
+	// 1. Setup SSH configuration with password
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password("password"),
+		},
+		// Since this is a POC, we skip host key verification
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	}
+
+	// 2. Connect to the external node
+	// Replace "external-node-ip" with the actual IP address
+	addr := "external-worker:22"
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to external node: %v", err)
+	}
+	defer client.Close()
+
+	// 3. Create an SSH session
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create session: %v", err)
+	}
+	defer session.Close()
+
+	// 4. Construct the Apptainer command
+	// We use 'nohup' and '&' so the program keeps running after we disconnect.
+	remoteCmd := fmt.Sprintf("nohup apptainer exec --bind %s:%s %s/%s %s > %s/logs/external_%s.log 2>&1 &",
+		workspace, workspace, app.SourcePath, app.ImageFile, app.ExecCommand, workspace, app.ID)
+
+	// 5. Run the command
+	err = session.Run(remoteCmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to run external command: %v", err)
+	}
+
+	// Return a custom ID so the portal knows this is an external job
+	return fmt.Sprintf("ext_%d", time.Now().Unix()), nil
+}
+

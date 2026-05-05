@@ -30,14 +30,14 @@ func (h *JobHandler) Submit(c echo.Context) error {
 	username := claims["sun"].(string)
 	project := claims["prj"].(string)
 	tokenString := userToken.Raw
+
+	// Check if the user already has a pending job in the Slurm queue
 	hasQueue, checkErr := h.Slurm.CheckPendingQueue(c.Request().Context(), username, tokenString)
-    
-    	// fmt.Println("==========================================")
-    	// fmt.Printf("DEBUG [QueueCheck]: User: %s | Has Pending: %v | Error: %v\n", username, hasQueue, checkErr)
-    	// fmt.Println("==========================================")
+	if checkErr != nil {
+		return c.String(http.StatusInternalServerError, "Error checking queue status")
+	}
 
 	appID := c.FormValue("app_id")
-
 	apps := services.ScanApps(project)
 	targetApp := findApp(apps, appID)
 	if targetApp == nil {
@@ -47,8 +47,21 @@ func (h *JobHandler) Submit(c echo.Context) error {
 	workspace := workspacePath(username, project)
 	finalSlurmArgs := mergeSlurmArgs(targetApp.SlurmArgs, formSlurmArgs(c))
 	script := buildScript(username, workspace, targetApp, finalSlurmArgs)
-	payload := buildPayload(username, workspace, targetApp, finalSlurmArgs, script)
 
+	// --- NEW LOGIC: External SSH Submission if Queue Exists ---
+	if hasQueue {
+		// Instead of Slurm, we run the container directly on an external node via SSH.
+		// Note: We skip buildPayload and Slurm.Do calls entirely.
+		externalJobID, err := h.Slurm.SubmitExternalJob(c.Request().Context(), username, targetApp, workspace)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "External SSH submission failed")
+		}
+		return c.JSON(http.StatusOK, map[string]interface{}{"job_id": externalJobID, "mode": "external_ssh"})
+	}
+	// ----------------------------------------------------------
+
+	// Standard Slurm submission path
+	payload := buildPayload(username, workspace, targetApp, finalSlurmArgs, script)
 	resp, err := h.Slurm.Do(context.Background(), http.MethodPost, "/slurm/v0.0.42/job/submit", username, tokenString, payload)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return c.String(http.StatusInternalServerError, "Slurm API error")
@@ -58,9 +71,9 @@ func (h *JobHandler) Submit(c echo.Context) error {
 	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
 
-
 	return c.JSON(http.StatusOK, map[string]interface{}{"job_id": result["job_id"]})
 }
+
 
 // Status polls a job's state and returns a proxy URL if the job is running.
 func (h *JobHandler) Status(c echo.Context) error {
