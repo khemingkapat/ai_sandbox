@@ -1,0 +1,56 @@
+# Use Rocky Linux 9 as a clean base to match your current dnf package manager
+FROM rockylinux:9
+
+# 1. Install required basic tools and SSH server
+RUN dnf install -y \
+    wget \
+    epel-release \
+    openssh-server \
+    sudo \
+    shadow-utils && \
+    dnf clean all
+
+# 2. Upgrade/Install Apptainer to version with proot support
+RUN APPTAINER_VERSION=1.3.6 && \
+    wget -q "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/apptainer-${APPTAINER_VERSION}-1.x86_64.rpm" \
+         -O /tmp/apptainer.rpm && \
+    wget -q "https://github.com/apptainer/apptainer/releases/download/v${APPTAINER_VERSION}/apptainer-suid-${APPTAINER_VERSION}-1.x86_64.rpm" \
+         -O /tmp/apptainer-suid.rpm && \
+    dnf install -y /tmp/apptainer.rpm /tmp/apptainer-suid.rpm && \
+    rm /tmp/apptainer.rpm /tmp/apptainer-suid.rpm && \
+    dnf clean all
+
+# 3. Install proot static binary
+RUN curl -fsSL \
+      https://github.com/proot-me/proot/releases/download/v5.3.0/proot-v5.3.0-x86_64-static \
+      -o /usr/local/bin/proot && \
+    chmod +x /usr/local/bin/proot
+
+# 4. Configure Apptainer: disable setuid (triggers proot fallback) and set proot path
+RUN echo "proot path = /usr/local/bin/proot" >> /etc/apptainer/apptainer.conf
+
+# 5. Create user1 and setup SSH keys/passwords
+# We create user1 because your script adds subuid/subgid for it
+RUN useradd -m user1 && \
+    echo 'user1:password' | chpasswd && \
+    usermod -aG wheel user1
+
+# 6. Add user1 subuid/subgid inside the container
+RUN echo "user1:100000:65536" >> /etc/subuid && \
+    echo "user1:100000:65536" >> /etc/subgid
+
+# 7. Fix newuidmap/newgidmap setuid bits
+RUN chmod u+s /usr/bin/newuidmap /usr/bin/newgidmap
+
+# 8. Verify starter-suid exists
+RUN ls -la /usr/libexec/apptainer/bin/starter-suid
+
+# 9. Setup SSH Daemon so Go service can connect
+RUN ssh-keygen -A && \
+    mkdir -p /run/sshd
+
+# Expose SSH port
+EXPOSE 22
+
+# Start SSH daemon in the foreground
+CMD ["/usr/sbin/sshd", "-D"]
