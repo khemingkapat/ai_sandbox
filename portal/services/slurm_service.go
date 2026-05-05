@@ -120,3 +120,43 @@ func (s *SlurmService) Do(ctx context.Context, method, path, username, token str
 	client := &http.Client{Timeout: 15 * time.Second}
 	return client.Do(req)
 }
+
+type SlurmJob struct {
+	JobState string `json:"job_state"`
+}
+
+// SlurmJobsResponse represents the list of jobs from the API
+type SlurmJobsResponse struct {
+	Jobs []SlurmJob `json:"jobs"`
+}
+
+// CheckPendingQueue checks if there is any job with a PENDING state.
+func (s *SlurmService) CheckPendingQueue(ctx context.Context, username, token string) (bool, error) {
+	// Call the jobs endpoint. We use v0.0.42 to match your slurmdb version.
+	path := "/slurm/v0.0.42/jobs"
+	
+	resp, err := s.Do(ctx, http.MethodGet, path, username, token, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to call slurm API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("slurm API returned status: %d", resp.StatusCode)
+	}
+
+	var result SlurmJobsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return false, fmt.Errorf("failed to read JSON: %w", err)
+	}
+
+	// Loop through all jobs. If one is PENDING, return true.
+	for _, job := range result.Jobs {
+		if job.JobState == "PENDING" {
+			return true, nil
+		}
+	}
+
+	// No pending jobs found
+	return false, nil
+}
