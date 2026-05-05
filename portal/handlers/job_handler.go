@@ -52,6 +52,15 @@ func (h *JobHandler) Submit(c echo.Context) error {
 
 	var result map[string]interface{}
 	json.NewDecoder(resp.Body).Decode(&result)
+
+	hasQueue, checkErr := h.Slurm.CheckPendingQueue(c.Request().Context(), username, tokenString)
+	if checkErr != nil {
+		hasQueue = false // Default to false if check fails
+	}
+
+	// 3. DEBUG: Manual terminal check for the actual value
+	fmt.Printf("--- DEBUG [Submit]: Job ID %v submitted by %s. has_queue: %v ---\n", result["job_id"], username, hasQueue)
+
 	return c.JSON(http.StatusOK, map[string]interface{}{"job_id": result["job_id"]})
 }
 
