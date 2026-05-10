@@ -654,34 +654,44 @@
   async function pollStatus() {
     if (!currentJobId) return;
     try {
-      const resp = await fetch(`/jobs/${currentJobId}`);
-      if (resp.status === 401) {
-        clearInterval(pollInterval);
-        document.getElementById('expired-overlay').classList.add('show');
-        return;
-      }
-      const data = await resp.json();
-      updateState(data.state, data.proxy_url);
+	const resp = await fetch(`/jobs/${currentJobId}`);
+	if (resp.status === 401) {
+	    clearInterval(pollInterval);
+	    document.getElementById('expired-overlay').classList.add('show');
+	    return;
+	}
 
-      if (data.proxy_url) {
-        const box = document.getElementById('connect-box');
-        const link = document.getElementById('connect-link');
-        box.style.display = 'block';
-        link.href = data.proxy_url;
-        link.textContent = data.proxy_url;
-      }
+	let data;
+	try {
+	    data = await resp.json();
+	} catch (e) {
+	    console.error('Poll error: non-JSON response, skipping tick', e);
+	    return; // skip this tick, keep polling
+	}
 
-      if (logVisible) await fetchLog();
+	updateState(data.state, data.proxy_url);
 
-      if (['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT'].includes(data.state)) {
-        clearInterval(pollInterval);
-        setLaunchButtons(false);
-        document.getElementById('btn-cancel').style.display = 'none';
-      }
+	if (data.proxy_url) {
+	    const box = document.getElementById('connect-box');
+	    const link = document.getElementById('connect-link');
+	    box.style.display = 'block';
+	    link.href = data.proxy_url;
+	    link.textContent = data.proxy_url;
+	}
+
+	if (logVisible) await fetchLog();
+
+    // External jobs (ext_*) stay RUNNING — don't stop polling on them
+	const isExternal = currentJobId && currentJobId.toString().startsWith('ext_');
+	if (!isExternal && ['COMPLETED', 'FAILED', 'CANCELLED', 'TIMEOUT'].includes(data.state)) {
+	    clearInterval(pollInterval);
+	    setLaunchButtons(false);
+	    document.getElementById('btn-cancel').style.display = 'none';
+	}
     } catch (e) {
-      console.error('Poll error', e);
+	console.error('Poll error', e);
     }
-  }
+    }
 
   async function fetchLog() {
     const resp = await fetch(`/jobs/${currentJobId}/log?app_id=${currentAppId}`);
@@ -734,7 +744,17 @@
         return;
       }
 
-      const data = await resp.json();
+      let data;
+      try {
+        data = await resp.json();
+      } catch (e) {
+        showToast('Server error (non-JSON response). Check portal logs.');
+        setLaunchButtons(false);
+        panel.className = '';
+        btnCancel.style.display = 'none';
+        return;
+      }
+
       if (!resp.ok) {
         showToast('Submit failed: ' + (data.detail || 'Unknown error'));
         setLaunchButtons(false);

@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"time"
+	"log"
 
 	"portal/models"
 
 	"github.com/golang-jwt/jwt/v5"
-	"golang.org/x/crypto/ssh" // Added here
+	"golang.org/x/crypto/ssh"
 )
 
 
@@ -189,46 +191,88 @@ func (s *SlurmService) CheckPendingQueue(ctx context.Context, username, token st
 }
 
 // SubmitExternalJob connects via SSH using a password and runs Apptainer directly.
-func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, app *models.AppManifest, workspace string) (string, error) {
-	// 1. Setup SSH configuration with password
+// pm is used to allocate a port and register the Traefik proxy route before launching.
+func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, app *models.AppManifest, workspace string, pm PortAllocator) (string, error) {
+	// 1. Generate a stable job ID
+	jobID := fmt.Sprintf("ext_%d", time.Now().Unix())
+	jobIDInt := int(time.Now().Unix() % 100000)
+
+	// 2. Allocate a port + register Traefik route BEFORE launching
+	port, err := pm.AllocatePort(jobIDInt, username, "external-worker", "external-worker")
+	if err != nil {
+		log.Printf("[ExternalJob] Port allocation failed: %v", err)
+		return "", fmt.Errorf("port allocation failed: %v", err)
+	}
+	log.Printf("[ExternalJob] Allocated port %d for job %s", port, jobID)
+	baseURL := fmt.Sprintf("/%s/jupyter/%d", username, jobIDInt)
+
+	// 3. Setup SSH configuration
 	config := &ssh.ClientConfig{
 		User: username,
 		Auth: []ssh.AuthMethod{
 			ssh.Password("password"),
 		},
-		// Since this is a POC, we skip host key verification
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         5 * time.Second,
 	}
 
-	// 2. Connect to the external node
-	// Replace "external-node-ip" with the actual IP address
 	addr := "external-worker:22"
+	log.Printf("[ExternalJob] Connecting to %s as user %s", addr, username)
 	client, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
+		log.Printf("[ExternalJob] SSH dial failed: %v", err)
+		pm.ReleasePort(jobIDInt)
 		return "", fmt.Errorf("failed to connect to external node: %v", err)
 	}
 	defer client.Close()
+	log.Printf("[ExternalJob] SSH connection established")
 
-	// 3. Create an SSH session
 	session, err := client.NewSession()
 	if err != nil {
+		log.Printf("[ExternalJob] Failed to create SSH session: %v", err)
+		pm.ReleasePort(jobIDInt)
 		return "", fmt.Errorf("failed to create session: %v", err)
 	}
 	defer session.Close()
 
-	// 4. Construct the Apptainer command
-	// We use 'nohup' and '&' so the program keeps running after we disconnect.
-	remoteCmd := fmt.Sprintf("nohup apptainer exec --bind %s:%s %s/%s %s > %s/logs/external_%s.log 2>&1 &",
-		workspace, workspace, app.SourcePath, app.ImageFile, app.ExecCommand, workspace, app.ID)
+	// 4. Build command — substitute shell vars with real values
+	externalWorkspace := strings.Replace(workspace, "/mnt/storage/projects", "/storage/projects", 1)
+	externalSourcePath := strings.Replace(app.SourcePath, "/mnt/storage", "/storage", 1)
 
-	// 5. Run the command
-	err = session.Run(remoteCmd)
-	if err != nil {
-		return "", fmt.Errorf("failed to run external command: %v", err)
+	execCmd := strings.ReplaceAll(app.ExecCommand, "$ALLOCATED_PORT", fmt.Sprintf("%d", port))
+	execCmd = strings.ReplaceAll(execCmd, "$BASE_URL", baseURL)
+	execCmd = strings.ReplaceAll(execCmd, "$WORKSPACE", externalWorkspace)
+
+	remoteCmd := fmt.Sprintf(
+		"mkdir -p %s/logs && nohup apptainer exec --bind %s:%s --bind /storage/common:/storage/common:ro %s/%s bash -c %q > %s/logs/external_%s.log 2>&1 < /dev/null &",
+		externalWorkspace,
+		externalWorkspace, externalWorkspace,
+		externalSourcePath, app.ImageFile,
+		execCmd,
+		externalWorkspace, app.ID,
+	)
+	log.Printf("[ExternalJob] Remote command: %s", remoteCmd)
+
+	var stderrBuf bytes.Buffer
+	session.Stderr = &stderrBuf
+
+	if err := session.Start(remoteCmd); err != nil {
+		log.Printf("[ExternalJob] session.Start failed: %v | stderr: %s", err, stderrBuf.String())
+		pm.ReleasePort(jobIDInt)
+		return "", fmt.Errorf("failed to start external command: %v", err)
 	}
 
-	// Return a custom ID so the portal knows this is an external job
-	return fmt.Sprintf("ext_%d", time.Now().Unix()), nil
+	if err := session.Wait(); err != nil {
+		log.Printf("[ExternalJob] session.Wait (shell exited): %v | stderr: %s", err, stderrBuf.String())
+	}
+
+	log.Printf("[ExternalJob] Dispatched: %s port=%d baseURL=%s", jobID, port, baseURL)
+	return jobID, nil
 }
 
+// PortAllocator is the subset of ports.PortManager needed by SubmitExternalJob.
+// Defined here to avoid an import cycle between the services and ports packages.
+type PortAllocator interface {
+	AllocatePort(jobID int, username, nodeHostname, nodeIP string) (int, error)
+	ReleasePort(jobID int) error
+}

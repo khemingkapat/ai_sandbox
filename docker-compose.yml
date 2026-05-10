@@ -185,8 +185,11 @@ services:
       context: .
       dockerfile: Dockerfile.external
     container_name: external-worker
+    networks:           # ← ADD THIS
+    - slurm-network   # ← ADD THIS
     ports:
       - "2222:22" # Maps container port 22 to host port 2222 for easy manual testing
+      - "9999:8888"
     volumes:
       - ./storage:/storage
 

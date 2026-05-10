@@ -50,13 +50,16 @@ func (h *JobHandler) Submit(c echo.Context) error {
 
 	// --- NEW LOGIC: External SSH Submission if Queue Exists ---
 	if hasQueue {
-		// Instead of Slurm, we run the container directly on an external node via SSH.
-		// Note: We skip buildPayload and Slurm.Do calls entirely.
-		externalJobID, err := h.Slurm.SubmitExternalJob(c.Request().Context(), username, targetApp, workspace)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, "External SSH submission failed")
-		}
-		return c.JSON(http.StatusOK, map[string]interface{}{"job_id": externalJobID, "mode": "external_ssh"})
+    		externalJobID, err := h.Slurm.SubmitExternalJob(c.Request().Context(), username, targetApp, workspace, h.PortManager)
+    		if err != nil {
+        	// ← was c.String(), must be c.JSON() so the frontend can parse it
+			// Replace every c.String(http.StatusInternalServerError, ...) in Submit() with:
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "..."})
+    		}
+    		return c.JSON(http.StatusOK, map[string]interface{}{
+        		"job_id": externalJobID,
+        		"mode":   "external_ssh",
+    		})
 	}
 	// ----------------------------------------------------------
 
@@ -78,6 +81,14 @@ func (h *JobHandler) Submit(c echo.Context) error {
 // Status polls a job's state and returns a proxy URL if the job is running.
 func (h *JobHandler) Status(c echo.Context) error {
 	jobID := c.Param("job_id")
+
+	if strings.HasPrefix(jobID, "ext_") {
+		return c.JSON(http.StatusOK, map[string]interface{}{
+            	"job_id": jobID,
+            	"state":  "RUNNING",
+            	"proxy_url": nil,
+        	})
+    	}
 	userToken := c.Get("user").(*jwt.Token)
 	claims := userToken.Claims.(jwt.MapClaims)
 	username := claims["sun"].(string)
