@@ -48,20 +48,17 @@ func (h *JobHandler) Submit(c echo.Context) error {
 	finalSlurmArgs := mergeSlurmArgs(targetApp.SlurmArgs, formSlurmArgs(c))
 	script := buildScript(username, workspace, targetApp, finalSlurmArgs)
 
-	// --- NEW LOGIC: External SSH Submission if Queue Exists ---
+	// External SSH submission when Slurm queue is at capacity
 	if hasQueue {
-    		externalJobID, err := h.Slurm.SubmitExternalJob(c.Request().Context(), username, targetApp, workspace, h.PortManager)
-    		if err != nil {
-        	// ← was c.String(), must be c.JSON() so the frontend can parse it
-			// Replace every c.String(http.StatusInternalServerError, ...) in Submit() with:
-			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "..."})
-    		}
-    		return c.JSON(http.StatusOK, map[string]interface{}{
-        		"job_id": externalJobID,
-        		"mode":   "external_ssh",
-    		})
+		externalJobID, err := h.Slurm.SubmitExternalJob(c.Request().Context(), username, targetApp, workspace, h.PortManager)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusOK, map[string]interface{}{
+			"job_id": externalJobID,
+			"mode":   "external_ssh",
+		})
 	}
-	// ----------------------------------------------------------
 
 	// Standard Slurm submission path
 	payload := buildPayload(username, workspace, targetApp, finalSlurmArgs, script)
@@ -77,18 +74,34 @@ func (h *JobHandler) Submit(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]interface{}{"job_id": result["job_id"]})
 }
 
-
 // Status polls a job's state and returns a proxy URL if the job is running.
 func (h *JobHandler) Status(c echo.Context) error {
 	jobID := c.Param("job_id")
 
 	if strings.HasPrefix(jobID, "ext_") {
+		// FIX: Strip "ext_" to get the integer used as the lease key.
+		// Previously the returned jobID was "ext_1778418811" (full Unix timestamp)
+		// but jobIDInt was Unix()%100000 (18811), so Atoi here never matched the lease.
+		// Now both sides use the same ext_{Unix()%100000} format, so the lookup works.
+		parts := strings.TrimPrefix(jobID, "ext_")
+		jIDInt, err := strconv.Atoi(parts)
+
+		var proxyURL *string
+		if err == nil {
+			lease, _ := h.PortManager.GetLeaseByJob(jIDInt)
+			if lease != nil {
+				url := fmt.Sprintf("http://localhost:8000/%s/jupyter/%d",
+					lease.Username, lease.JobID)
+				proxyURL = &url
+			}
+		}
 		return c.JSON(http.StatusOK, map[string]interface{}{
-            	"job_id": jobID,
-            	"state":  "RUNNING",
-            	"proxy_url": nil,
-        	})
-    	}
+			"job_id":    jobID,
+			"state":     "RUNNING",
+			"proxy_url": proxyURL,
+		})
+	}
+
 	userToken := c.Get("user").(*jwt.Token)
 	claims := userToken.Claims.(jwt.MapClaims)
 	username := claims["sun"].(string)
@@ -146,6 +159,10 @@ func (h *JobHandler) Log(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
 	project := userToken.Claims.(jwt.MapClaims)["prj"].(string)
 
+	// FIX: External jobs write their log as {appID}_{jobID}.out
+	// e.g. jupyterlab_ext_18811.out — the same pattern as Slurm jobs, just with
+	// the "ext_N" job ID. The path is on the shared ./storage mount which the
+	// portal sees at /mnt/storage/projects/{project}/logs/.
 	logPath := fmt.Sprintf("/mnt/storage/projects/%s/logs/%s_%s.out", project, appID, jobID)
 	content, err := os.ReadFile(logPath)
 	if err != nil {
@@ -157,6 +174,17 @@ func (h *JobHandler) Log(c echo.Context) error {
 // Cancel sends a DELETE request to the Slurm API to terminate a job.
 func (h *JobHandler) Cancel(c echo.Context) error {
 	jobID := c.Param("job_id")
+	if strings.HasPrefix(jobID, "ext_") {
+		// External jobs are not tracked by Slurm — release the port lease only.
+		// The JupyterLab process on the external worker keeps running until the
+		// container restarts; for a hard kill you would need a second SSH session.
+		parts := strings.TrimPrefix(jobID, "ext_")
+		if jIDInt, err := strconv.Atoi(parts); err == nil {
+			h.PortManager.ReleasePort(jIDInt)
+		}
+		return c.JSON(http.StatusOK, map[string]string{"status": "cancelled"})
+	}
+
 	userToken := c.Get("user").(*jwt.Token)
 	claims := userToken.Claims.(jwt.MapClaims)
 	username := claims["sun"].(string)

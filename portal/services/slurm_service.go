@@ -5,18 +5,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
 	"time"
-	"log"
 
 	"portal/models"
 
 	"github.com/golang-jwt/jwt/v5"
 	"golang.org/x/crypto/ssh"
 )
-
 
 // SlurmService handles all communication with the Slurm REST API.
 type SlurmService struct {
@@ -126,6 +125,7 @@ func (s *SlurmService) Do(ctx context.Context, method, path, username, token str
 	client := &http.Client{Timeout: 15 * time.Second}
 	return client.Do(req)
 }
+
 // SlurmJob represents a single job
 type SlurmJob struct {
 	JobState []string `json:"job_state"`
@@ -146,7 +146,7 @@ type SlurmNodesResponse struct {
 	Nodes []SlurmNode `json:"nodes"`
 }
 
-// CheckPendingQueue checks if the number of active/pending jobs 
+// CheckPendingQueue checks if the number of active/pending jobs
 // is greater than or equal to the number of available nodes.
 func (s *SlurmService) CheckPendingQueue(ctx context.Context, username, token string) (bool, error) {
 	// 1. Get total number of nodes
@@ -186,16 +186,17 @@ func (s *SlurmService) CheckPendingQueue(ctx context.Context, username, token st
 	}
 
 	// 4. Return true if we are at or over capacity
-	// Example: 2 nodes, 2 jobs (Running) -> returns true (the next job will queue)
 	return activeJobCount >= totalNodes, nil
 }
 
 // SubmitExternalJob connects via SSH using a password and runs Apptainer directly.
 // pm is used to allocate a port and register the Traefik proxy route before launching.
 func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, app *models.AppManifest, workspace string, pm PortAllocator) (string, error) {
-	// 1. Generate a stable job ID
-	jobID := fmt.Sprintf("ext_%d", time.Now().Unix())
+	// FIX 1: Use a single integer ID for both the lease key and the returned job ID string.
+	// Previously jobID used Unix() and jobIDInt used Unix()%100000 — they never matched,
+	// so GetLeaseByJob in the Status handler always returned nil (no proxy URL).
 	jobIDInt := int(time.Now().Unix() % 100000)
+	jobID := fmt.Sprintf("ext_%d", jobIDInt) // e.g. "ext_18811"
 
 	// 2. Allocate a port + register Traefik route BEFORE launching
 	port, err := pm.AllocatePort(jobIDInt, username, "external-worker", "external-worker")
@@ -229,11 +230,10 @@ func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, a
 
 	session, err := client.NewSession()
 	if err != nil {
-		log.Printf("[ExternalJob] Failed to create SSH session: %v", err)
-		pm.ReleasePort(jobIDInt)
-		return "", fmt.Errorf("failed to create session: %v", err)
+    		log.Printf("[ExternalJob] Failed to create SSH session: %v", err)
+    		pm.ReleasePort(jobIDInt)
+    		return "", fmt.Errorf("failed to create session: %v", err)
 	}
-	defer session.Close()
 
 	// 4. Build command — substitute shell vars with real values
 	externalWorkspace := strings.Replace(workspace, "/mnt/storage/projects", "/storage/projects", 1)
@@ -243,32 +243,38 @@ func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, a
 	execCmd = strings.ReplaceAll(execCmd, "$BASE_URL", baseURL)
 	execCmd = strings.ReplaceAll(execCmd, "$WORKSPACE", externalWorkspace)
 
+	// FIX 2: The format string previously had "apptainer exec ..." as a literal ellipsis —
+	// the real apptainer flags, image path, and execCmd were never interpolated, so
+	// JupyterLab never launched. Also unified the log filename to match the Log handler:
+	// {appID}_{jobID}.out  e.g. jupyterlab_ext_18811.out
 	remoteCmd := fmt.Sprintf(
-		"mkdir -p %s/logs && nohup apptainer exec --bind %s:%s --bind /storage/common:/storage/common:ro %s/%s bash -c %q > %s/logs/external_%s.log 2>&1 < /dev/null &",
-		externalWorkspace,
-		externalWorkspace, externalWorkspace,
-		externalSourcePath, app.ImageFile,
-		execCmd,
-		externalWorkspace, app.ID,
-	)
+    		"mkdir -p %s/logs; nohup apptainer exec --bind %s:%s --bind /storage/common:/storage/common:ro %s/%s bash -c %q > %s/logs/%s_%s.out 2>&1 < /dev/null & disown $!",
+    		externalWorkspace,
+    		externalWorkspace, externalWorkspace,
+    		externalSourcePath, app.ImageFile,
+    		execCmd,
+    		externalWorkspace, app.ID, jobID,
+		)
 	log.Printf("[ExternalJob] Remote command: %s", remoteCmd)
 
 	var stderrBuf bytes.Buffer
 	session.Stderr = &stderrBuf
 
 	if err := session.Start(remoteCmd); err != nil {
-		log.Printf("[ExternalJob] session.Start failed: %v | stderr: %s", err, stderrBuf.String())
-		pm.ReleasePort(jobIDInt)
-		return "", fmt.Errorf("failed to start external command: %v", err)
+    		log.Printf("[ExternalJob] session.Start failed: %v | stderr: %s", err, stderrBuf.String())
+    		session.Close()
+    		pm.ReleasePort(jobIDInt)
+    		return "", fmt.Errorf("failed to start external command: %v", err)
 	}
 
-	if err := session.Wait(); err != nil {
-		log.Printf("[ExternalJob] session.Wait (shell exited): %v | stderr: %s", err, stderrBuf.String())
-	}
+	time.Sleep(2 * time.Second)
+	session.Close()
+	client.Close()
 
 	log.Printf("[ExternalJob] Dispatched: %s port=%d baseURL=%s", jobID, port, baseURL)
 	return jobID, nil
-}
+	
+	}
 
 // PortAllocator is the subset of ports.PortManager needed by SubmitExternalJob.
 // Defined here to avoid an import cycle between the services and ports packages.

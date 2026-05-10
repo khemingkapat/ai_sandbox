@@ -180,19 +180,22 @@ services:
     networks:
       - slurm-network
 
+
   external-worker:
     build:
       context: .
       dockerfile: Dockerfile.external
     container_name: external-worker
-    networks:           # ← ADD THIS
-    - slurm-network   # ← ADD THIS
+    privileged: true                    # ← add this
+    security_opt:                       # ← add this block
+      - seccomp=unconfined
+      - apparmor=unconfined
+    networks:
+      - slurm-network
     ports:
-      - "2222:22" # Maps container port 22 to host port 2222 for easy manual testing
-      - "9999:8888"
+      - "2222:22"
     volumes:
       - ./storage:/storage
-
 volumes:
   etc_munge:
   etc_slurm:
