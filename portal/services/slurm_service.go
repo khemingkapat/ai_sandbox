@@ -193,19 +193,23 @@ func (s *SlurmService) CheckPendingQueue(ctx context.Context, username, token st
 // pm is used to allocate a port and register the Traefik proxy route before launching.
 func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, app *models.AppManifest, workspace string, pm PortAllocator) (string, error) {
 	// FIX 1: Use a single integer ID for both the lease key and the returned job ID string.
-	// Previously jobID used Unix() and jobIDInt used Unix()%100000 — they never matched,
-	// so GetLeaseByJob in the Status handler always returned nil (no proxy URL).
 	jobIDInt := int(time.Now().Unix() % 100000)
 	jobID := fmt.Sprintf("ext_%d", jobIDInt) // e.g. "ext_18811"
 
-	// 2. Allocate a port + register Traefik route BEFORE launching
-	port, err := pm.AllocatePort(jobIDInt, username, "external-worker", "external-worker")
-	if err != nil {
-		log.Printf("[ExternalJob] Port allocation failed: %v", err)
-		return "", fmt.Errorf("port allocation failed: %v", err)
+	var port int
+	var baseURL string
+
+	// 1. Only allocate a port if the command requests one (Interactive job)
+	if strings.Contains(app.ExecCommand, "$ALLOCATED_PORT") {
+		var err error
+		port, err = pm.AllocatePort(jobIDInt, username, "external-worker", "external-worker")
+		if err != nil {
+			log.Printf("[ExternalJob] Port allocation failed: %v", err)
+			return "", fmt.Errorf("port allocation failed: %v", err)
+		}
+		log.Printf("[ExternalJob] Allocated port %d for job %s", port, jobID)
+		baseURL = fmt.Sprintf("/%s/jupyter/%d", username, jobIDInt)
 	}
-	log.Printf("[ExternalJob] Allocated port %d for job %s", port, jobID)
-	baseURL := fmt.Sprintf("/%s/jupyter/%d", username, jobIDInt)
 
 	// 3. Setup SSH configuration
 	config := &ssh.ClientConfig{
@@ -222,7 +226,9 @@ func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, a
 	client, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
 		log.Printf("[ExternalJob] SSH dial failed: %v", err)
-		pm.ReleasePort(jobIDInt)
+		if port != 0 {
+			pm.ReleasePort(jobIDInt)
+		}
 		return "", fmt.Errorf("failed to connect to external node: %v", err)
 	}
 	defer client.Close()
@@ -230,41 +236,59 @@ func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, a
 
 	session, err := client.NewSession()
 	if err != nil {
-    		log.Printf("[ExternalJob] Failed to create SSH session: %v", err)
-    		pm.ReleasePort(jobIDInt)
-    		return "", fmt.Errorf("failed to create session: %v", err)
+		log.Printf("[ExternalJob] Failed to create SSH session: %v", err)
+		if port != 0 {
+			pm.ReleasePort(jobIDInt)
+		}
+		return "", fmt.Errorf("failed to create session: %v", err)
 	}
 
 	// 4. Build command — substitute shell vars with real values
 	externalWorkspace := strings.Replace(workspace, "/mnt/storage/projects", "/storage/projects", 1)
 	externalSourcePath := strings.Replace(app.SourcePath, "/mnt/storage", "/storage", 1)
 
-	execCmd := strings.ReplaceAll(app.ExecCommand, "$ALLOCATED_PORT", fmt.Sprintf("%d", port))
+	// CLEANUP: Remove srun and hardcoded apptainer commands so the external worker handles it cleanly
+	cleanCmd := strings.ReplaceAll(app.ExecCommand, "srun ", "")
+	cleanCmd = strings.ReplaceAll(cleanCmd, "apptainer exec $IMAGE_FILE ", "")
+
+	execCmd := strings.ReplaceAll(cleanCmd, "$ALLOCATED_PORT", fmt.Sprintf("%d", port))
 	execCmd = strings.ReplaceAll(execCmd, "$BASE_URL", baseURL)
 	execCmd = strings.ReplaceAll(execCmd, "$WORKSPACE", externalWorkspace)
+	// This ensures the container creates a small flag file the exact moment your script finishes.
+	execCmd = fmt.Sprintf("{ %s; }; touch %s/logs/%s_done.flag", execCmd, externalWorkspace, jobID)
 
-	// FIX 2: The format string previously had "apptainer exec ..." as a literal ellipsis —
-	// the real apptainer flags, image path, and execCmd were never interpolated, so
-	// JupyterLab never launched. Also unified the log filename to match the Log handler:
-	// {appID}_{jobID}.out  e.g. jupyterlab_ext_18811.out
-	remoteCmd := fmt.Sprintf(
-    		"mkdir -p %s/logs; nohup apptainer exec --bind %s:%s --bind /storage/common:/storage/common:ro %s/%s bash -c %q > %s/logs/%s_%s.out 2>&1 < /dev/null & disown $!",
-    		externalWorkspace,
-    		externalWorkspace, externalWorkspace,
-    		externalSourcePath, app.ImageFile,
-    		execCmd,
-    		externalWorkspace, app.ID, jobID,
+	var remoteCmd string
+	if app.ImageFile == "" {
+		// Run natively (No Apptainer) - Fallback just in case
+		remoteCmd = fmt.Sprintf(
+			"mkdir -p %s/logs; nohup bash -c %q > %s/logs/%s_%s.out 2>&1 < /dev/null & disown $!",
+			externalWorkspace,
+			execCmd,
+			externalWorkspace, app.ID, jobID,
 		)
+	} else {
+		// Run with Apptainer (This is what your jobs will use now)
+		remoteCmd = fmt.Sprintf(
+			"mkdir -p %s/logs; nohup apptainer exec --bind %s:%s --bind /storage/common:/storage/common:ro %s/%s bash -c %q > %s/logs/%s_%s.out 2>&1 < /dev/null & disown $!",
+			externalWorkspace,
+			externalWorkspace, externalWorkspace,
+			externalSourcePath, app.ImageFile,
+			execCmd,
+			externalWorkspace, app.ID, jobID,
+		)
+	}
 	log.Printf("[ExternalJob] Remote command: %s", remoteCmd)
 
 	var stderrBuf bytes.Buffer
 	session.Stderr = &stderrBuf
 
 	if err := session.Start(remoteCmd); err != nil {
-    		log.Printf("[ExternalJob] session.Start failed: %v | stderr: %s", err, stderrBuf.String())
-    		session.Close()
-    		pm.ReleasePort(jobIDInt)
-    		return "", fmt.Errorf("failed to start external command: %v", err)
+		log.Printf("[ExternalJob] session.Start failed: %v | stderr: %s", err, stderrBuf.String())
+		session.Close()
+		if port != 0 {
+			pm.ReleasePort(jobIDInt)
+		}
+		return "", fmt.Errorf("failed to start external command: %v", err)
 	}
 
 	time.Sleep(2 * time.Second)
@@ -273,8 +297,37 @@ func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, a
 
 	log.Printf("[ExternalJob] Dispatched: %s port=%d baseURL=%s", jobID, port, baseURL)
 	return jobID, nil
-	
+}
+
+// IsExternalJobDone returns true if the external job has finished running
+func (s *SlurmService) IsExternalJobDone(username string, workspace string, jobID string) bool {
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{ssh.Password("password")},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
 	}
+
+	client, err := ssh.Dial("tcp", "external-worker:22", config)
+	if err != nil {
+		return false
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return false
+	}
+	defer session.Close()
+
+	externalWorkspace := strings.Replace(workspace, "/mnt/storage/projects", "/storage/projects", 1)
+	
+	// The 'test -f' command checks if the file exists. It returns 0 (success) if true.
+	checkCmd := fmt.Sprintf("test -f %s/logs/%s_done.flag", externalWorkspace, jobID)
+
+	err = session.Run(checkCmd)
+	return err == nil // If err is nil, the command succeeded and the file exists!
+}
 
 // PortAllocator is the subset of ports.PortManager needed by SubmitExternalJob.
 // Defined here to avoid an import cycle between the services and ports packages.
