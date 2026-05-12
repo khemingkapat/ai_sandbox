@@ -254,8 +254,6 @@ func (s *SlurmService) SubmitExternalJob(ctx context.Context, username string, a
 	execCmd := strings.ReplaceAll(cleanCmd, "$ALLOCATED_PORT", fmt.Sprintf("%d", port))
 	execCmd = strings.ReplaceAll(execCmd, "$BASE_URL", baseURL)
 	execCmd = strings.ReplaceAll(execCmd, "$WORKSPACE", externalWorkspace)
-	// This ensures the container creates a small flag file the exact moment your script finishes.
-	execCmd = fmt.Sprintf("{ %s; }; touch %s/logs/%s_done.flag", execCmd, externalWorkspace, jobID)
 
 	var remoteCmd string
 	if app.ImageFile == "" {
