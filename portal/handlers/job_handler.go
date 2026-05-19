@@ -297,14 +297,16 @@ func buildScript(username, workspace string, app *models.AppManifest, slurmArgs 
 			workspace, workspace, app.SourcePath, app.ImageFile, app.ExecCommand,
 		))
 	} else {
-		sb.WriteString(fmt.Sprintf("\nbash -c %q\n", app.ExecCommand))
+		sb.WriteString(fmt.Sprintf("\n%s\n", app.ExecCommand))
 	}
 
 	if needsPort {
 		sb.WriteString(portReleaseBlock())
 	}
 
-	return sb.String()
+	result := sb.String()
+    	log.Printf("[buildScript] Generated script for %s:\n%s", app.ID, result)  // ADD THIS
+    	return result
 }
 
 func portAllocationBlock(username string) string {
