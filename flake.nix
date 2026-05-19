@@ -1,37 +1,34 @@
 {
-  description = "HPC Toolkit Local Simulation Environment";
+  description = "Local Slinky Rapid Prototype Environment";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11"; # Stable version
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     flake-utils.url = "github:numtide/flake-utils";
   };
 
   outputs =
-    {
-      self,
-      nixpkgs,
-      flake-utils,
+    { self
+    , nixpkgs
+    , flake-utils
+    ,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
+        pkgs = nixpkgs.legacyPackages.${system};
+        Medieval = with pkgs; [
+          kind # Creates the local multi-node cluster inside Docker
+          kubectl # The CLI tool to talk to Kubernetes
+          kubernetes-helm # Installs Slinky charts
+        ];
       in
       {
         devShells.default = pkgs.mkShell {
-          packages = [
-            pkgs.python3
-            pkgs.uv
-            pkgs.pyright
-            pkgs.black
-          ];
+          buildInputs = Medieval;
 
           shellHook = ''
-                        export UV_PYTHON_DOWNLOADS=never
-            	    export DOCKER_DEFAULT_PLATFORM=linux/arm64
-                        echo "--- HPC Local Simulation Shell ---"
-                        echo "Tools available: docker-compose, uv, python3"
-                        echo "Run 'docker-compose up -d' to start your local cluster."
+            echo "🎒 Welcome to your AI Sandbox prototyping shell!"
+            echo "Tools loaded: kind ($(kind --version)), kubectl, helm"
           '';
         };
       }
