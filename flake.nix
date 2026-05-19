@@ -7,29 +7,50 @@
   };
 
   outputs =
-    { self
-    , nixpkgs
-    , flake-utils
-    ,
+    {
+      self,
+      nixpkgs,
+      flake-utils,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
         pkgs = nixpkgs.legacyPackages.${system};
-        Medieval = with pkgs; [
-          kind # Creates the local multi-node cluster inside Docker
-          kubectl # The CLI tool to talk to Kubernetes
-          kubernetes-helm # Installs Slinky charts
+        tools = with pkgs; [
+          kind
+          kubectl
+          kubernetes-helm
         ];
       in
       {
         devShells.default = pkgs.mkShell {
-          buildInputs = Medieval;
-
+          buildInputs = tools;
           shellHook = ''
-            echo "🎒 Welcome to your AI Sandbox prototyping shell!"
-            echo "Tools loaded: kind ($(kind --version)), kubectl, helm"
+            echo "🚀 Slinky Prototype Shell Initialized"
+
+            # Function to boot cluster AND install Slinky
+            kup() {
+              echo "Creating Kubernetes cluster..."
+              kind create cluster --config kind-config.yaml
+
+              echo "Waiting for cluster to be ready..."
+              kubectl wait --for=condition=Ready nodes --all --timeout=60s
+
+              echo "Running Slinky installation script..."
+              ./scripts/start-slinky.sh
+            }
+
+            # Export the function so it is available in subshells
+            export -f kup
+
+            # Simple aliases
+            alias kdown="kind delete cluster"
+            alias kstat="kubectl get pods -n slurm"
+            alias slurm-shell="kubectl exec -it slurm-controller-0 -n slurm -- bash"
+
+            echo "✅ Aliases loaded: kup, kdown, kstat, slurm-shell"
           '';
+
         };
       }
     );
