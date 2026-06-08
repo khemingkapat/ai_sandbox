@@ -16,5 +16,3 @@ storage.bak/
 traefik-dynamic/*
 !traefik-dynamic/.gitkeep
 
-*.ignore.*
-

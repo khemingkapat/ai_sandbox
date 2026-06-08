@@ -182,12 +182,10 @@ controller:
       # - -vvv
     # -- The container resource limits and requests.
     # Ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-requests-and-limits-of-pod-and-container
-    resources:
-      requests:
-        cpu: 500m
-        memory: 256Mi
-      limits:
-        memory: 512Mi
+    resources: {}
+      # requests:
+      #   cpu: 1
+      #   memory: 1Gi
   # Reconfigure container configurations.
   reconfigure:
     # -- (string \| object) The image to use.
@@ -226,7 +224,7 @@ controller:
     # If set to "-" or "", it disables dynamic storage provisioning.
     # If undefined or set to null, your default storage provisioner is used.
     # Ref: https://kubernetes.io/docs/concepts/storage/storage-classes/
-    storageClassName: standard
+    storageClassName: null
     # Create the `PersistentVolumeClaim` with the desired access modes.
     # Ref: https://kubernetes.io/docs/concepts/storage/persistent-volumes#access-modes
     accessModes:
@@ -235,16 +233,14 @@ controller:
     # Ref: https://kubernetes.io/docs/concepts/storage/persistent-volumes#resources
     resources:
       requests:
-        storage: 1Gi
+        storage: 4Gi
   # -- (string) Raw extra Slurm configuration lines appended to `slurm.conf`.
   # Ref: https://slurm.schedmd.com/slurm.conf.html
   extraConf: null
   # -- (map[string]string \| map[string][]string) Extra Slurm configuration lines appended to `slurm.conf`.
   # If `extraConf` is not empty, it takes precedence.
   # Ref: https://slurm.schedmd.com/slurm.conf.html
-  extraConfMap:
-    AccountingStorageType: accounting_storage/slurmdbd
-    AccountingStoreFlags: job_comment
+  extraConfMap: {}
     # DebugFlags: []
     # MinJobAge: 2
     # SchedulerParameters: []
@@ -400,7 +396,7 @@ restapi:
 accounting:
   # -- Enables Slurm accounting subsystem, stores job/step historical records.
   # Ref: https://slurm.schedmd.com/accounting.html#Overview
-  enabled: true
+  enabled: false
   # -- Configures this component as external (not in Kubernetes).
   external: false
   # Details required to communicate with an external slurmdbd.
@@ -423,12 +419,10 @@ accounting:
       # - -vvv
     # -- The container resource limits and requests.
     # Ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-requests-and-limits-of-pod-and-container
-    resources:
-      requests:
-        cpu: 250m
-        memory: 256Mi
-      limits:
-        memory: 512Mi
+    resources: {}
+      # requests:
+      #   cpu: 1
+      #   memory: 1Gi
   # The storage configuration.
   storageConfig:
     # -- The name of the host where the database is running.
@@ -662,7 +656,7 @@ nodesets:
     # -- Scaling mode: "StatefulSet" (fixed replica count) or "DaemonSet" (one pod per matching node).
     scalingMode: StatefulSet
     # -- Number of replicas to deploy. Ignored when scalingMode is daemonset.
-    replicas: 1
+    replicas: 2
     # -- Taint the Kubernetes nodes on which nodeset pods are scheduled with NoExecute.
     taintKubeNodes: false
     # -- Use a Pod Disruption Budget to protect pods in this NodeSet when Slurm jobs are running on them
@@ -675,25 +669,22 @@ nodesets:
       # -- (string \| object) The image to use.
       # Ref: https://kubernetes.io/docs/concepts/containers/images/#image-names
       image:
-        repository: slurm-sandbox
-        tag: latest
-        pullPolicy: Never
+        repository: ghcr.io/slinkyproject/slurmd
+        tag: 25.11-ubuntu24.04
       # -- Arguments passed to the image.
       # Ref: https://slurm.schedmd.com/slurmd.html#SECTION_OPTIONS
-      args:
-        - "-N $(HOSTNAME)"
+      args: []
+        # - -vvv
       # -- Environment passed to the image.
-      env:
-        - name: HOSTNAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-      resources:
-        requests:
-          cpu: 500m
-          memory: 512Mi
-        limits:
-          memory: 1Gi
+      env: []
+        # - name: PAM_SLURM_ADOPT_OPTIONS
+        #   value: action_adopt_failure=deny action_generic_failure=deny
+      # -- The container resource limits and requests.
+      # Ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-requests-and-limits-of-pod-and-container
+      resources: {}
+        # limits:
+        #   cpu: 1
+        #   memory: 1Gi
       # -- List of volume mounts to use.
       # Ref: https://kubernetes.io/docs/concepts/storage/volumes/
       volumeMounts: []
@@ -828,3 +819,4 @@ vendor:
       jobMappingDir: "/var/lib/dcgm-exporter/job-mapping"
       # -- Script execution priority (lower numbers run first)
       scriptPriority: "90"
+
