@@ -69,6 +69,7 @@ spec:
       containers:
       - name: openldap
         image: osixia/openldap:latest
+        args: ["--copy-service"]    # THIS BUILT-IN FLAG FIXES EVERYTHING
         env:
         - name: LDAP_DOMAIN
           value: "sandbox.local"
@@ -79,21 +80,17 @@ spec:
         ports:
         - containerPort: 389
         volumeMounts:
-        - name: ldif-volume
+        - name: ldap-ldif
           mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom
+        - name: ldap-data
+          mountPath: /var/lib/ldap
+        - name: ldap-config
+          mountPath: /etc/ldap/slapd.d
       volumes:
-      - name: ldif-volume
+      - name: ldap-ldif
         configMap:
           name: ldap-ldif
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: openldap-server
-  namespace: slurm
-spec:
-  selector:
-    app: openldap
-  ports:
-  - port: 389
-    targetPort: 389
+      - name: ldap-data
+        emptyDir: {}
+      - name: ldap-config
+        emptyDir: {}
