@@ -1,0 +1,27 @@
+dn: ou=Users,dc=sandbox,dc=local
+objectClass: organizationalUnit
+ou: Users
+
+dn: uid=user1,ou=Users,dc=sandbox,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: user1
+cn: User One
+sn: One
+uidNumber: 1001
+gidNumber: 2001
+homeDirectory: /mnt/storage/projects/project1
+loginShell: /bin/bash
+
+dn: uid=user2,ou=Users,dc=sandbox,dc=local
+objectClass: inetOrgPerson
+objectClass: posixAccount
+objectClass: shadowAccount
+uid: user2
+cn: User Two
+sn: Two
+uidNumber: 1002
+gidNumber: 2001
+homeDirectory: /mnt/storage/projects/project1
+loginShell: /bin/bash
