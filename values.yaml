@@ -517,7 +517,7 @@ sssd:
     [sssd]
     config_file_version = 2
     services = nss,pam
-    domains = DEFAULT
+    domains = sandbox.local
 
     [nss]
     filter_groups = root,slurm
@@ -525,13 +525,22 @@ sssd:
 
     [pam]
 
-    [domain/DEFAULT]
+    [domain/sandbox.local]
     auth_provider = ldap
     id_provider = ldap
-    ldap_uri = ldap://ldap.example.com
-    ldap_search_base = dc=example,dc=com
-    ldap_user_search_base = ou=Users,dc=example,dc=com
-    ldap_group_search_base = ou=Groups,dc=example,dc=com
+    ldap_uri = ldap://openldap-server
+    ldap_search_base = dc=sandbox,dc=local
+    ldap_default_bind_dn = cn=admin,dc=sandbox,dc=local
+    ldap_default_authtok = adminpass
+    ldap_user_search_base = ou=Users,dc=sandbox,dc=local
+    ldap_user_object_class = posixAccount
+    ldap_user_name = uid
+    ldap_group_search_base = ou=Groups,dc=sandbox,dc=local
+    ldap_group_object_class = posixGroup
+    ldap_group_member = memberUid
+    ldap_tls_reqcert = never
+    enumerate = false
+    cache_credentials = true
 
 # -- (map[string]object) Slurm LoginSet (sackd, sshd, sssd) configurations.
 loginsets:
