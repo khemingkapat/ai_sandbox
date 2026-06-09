@@ -528,7 +528,7 @@ sssd:
     [domain/sandbox.local]
     auth_provider = ldap
     id_provider = ldap
-    ldap_uri = ldap://openldap-server
+    ldap_uri = ldap://openldap-server.slurm.svc.cluster.local
     ldap_search_base = dc=sandbox,dc=local
     ldap_default_bind_dn = cn=admin,dc=sandbox,dc=local
     ldap_default_authtok = adminpass
@@ -547,7 +547,7 @@ loginsets:
   # Sample LoginSet.
   slinky:
     # -- Enable use of this LoginSet.
-    enabled: false
+    enabled: true
     # -- Number of replicas to deploy.
     replicas: 1
     # -- Deployment strategy configuration.
@@ -741,7 +741,7 @@ nodesets:
     ssh:
       # -- Enable SSH access to worker pods with pam_slurm_adopt.
       # Ref: https://slurm.schedmd.com/pam_slurm_adopt.html
-      enabled: false
+      enabled: true
       # -- Extra configuration lines appended to `/etc/ssh/sshd_config`.
       # Ref: https://manpages.ubuntu.com/manpages/noble/man5/sshd_config.5.html
       extraSshdConfig: null

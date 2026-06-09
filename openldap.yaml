@@ -1,0 +1,99 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ldap-ldif
+  namespace: slurm
+data:
+  01-users.ldif: |
+    dn: ou=Users,dc=sandbox,dc=local
+    objectClass: organizationalUnit
+    ou: Users
+
+    dn: uid=user1,ou=Users,dc=sandbox,dc=local
+    objectClass: inetOrgPerson
+    objectClass: posixAccount
+    objectClass: shadowAccount
+    uid: user1
+    cn: User One
+    sn: One
+    uidNumber: 1001
+    gidNumber: 2001
+    homeDirectory: /mnt/storage/projects/project1
+    loginShell: /bin/bash
+
+    dn: uid=user2,ou=Users,dc=sandbox,dc=local
+    objectClass: inetOrgPerson
+    objectClass: posixAccount
+    objectClass: shadowAccount
+    uid: user2
+    cn: User Two
+    sn: Two
+    uidNumber: 1002
+    gidNumber: 2001
+    homeDirectory: /mnt/storage/projects/project1
+    loginShell: /bin/bash
+  02-groups.ldif: |
+    dn: ou=Groups,dc=sandbox,dc=local
+    objectClass: organizationalUnit
+    ou: Groups
+
+    dn: cn=project1,ou=Groups,dc=sandbox,dc=local
+    objectClass: posixGroup
+    cn: project1
+    gidNumber: 2001
+    memberUid: user1
+    memberUid: user2
+
+    dn: cn=project2,ou=Groups,dc=sandbox,dc=local
+    objectClass: posixGroup
+    cn: project2
+    gidNumber: 2002
+    memberUid: user3
+    memberUid: user2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openldap-server
+  namespace: slurm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: openldap
+  template:
+    metadata:
+      labels:
+        app: openldap
+    spec:
+      containers:
+      - name: openldap
+        image: osixia/openldap:latest
+        env:
+        - name: LDAP_DOMAIN
+          value: "sandbox.local"
+        - name: LDAP_ORGANISATION
+          value: "Sandbox"
+        - name: LDAP_ADMIN_PASSWORD
+          value: "adminpass"
+        ports:
+        - containerPort: 389
+        volumeMounts:
+        - name: ldif-volume
+          mountPath: /container/service/slapd/assets/config/bootstrap/ldif/custom
+      volumes:
+      - name: ldif-volume
+        configMap:
+          name: ldap-ldif
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: openldap-server
+  namespace: slurm
+spec:
+  selector:
+    app: openldap
+  ports:
+  - port: 389
+    targetPort: 389
