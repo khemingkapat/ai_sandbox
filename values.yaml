@@ -164,11 +164,21 @@ controller:
     - name: sssd-config
       configMap:
         name: sssd-config
-        defaultMode: 0600    # Very important for SSSD
+        defaultMode: 0600
+    - name: sssd-sockets
+      emptyDir: {}
+    - name: sssd-cache
+      emptyDir: {}
   extraVolumeMounts:
-    - name: sssd-config
-      mountPath: /etc/sssd/sssd.conf
-      subPath: sssd.conf
+    - name: sssd-sockets
+      mountPath: /var/lib/sss/pipes
+    - name: sssd-cache
+      mountPath: /var/lib/sss/db
+  slurmctld:
+    # Back to upstream - no custom image needed
+    image:
+      repository: ghcr.io/slinkyproject/slurmctld
+      tag: 25.11-ubuntu24.04
   # -- Configures this component as external (not in Kubernetes).
   external: false
   # Details required to communicate with an external slurmdbd.
@@ -179,23 +189,6 @@ controller:
     # -- The slurmctld port. Default is 6817.
     port: null
   # slurmctld container configurations.
-  slurmctld:
-    # -- (string \| object) The image to use.
-    # Ref: https://kubernetes.io/docs/concepts/containers/images/#image-names
-    image:
-      repository: ghcr.io/slinkyproject/slurmctld
-      tag: 25.11-ubuntu24.04
-    # -- Arguments passed to the image.
-    # Ref: https://slurm.schedmd.com/slurmctld.html#SECTION_OPTIONS
-    args: []
-      # - -vvv
-    # -- The container resource limits and requests.
-    # Ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-requests-and-limits-of-pod-and-container
-    resources: {}
-      # requests:
-      #   cpu: 1
-      #   memory: 1Gi
-  # Reconfigure container configurations.
   reconfigure:
     # -- (string \| object) The image to use.
     # Ref: https://kubernetes.io/docs/concepts/containers/images/#image-names
@@ -264,6 +257,32 @@ controller:
   # -- (corev1.PodSpec) Extend the pod template, and/or override certain configurations.
   # Ref: https://kubernetes.io/docs/concepts/workloads/pods/#pod-templates
   podSpec:
+    nodeSelector:
+      kubernetes.io/os: linux
+    # Sidecar container — runs as root, handles all NSS/PAM lookups
+    containers:
+      - name: sssd
+        image: ubuntu:22.04
+        securityContext:
+          runAsUser: 0
+        command:
+          - bash
+          - -c
+          - |
+            apt-get update -qq && \
+            apt-get install -y --no-install-recommends sssd sssd-ldap && \
+            mkdir -p /run/sssd && \
+            cp /etc/sssd/sssd.conf /run/sssd/sssd.conf && \
+            chmod 600 /run/sssd/sssd.conf && \
+            exec sssd -i -d 3 --config /run/sssd/sssd.conf
+        volumeMounts:
+          - name: sssd-config
+            mountPath: /etc/sssd/sssd.conf
+            subPath: sssd.conf
+          - name: sssd-sockets
+            mountPath: /var/lib/sss/pipes
+          - name: sssd-cache
+            mountPath: /var/lib/sss/db
     # -- The pod resource limits and requests.
     # Ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-requests-and-limits-of-pod-and-container
     resources: {}
@@ -274,10 +293,6 @@ controller:
     # Ref: https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
     # Ref: https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/
     initContainers: []
-    # -- (map[string]string) Node label selector for pod assignment.
-    # Ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
-    nodeSelector:
-      kubernetes.io/os: linux
     # -- Affinity for pod assignment.
     # Ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity
     affinity: {}
@@ -667,7 +682,6 @@ loginsets:
 
 # -- (map[string]object) Slurm NodeSet (slurmd) configurations.
 nodesets:
-  # Sample NodeSet.
   slinky:
     extraVolumes:
       - name: sssd-config
@@ -693,8 +707,6 @@ nodesets:
     ordinalPadding: 0
     # slurmd container configurations.
     slurmd:
-      # -- (string \| object) The image to use.
-      # Ref: https://kubernetes.io/docs/concepts/containers/images/#image-names
       image:
         repository: ghcr.io/slinkyproject/slurmd
         tag: 25.11-ubuntu24.04
@@ -714,9 +726,10 @@ nodesets:
         #   memory: 1Gi
       # -- List of volume mounts to use.
       # Ref: https://kubernetes.io/docs/concepts/storage/volumes/
-      volumeMounts: []
-        # - name: nfs-home
-        #   mountPath: /home
+      volumeMounts:
+        - name: sssd-config
+          mountPath: /etc/sssd/sssd.conf
+          subPath: sssd.conf
     # LogFile sidecar configurations.
     logfile:
       # -- (string \| object) The image to use.
@@ -781,36 +794,40 @@ nodesets:
     # -- (corev1.PodSpec) Extend the pod template, and/or override certain configurations.
     # Ref: https://kubernetes.io/docs/concepts/workloads/pods/#pod-templates
     podSpec:
-      # -- The pod resource limits and requests.
-      # Ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-requests-and-limits-of-pod-and-container
-      resources: {}
-        # limits:
-        #   cpu: 1
-        #   memory: 1Gi
-      # -- Additional initContainers for the pod.
-      # Ref: https://kubernetes.io/docs/concepts/workloads/pods/init-containers/
-      # Ref: https://kubernetes.io/docs/concepts/workloads/pods/sidecar-containers/
-      initContainers: []
-      # -- (map[string]string) Node label selector for pod assignment.
-      # Ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
+      containers:
+        - name: sssd
+          image: ubuntu:22.04
+          securityContext:
+            runAsUser: 0
+          command:
+            - bash
+            - -c
+            - |
+              apt-get update -qq && \
+              apt-get install -y --no-install-recommends sssd sssd-ldap && \
+              mkdir -p /run/sssd && \
+              cp /etc/sssd/sssd.conf /run/sssd/sssd.conf && \
+              chmod 600 /run/sssd/sssd.conf && \
+              exec sssd -i -d 3 --config /run/sssd/sssd.conf
+          volumeMounts:
+            - name: sssd-config
+              mountPath: /etc/sssd/sssd.conf
+              subPath: sssd.conf
+            - name: sssd-sockets
+              mountPath: /var/lib/sss/pipes
+            - name: sssd-cache
+              mountPath: /var/lib/sss/db
+      volumes:
+        - name: sssd-config
+          configMap:
+            name: sssd-config
+            defaultMode: 0600
+        - name: sssd-sockets
+          emptyDir: {}
+        - name: sssd-cache
+          emptyDir: {}
       nodeSelector:
         kubernetes.io/os: linux
-      # -- Affinity for pod assignment.
-      # Ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity
-      affinity: {}
-      # -- Tolerations for pod assignment.
-      # Ref: https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
-      tolerations: []
-        # - key: nvidia.com/gpu
-        #   effect: NoSchedule
-      # -- List of volumes to use.
-      # Ref: https://kubernetes.io/docs/concepts/storage/volumes/
-      volumes: []
-        # - name: nfs-home
-        #   nfs:
-        #     server: nfs-server.example.com
-        #     path: /exports/home
-
 # -- (map[string]object) Slurm partition configurations.
 # The map key represents the partition name (must be unique); the map value represents the partition definition.
 partitions:
@@ -846,4 +863,3 @@ vendor:
       jobMappingDir: "/var/lib/dcgm-exporter/job-mapping"
       # -- Script execution priority (lower numbers run first)
       scriptPriority: "90"
-
