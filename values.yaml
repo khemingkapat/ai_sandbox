@@ -160,6 +160,15 @@ epilogScripts: {}
 
 # Slurm controller (slurmctld) configuration.
 controller:
+  extraVolumes:
+    - name: sssd-config
+      configMap:
+        name: sssd-config
+        defaultMode: 0600    # Very important for SSSD
+  extraVolumeMounts:
+    - name: sssd-config
+      mountPath: /etc/sssd/sssd.conf
+      subPath: sssd.conf
   # -- Configures this component as external (not in Kubernetes).
   external: false
   # Details required to communicate with an external slurmdbd.
@@ -660,6 +669,15 @@ loginsets:
 nodesets:
   # Sample NodeSet.
   slinky:
+    extraVolumes:
+      - name: sssd-config
+        configMap:
+          name: sssd-config
+          defaultMode: 0600
+    extraVolumeMounts:
+      - name: sssd-config
+        mountPath: /etc/sssd/sssd.conf
+        subPath: sssd.conf
     # -- Enable use of this NodeSet.
     enabled: true
     # -- Scaling mode: "StatefulSet" (fixed replica count) or "DaemonSet" (one pod per matching node).
