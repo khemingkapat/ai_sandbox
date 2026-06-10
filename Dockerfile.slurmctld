@@ -1,0 +1,16 @@
+FROM ghcr.io/slinkyproject/slurmctld:25.11-ubuntu24.04
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    sssd \
+    sssd-ldap \
+    ldap-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+# Add SSSD as a supervised service
+COPY scripts/sssd.supervisor.conf /etc/supervisor/conf.d/sssd.conf
+
+# Wrapper that fixes sssd.conf permissions then hands off to original entrypoint
+COPY scripts/slurmctld-entrypoint.sh /entrypoint-wrapper.sh
+RUN chmod +x /entrypoint-wrapper.sh
+
+ENTRYPOINT ["/entrypoint-wrapper.sh"]
