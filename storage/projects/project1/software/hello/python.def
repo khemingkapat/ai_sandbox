@@ -1,0 +1,9 @@
+Bootstrap: docker
+From: python:3.10-slim
+
+%post
+    # This section runs when the image is being built.
+    apt-get update
+    
+    # If your scripts need extra libraries later, you can remove the # below:
+    # pip install numpy pandas requests
