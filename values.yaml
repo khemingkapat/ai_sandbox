@@ -661,9 +661,9 @@ nodesets:
         #   memory: 1Gi
       # -- List of volume mounts to use.
       # Ref: https://kubernetes.io/docs/concepts/storage/volumes/
-      volumeMounts: []
-        # - name: nfs-home
-        #   mountPath: /home
+      volumeMounts:
+        - name: slinky-storage
+          mountPath: /mnt/storage
     # LogFile sidecar configurations.
     logfile:
       # -- (string \| object) The image to use.
@@ -752,11 +752,10 @@ nodesets:
         #   effect: NoSchedule
       # -- List of volumes to use.
       # Ref: https://kubernetes.io/docs/concepts/storage/volumes/
-      volumes: []
-        # - name: nfs-home
-        #   nfs:
-        #     server: nfs-server.example.com
-        #     path: /exports/home
+      volumes:
+        - name: slinky-storage
+          persistentVolumeClaim:
+            claimName: slinky-storage-pvc
 
 # -- (map[string]object) Slurm partition configurations.
 # The map key represents the partition name (must be unique); the map value represents the partition definition.
