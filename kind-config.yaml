@@ -2,5 +2,14 @@ kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 nodes:
 - role: control-plane  # The master node
+  extraMounts:
+  - hostPath: /home/khemi/workspace/ai_sandbox/storage
+    containerPath: /mnt/storage
 - role: worker         # Compute node 1
+  extraMounts:
+  - hostPath: /home/khemi/workspace/ai_sandbox/storage
+    containerPath: /mnt/storage
 - role: worker         # Compute node 2
+  extraMounts:
+  - hostPath: /home/khemi/workspace/ai_sandbox/storage
+    containerPath: /mnt/storage

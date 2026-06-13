@@ -505,42 +505,7 @@ accounting:
     # nodePort: 30819
 
 # Cluster SSSD configuration.
-sssd:
-  # -- (secretKeyRef) The `sssd.conf` by ref.
-  # NOTE: Takes presence over `conf` if not empty.
-  secretRef: {}
-    # name: slurm-sssd-conf
-    # key: sssd.conf
-  # -- The `sssd.conf` by raw file.
-  # Ref: https://man.archlinux.org/man/sssd.conf.5
-  conf: |
-    [sssd]
-    config_file_version = 2
-    services = nss,pam
-    domains = sandbox.local
-
-    [nss]
-    filter_groups = root,slurm
-    filter_users = root,slurm
-
-    [pam]
-
-    [domain/sandbox.local]
-    auth_provider = ldap
-    id_provider = ldap
-    ldap_uri = ldap://openldap-server
-    ldap_search_base = dc=sandbox,dc=local
-    ldap_default_bind_dn = cn=admin,dc=sandbox,dc=local
-    ldap_default_authtok = adminpass
-    ldap_user_search_base = ou=Users,dc=sandbox,dc=local
-    ldap_user_object_class = posixAccount
-    ldap_user_name = uid
-    ldap_group_search_base = ou=Groups,dc=sandbox,dc=local
-    ldap_group_object_class = posixGroup
-    ldap_group_member = memberUid
-    ldap_tls_reqcert = never
-    enumerate = false
-    cache_credentials = true
+sssd: {}
 
 # -- (map[string]object) Slurm LoginSet (sackd, sshd, sssd) configurations.
 loginsets:
