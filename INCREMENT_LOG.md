@@ -2,6 +2,18 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 3] - 2026-06-13: Detailed Automation Docs & Central Branch Integration
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Document the 5-part verification suite under the automation workflow and push the complete codebase to the central `development` branch for Jules integration.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Workflow Documentation:**
+    *   Updated [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/DEVELOPMENT_WORKFLOW.md): Listed and detailed the 5 core test cases (Clean Cluster Spawn, Standard Queueing, Parallel Node Execution, Persistent Shared Storage, and Disaster Recovery) under Task A (Stability Check).
+2.  **Central Branch Integration:**
+    *   Merged the `feature/k8s-native-isolation` branch into `development` and successfully pushed it to remote `origin/development`. This enables Jules to locate and run [scripts/verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh).
+
 ---
 
 ## [Increment 2] - 2026-06-13: Slinky Infrastructure Verification Suite & Automation Plan
