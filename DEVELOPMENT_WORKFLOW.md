@@ -64,11 +64,11 @@ For details on the current implementation state, see [INCREMENT_LOG.md](file:///
 ---
 
 ## 4. Jules Automated Routine Tasks (GCP)
-Since Jules (jules.google.com) executes asynchronously on Google Cloud VMs, we can offload routine and recurring tasks to it. To initiate a task, sign in to Jules, select the `ai_sandbox` repository, specify the `development` (or `slinky`) branch, and run one of the following prompts:
+Since Jules (jules.google.com) executes asynchronously on Google Cloud VMs, we can offload routine and recurring tasks to it. To initiate a task, sign in to Jules, select the `ai_sandbox` repository, specify the `development` branch, and run one of the following prompts:
 
 ### 🔄 Task A: Weekly Infrastructure Stability Check (Continuous Verification)
 *   **Prompt to Jules:**
-    > *"Enter the Nix environment and run `./scripts/verify-infrastructure.sh`. This test suite verifies Slinky clean booting, queuing, parallel node execution, shared storage, and controller recovery. If it fails, inspect the Kubernetes pod logs, fix the configuration in values.yaml or our manifests, verify that the script succeeds, and open a PR."*
+    > *"Run `./scripts/verify-infrastructure.sh`. This test suite verifies Slinky clean booting, queuing, parallel node execution, shared storage, and controller recovery. If it fails, inspect the Kubernetes pod logs, fix the configuration in values.yaml or our manifests, verify that the script succeeds, and open a PR."*
 *   **Benefits:** Ensures our Helm configurations and Kubernetes manifests do not rot over time, and verifies resilience against pod crashes.
 
 ### 🔄 Task B: Weekly Code Formatting and Linting

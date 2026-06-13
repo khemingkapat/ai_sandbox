@@ -13,6 +13,43 @@ log_step() {
   echo "-----------------------------------------------------"
 }
 
+# 0. Ensure kind, kubectl, and helm are installed dynamically if missing
+ensure_tools() {
+  log_step "0. Checking Required Tooling"
+  mkdir -p ./bin
+  export PATH="$(pwd)/bin:$PATH"
+
+  if ! command -v kind &>/dev/null; then
+    echo "📥 kind is missing. Downloading standalone binary..."
+    curl -Lo ./bin/kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64
+    chmod +x ./bin/kind
+  fi
+
+  if ! command -v kubectl &>/dev/null; then
+    echo "📥 kubectl is missing. Downloading stable binary..."
+    # Fetch latest stable version of kubectl
+    K8S_VERSION=$(curl -L -s https://dl.k8s.io/release/stable.txt)
+    curl -Lo ./bin/kubectl "https://dl.k8s.io/release/${K8S_VERSION}/bin/linux/amd64/kubectl"
+    chmod +x ./bin/kubectl
+  fi
+
+  if ! command -v helm &>/dev/null; then
+    echo "📥 helm is missing. Downloading Helm tarball..."
+    curl -fsSL -o helm.tar.gz https://get.helm.sh/helm-v3.14.2-linux-amd64.tar.gz
+    tar -zxf helm.tar.gz
+    mv linux-amd64/helm ./bin/helm
+    rm -rf linux-amd64 helm.tar.gz
+  fi
+
+  echo "🛠️ Verification tools ready:"
+  kind version
+  kubectl version --client
+  helm version
+}
+
+# Run tool check
+ensure_tools
+
 # Cleanup on exit (optional - uncomment if you want auto-cleanup)
 # trap 'kind delete cluster || true' EXIT
 
