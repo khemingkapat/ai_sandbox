@@ -32,21 +32,24 @@ graph TD
 
 ## 2. Git & Branching Strategy
 
-To keep the repository clean and ensure Khem has full control, we follow a strict branching model:
+To keep the repository clean, isolate active changes from production, and enable safe automation by Jules, we follow a two-tier central branching model:
 
 ### Branch Naming Conventions
-*   **Base Branch (`slinky` / `main`):** Stable/production-ready code. Only Khem merges here.
-*   **Feature Branches (`feature/*`):** Active development branches (e.g., [feature/k8s-native-isolation](file:///home/khemi/workspace/ai_sandbox)). Both human and agents collaborate on these.
-*   **Jules' Asynchronous Branches (`agent/jules/*`):** Created by Jules to work on isolated tasks before submitting a PR.
-*   **Antigravity's Branches (`agent/antigravity/*`):** Created for larger changes that require offline compilation or review.
+*   **`main` (Production Branch):** Stable, production-ready release branch. Only Khem merges here.
+*   **`development` (Central Integration Branch):** Active staging branch where feature branches are integrated and validated. Automated tasks (linting, tests, refactoring) target this branch. 
+    > [!NOTE]
+    > Currently, the **`slinky`** branch serves as our active `development` integration branch during the migration phase.
+*   **Feature Branches (`feature/*`):** Active development branches (e.g., [feature/k8s-native-isolation](file:///home/khemi/workspace/ai_sandbox)). Branch off of `development` (or `slinky`) and merge back via Pull Request.
+*   **Jules' Asynchronous Branches (`agent/jules/*`):** Created by Jules to run isolated refactors or quality fixes, submitting PRs that target `development`.
+*   **Antigravity's Branches (`agent/antigravity/*`):** Created for larger interactive changes that require offline review.
 
 ### Pull Request & Integration Protocol
-1.  **No Direct Push to Main/Base:** Neither Antigravity nor Jules will ever merge directly to main or base branches without human approval.
-2.  **Linting & Verification:** Before an agent requests a review, they must verify their changes (e.g., by checking configs, dry-running yaml, or running the Go build for the portal).
+1.  **No Direct Push to Main/Development:** Neither Antigravity nor Jules will ever push directly to the central branches without human approval.
+2.  **Linting & Verification:** Before an agent requests a review, they must verify their changes (e.g., by executing config validation or running the Go build for the portal).
 3.  **Detailed Pull Request Templates:** Every agent-created PR will detail:
     *   What changed (with file links).
     *   Why it was done.
-    *   How Khem can verify/test the change locally.
+    *   How Khem can verify/test the change.
 
 ---
 
@@ -59,3 +62,24 @@ To ensure Khem understands the project status on every increment without having 
 3.  **File Links:** Every log entry must include direct, clickable file links using the `file://` scheme.
 
 For details on the current implementation state, see [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/INCREMENT_LOG.md).
+
+---
+
+## 4. Jules Automated Routine Tasks (GCP)
+Since Jules (jules.google.com) executes asynchronously on Google Cloud VMs, we can offload routine and recurring tasks to it. To initiate a task, sign in to Jules, select the `ai_sandbox` repository, specify the `development` (or `slinky`) branch, and run one of the following prompts:
+
+### 🔄 Task A: Weekly Infrastructure Stability Check (Continuous Verification)
+*   **Prompt to Jules:**
+    > *"Enter the Nix environment and run `./scripts/verify-infrastructure.sh`. This test suite verifies Slinky clean booting, queuing, parallel node execution, shared storage, and controller recovery. If it fails, inspect the Kubernetes pod logs, fix the configuration in values.yaml or our manifests, verify that the script succeeds, and open a PR."*
+*   **Benefits:** Ensures our Helm configurations and Kubernetes manifests do not rot over time, and verifies resilience against pod crashes.
+
+### 🔄 Task B: Weekly Code Formatting and Linting
+*   **Prompt to Jules:**
+    > *"Run go fmt ./portal/... and go vet ./portal/... on our codebase. Resolve any formatting inconsistencies, syntax issues, or unused imports, and commit the changes directly in a PR."*
+*   **Benefits:** Keeps the Go portal codebase standard and lint-free.
+
+### 🔄 Task C: Repository Cleanup
+*   **Prompt to Jules:**
+    > *"Analyze the Git branches. Identify merged branches, archive them locally and remotely as tags with an archive/ prefix, prune stale remote-tracking references, and clean up the branch list."*
+*   **Benefits:** Automates branch management, keeping the repository list clean.
+

@@ -4,6 +4,32 @@ This file tracks every discrete increment made during the Slinky migration. Its 
 
 ---
 
+## [Increment 2] - 2026-06-13: Slinky Infrastructure Verification Suite & Automation Plan
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Establish a robust infrastructure continuity test suite and define the branching and automation strategy for Jules (GCP).
+
+### 📝 Key Changes & Files Modified
+
+1.  **Infrastructure Verification Suite:**
+    *   Created [scripts/verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh): Implemented a 5-part test suite (Clean Spawn, Standard Queueing, Parallel Node Execution, Persistent Storage Mounts, and Disaster Recovery / Crash Simulation).
+2.  **Workflow & Automation Design:**
+    *   Updated [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/DEVELOPMENT_WORKFLOW.md): Established a central `development` branch (currently mapped to the active `slinky` branch) and defined standard prompt templates for recurring tasks (Stability Check, Code Quality, and Repo Cleanup) to be run asynchronously on GCP via `jules.google.com`.
+3.  **Cleanups:**
+    *   Removed temporary check scripts and kept the workspace clean.
+
+### 💡 Why This Design?
+*   **Decoupled Heavy Compute:** By using jules.google.com to execute `verify-infrastructure.sh` on GCP VMs, Khem's local machine is spared the overhead of booting Kubernetes clusters and running multi-node simulations.
+*   **Isolated Integration:** Merging features into `development` and letting Jules verify it ensures that any configuration errors or regression failures are caught in staging before ever touching `main`.
+
+### 🛠️ Verification Steps
+To execute the newly created test suite:
+1.  **Enter Nix Shell:** `nix develop`
+2.  **Run the Verification:** `./scripts/verify-infrastructure.sh`
+    *(Wait for it to execute all 5 test scenarios and verify that it exits with code 0).*
+
+---
+
 ## [Increment 1] - 2026-06-13: Kubernetes-Native Storage Isolation
 
 *   **Author:** Antigravity (Interactive) & Khem
