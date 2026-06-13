@@ -69,6 +69,12 @@ Since Jules (jules.google.com) executes asynchronously on Google Cloud VMs, we c
 ### 🔄 Task A: Weekly Infrastructure Stability Check (Continuous Verification)
 *   **Prompt to Jules:**
     > *"Run `./scripts/verify-infrastructure.sh`. This test suite verifies Slinky clean booting, queuing, parallel node execution, shared storage, and controller recovery. If it fails, inspect the Kubernetes pod logs, fix the configuration in values.yaml or our manifests, verify that the script succeeds, and open a PR."*
+*   **The 5 Verification Steps:**
+    1.  **Clean Cluster Spawn:** Re-spawns a Kind Kubernetes cluster and deploys the Slinky operator stack.
+    2.  **Standard Queueing & Execution:** Submits a standard Slurm batch job to verify basic execution.
+    3.  **Parallel Execution Across Nodes:** Runs a multi-node parallel job to confirm worker node coordination.
+    4.  **Persistent Shared Storage:** Verifies read/write access from compute nodes to the shared persistent volume.
+    5.  **Disaster Recovery (Queue Persistence):** Simulates a controller crash/restart to ensure jobs survive and resume correctly.
 *   **Benefits:** Ensures our Helm configurations and Kubernetes manifests do not rot over time, and verifies resilience against pod crashes.
 
 ### 🔄 Task B: Weekly Code Formatting and Linting
