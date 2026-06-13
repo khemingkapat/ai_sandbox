@@ -11,6 +11,22 @@ jobs/
 !/storage/**/*.yml
 /storage/**/*.sif
 
+# Ignore Kaggle cache and general caches
+/storage/common/kaggle_cache/
+**/__pycache__/
+**/*.pyc
+
+# Projects: Keep project1 as the example, ignore other projects completely
+/storage/projects/*
+!/storage/projects/project1/
+
+# Exclude temporary, log, and user-specific files in project1 (the example project)
+/storage/projects/project1/logs/
+/storage/projects/project1/.ipynb_checkpoints/
+/storage/projects/project1/.apptainer/
+/storage/projects/project1/slurm-*.out
+/storage/**/*.ipynb
+
 storage.bak/
 
 traefik-dynamic/*
