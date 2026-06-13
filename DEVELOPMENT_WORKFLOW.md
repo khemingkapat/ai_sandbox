@@ -36,10 +36,8 @@ To keep the repository clean, isolate active changes from production, and enable
 
 ### Branch Naming Conventions
 *   **`main` (Production Branch):** Stable, production-ready release branch. Only Khem merges here.
-*   **`development` (Central Integration Branch):** Active staging branch where feature branches are integrated and validated. Automated tasks (linting, tests, refactoring) target this branch. 
-    > [!NOTE]
-    > Currently, the **`slinky`** branch serves as our active `development` integration branch during the migration phase.
-*   **Feature Branches (`feature/*`):** Active development branches (e.g., [feature/k8s-native-isolation](file:///home/khemi/workspace/ai_sandbox)). Branch off of `development` (or `slinky`) and merge back via Pull Request.
+*   **`development` (Central Integration Branch):** Active staging branch where feature branches are integrated and validated. Automated tasks (linting, tests, refactoring) target this branch.
+*   **Feature Branches (`feature/*`):** Active development branches (e.g., [feature/k8s-native-isolation](file:///home/khemi/workspace/ai_sandbox)). Branch off of `development` and merge back via Pull Request.
 *   **Jules' Asynchronous Branches (`agent/jules/*`):** Created by Jules to run isolated refactors or quality fixes, submitting PRs that target `development`.
 *   **Antigravity's Branches (`agent/antigravity/*`):** Created for larger interactive changes that require offline review.
 
