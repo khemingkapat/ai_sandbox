@@ -21,6 +21,8 @@ This file tracks every discrete increment made during the Slinky migration. Its 
         *   Added `sleep 3` sync delay in Test 5 to let Slurmctld write checkpoints to persistent storage before crash simulation.
 4.  **Directory Permissions:**
     *   Updated host directory permissions (`chmod -R 777 ./storage`) to ensure the containerized `slurm` user (UID 401) has write permissions to write job outputs and logs.
+5.  **Repository Cleanup:**
+    *   Deleted the obsolete `docker-compose.yml` file, which was left over from the old LDAP/SSSD container setup.
 
 ### 💡 Why This Design?
 *   **Zero-Host-Kernel Overhead:** Bypassing the kernel key check inside Kubelet means developers and CI environments don't need to rebuild or recompile host kernels.
