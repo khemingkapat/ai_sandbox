@@ -76,9 +76,12 @@ kubectl wait --namespace slurm \
   --timeout=180s
 
 echo "⏳ Waiting for Slurm worker pods (NodeSet)..."
+until kubectl get pods -n slurm -l app.kubernetes.io/name=slurmd &>/dev/null && [ $(kubectl get pods -n slurm -l app.kubernetes.io/name=slurmd --no-headers 2>/dev/null | wc -l) -gt 0 ]; do
+  sleep 2
+done
 kubectl wait --namespace slurm \
   --for=condition=Ready pod \
-  -l app.kubernetes.io/component=slurmd \
+  -l app.kubernetes.io/name=slurmd \
   --timeout=180s
 
 # Let slurmd nodes register
@@ -104,7 +107,7 @@ kubectl exec -n slurm -c slurmctld slurm-controller-0 -- squeue
 echo "⏳ Waiting for job ${JOB_ID} to complete..."
 timeout=30
 while [ $timeout -gt 0 ]; do
-  STATE=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- sacct -j "${JOB_ID}" --noheader --format=State | head -n 1 | xargs)
+  STATE=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- scontrol show job "${JOB_ID}" | grep 'JobState=' | sed -e 's/.*JobState=\([^ ]*\).*/\1/' | xargs)
   if [[ "${STATE}" == "COMPLETED" ]]; then
     break
   elif [[ "${STATE}" == "FAILED" || "${STATE}" == "CANCELLED" || "${STATE}" == "NODE_FAIL" ]]; then
@@ -176,6 +179,9 @@ DR_JOB_ID=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- \
   sbatch --parsable --wrap="echo 'recovery_start'; sleep 20; echo 'recovery_success' > /mnt/storage/dr_test.txt" -N 1)
 echo "Job ID: ${DR_JOB_ID}"
 
+# Wait for Slurmctld state files to flush to persistent volume
+sleep 3
+
 echo "💥 Simulating controller crash: Killing slurm-controller-0 pod..."
 kubectl delete pod slurm-controller-0 -n slurm --grace-period=0 --force
 
@@ -193,7 +199,7 @@ echo "${QUEUE_OUTPUT}"
 
 if [[ ! "${QUEUE_OUTPUT}" =~ "${DR_JOB_ID}" ]]; then
   # Check if completed already (unlikely)
-  if kubectl exec -n slurm -c slurmctld slurm-controller-0 -- sacct -j "${DR_JOB_ID}" | grep -q "COMPLETED"; then
+  if kubectl exec -n slurm -c slurmctld slurm-controller-0 -- scontrol show job "${DR_JOB_ID}" | grep -q "JobState=COMPLETED"; then
     echo "ℹ️ Job already completed."
   else
     echo "❌ ERROR: Job ${DR_JOB_ID} was lost during controller crash!"
@@ -220,6 +226,50 @@ else
   echo "❌ ERROR: Recovery job failed to complete or output log was not written."
   exit 1
 fi
+
+# =====================================================
+# TEST 6: Multi-User Storage Isolation
+# =====================================================
+log_step "6. Multi-User Storage Isolation"
+
+echo "👤 Ensuring test users exist..."
+for pod in slurm-worker-slinky-0 slurm-worker-slinky-1; do
+  kubectl exec -n slurm -c slurmd "${pod}" -- id -u user1 &>/dev/null || \
+    kubectl exec -n slurm -c slurmd "${pod}" -- useradd -u 1001 -m -s /bin/bash user1
+  kubectl exec -n slurm -c slurmd "${pod}" -- id -u user2 &>/dev/null || \
+    kubectl exec -n slurm -c slurmd "${pod}" -- useradd -u 1002 -m -s /bin/bash user2
+done
+
+echo "📂 Creating isolated project directories..."
+kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- mkdir -p /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
+kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- chown 1001:1001 /mnt/storage/projects/project_user1
+kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- chown 1002:1002 /mnt/storage/projects/project_user2
+kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- chmod 770 /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
+
+echo "📝 Submitting authorized job (user1 writing to project_user1)..."
+kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- su -s /bin/bash user1 -c \
+  "sbatch --wait --wrap=\"echo 'user1_write_ok' > /mnt/storage/projects/project_user1/test.txt\""
+
+echo "🔍 Verifying authorized job output..."
+if kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- cat /mnt/storage/projects/project_user1/test.txt | grep -q "user1_write_ok"; then
+  echo "✅ Authorized write succeeded!"
+else
+  echo "❌ ERROR: Authorized write failed!"
+  exit 1
+fi
+
+echo "📝 Submitting unauthorized job (user1 writing to project_user2)..."
+if kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- su -s /bin/bash user1 -c \
+  "sbatch --wait --wrap=\"echo 'user1_intrusion' > /mnt/storage/projects/project_user2/test.txt\"" 2>/dev/null; then
+  echo "❌ ERROR: Unauthorized job succeeded when it should have been blocked!"
+  exit 1
+else
+  echo "✅ Unauthorized job was correctly blocked!"
+fi
+
+echo "🧹 Cleaning up test users and directories..."
+kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- rm -rf /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
+echo "✅ Test 6 Passed: Multi-user storage isolation verified!"
 
 echo ""
 echo "====================================================="

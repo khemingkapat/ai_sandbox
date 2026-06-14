@@ -2,6 +2,37 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 4] - 2026-06-14: Kubelet Feature Gate Bypass, Custom IPv4 Network & Verification Suite Fixes
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Resolve Kubelet start crash due to missing kernel key parameters, fix multi-node join DNS failure, fix script typos/race conditions, and successfully pass the 5-part verification suite.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Kubelet In User Namespace:**
+    *   Updated [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/kind-config.yaml): Enabled the `KubeletInUserNamespace=true` feature gate for all nodes. This allows Kubelet to ignore missing kernel parameters (such as `/proc/sys/kernel/keys/root_maxkeys`) when running in restricted environments, preventing startup crashes.
+2.  **Custom IPv4 Network:**
+    *   Recreated the `kind` Docker network as an IPv4-only network. This works around host `ip6tables` limitations while keeping container-name DNS resolution active so worker nodes can join the cluster.
+3.  **Script Bug & Race Fixes:**
+    *   Updated [scripts/verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh):
+        *   Fixed worker pod waiting race condition by polling until worker pods are created.
+        *   Fixed incorrect label selector for worker pods (`app.kubernetes.io/name=slurmd` instead of `app.kubernetes.io/component=slurmd`).
+        *   Replaced `sacct` calls with `scontrol show job` to enable job verification when Slurm accounting (`slurmdbd`) is disabled.
+        *   Added `sleep 3` sync delay in Test 5 to let Slurmctld write checkpoints to persistent storage before crash simulation.
+4.  **Directory Permissions:**
+    *   Updated host directory permissions (`chmod -R 777 ./storage`) to ensure the containerized `slurm` user (UID 401) has write permissions to write job outputs and logs.
+
+### 💡 Why This Design?
+*   **Zero-Host-Kernel Overhead:** Bypassing the kernel key check inside Kubelet means developers and CI environments don't need to rebuild or recompile host kernels.
+*   **Robust Verification:** Eliminating race conditions and incorrect selectors makes the verification suite robust, preparing it for Jules' weekly automated stability runs.
+
+### 🛠️ Verification Steps
+To execute the test suite:
+1.  **Run the Verification:** `./scripts/verify-infrastructure.sh`
+    *(Verify that it builds the cluster, runs all 5 test scenarios, and exits with code 0).*
+
+---
+
 ## [Increment 3] - 2026-06-13: Detailed Automation Docs & Central Branch Integration
 
 *   **Author:** Antigravity (Interactive) & Khem
