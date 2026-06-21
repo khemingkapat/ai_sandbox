@@ -2,6 +2,27 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 6] - 2026-06-21: Multi-User Concurrent Job & Isolation Verification Suite
+
+*   **Author:** Jules (Async) & Antigravity
+*   **Goal:** Implement a verification suite to test concurrent Slurm job submissions and project directory access isolation under multiple user identities.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Multi-User Verification Script:**
+    *   Created [scripts/verify-multi-user-jobs.sh](scripts/verify-multi-user-jobs.sh): A bash script that provisions four test users (`user1-4`), sets up test project directories, submits concurrent jobs to verify parallel execution, and asserts file access permissions for each user.
+
+### 💡 Why This Design?
+*   **End-to-End Multi-Tenancy Validation:** Simulates realistic student workflows (submitting multiple parallel jobs) while ensuring strict Unix directory isolation boundaries remain functional at the scheduler and compute nodes level.
+*   **Environment Adaptability:** Dynamically detects SlurmDBD accounting mode or standard mode, and properly cleans up test users and resources on completion.
+
+### 🛠️ Verification Steps
+To execute the multi-user test suite:
+1.  **Run the Verification:** `./scripts/verify-multi-user-jobs.sh`
+    *(Confirm that users are created, jobs run in parallel, all isolation permissions pass, and cleanup finishes successfully).*
+
+---
+
 ## [Increment 5] - 2026-06-21: Unix Permissions Isolation Verification Suite
 
 *   **Author:** Jules (Interactive)
