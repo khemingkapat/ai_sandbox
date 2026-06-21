@@ -1,0 +1,20 @@
+{
+  "name": "test-agent",
+  "display_name": "Test Agent",
+  "description": "Test agent to verify registration format",
+  "is_hidden": false,
+  "config": {
+    "custom_agent": {
+      "system_prompt_sections": [
+        {
+          "title": "Identity",
+          "content": "You are a test agent."
+        }
+      ],
+      "tool_names": [
+        "view_file",
+        "list_dir"
+      ]
+    }
+  }
+}
