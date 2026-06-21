@@ -2,6 +2,32 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 5] - 2026-06-21: Unix Permissions Isolation Verification Suite
+
+*   **Author:** Jules (Interactive)
+*   **Goal:** Implement a verification suite to ensure Kubernetes-native storage isolation via Unix permissions is working as intended.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Isolation Verification Suite:**
+    *   Created [scripts/verify-isolation.sh](scripts/verify-isolation.sh): A bash script that simulates multiple UIDs (1001, 1002) and asserts their access to project-specific and common directories.
+2.  **Test Environment Setup:**
+    *   Established the expected directory structure and permission model for testing:
+        *   `/mnt/storage/projects/project1` owned by UID 1001 (700).
+        *   `/mnt/storage/projects/project2` owned by UID 1002 (700).
+        *   `/mnt/storage/common` owned by root (755).
+
+### 💡 Why This Design?
+*   **Standardized Validation:** Provides a repeatable way to verify that the Unix-level isolation (which replaces LDAP/SSSD) correctly prevents unauthorized access between projects while allowing shared access to common resources.
+*   **Zero-Dependency Execution:** Uses standard `sudo` and `bash` commands, making it easy to run in various environments including local development and CI/CD pipelines.
+
+### 🛠️ Verification Steps
+To execute the isolation test suite:
+1.  **Run the Verification:** `./scripts/verify-isolation.sh`
+    *(Verify that it checks both users and all directory combinations, exiting with code 0).*
+
+---
+
 ## [Increment 4] - 2026-06-14: Kubelet Feature Gate Bypass, Custom IPv4 Network & Verification Suite Fixes
 
 *   **Author:** Antigravity (Interactive) & Khem
