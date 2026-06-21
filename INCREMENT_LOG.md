@@ -2,6 +2,44 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 7] - 2026-06-21: Web Portal Enhancements
+
+*   **Author:** Jules (Async)
+*   **Goal:** Enhance the Go/Echo web portal to natively query the Slurm REST API for job tracking and resource status, adding a user dashboard and resource availability views.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Backend Enhancements:**
+    *   Updated `portal/main.go`:
+        *   Implemented `apiUserJobs` handler to fetch and filter jobs for the logged-in user via Slurm REST API.
+        *   Implemented `apiClusterStatus` handler to calculate cluster metrics (active jobs, nodes, queue depth) from Slurm REST API.
+        *   Updated `submitJob` to correctly map CPU requirements and partition selection to the Slurm REST API payload.
+        *   Registered new API routes: `GET /api/jobs` and `GET /api/cluster/status`.
+2.  **Frontend Enhancements:**
+    *   Updated `portal/templates/index.html`:
+        *   Added a live "Resource Status" panel showing cluster-wide metrics.
+        *   Added a "My Jobs" dashboard section to list user-specific jobs and their states.
+        *   Implemented JavaScript polling to dynamically update the UI from the new backend API endpoints.
+        *   Added a "Track" feature to allow monitoring of existing jobs directly from the dashboard.
+
+### 💡 Why This Design?
+*   **Native Slurm Integration:** Eliminates the need for external CLI wrappers by leveraging the Slurm REST API directly within the portal backend.
+*   **Improved User Experience:** Provides users with real-time visibility into cluster availability and their own job statuses, making the platform more transparent and easier to use.
+*   **Scalability:** The dashboard-driven approach prepares the portal for more complex multi-user environments by centralizing status tracking.
+
+### 🛠️ Verification Steps
+1.  **Compile the portal:**
+    ```bash
+    cd portal
+    go mod tidy
+    go build -o portal_bin main.go port_manager.go
+    ```
+    *(Confirm successful compilation without errors).*
+2.  **Deploy and Verify UI:**
+    *(Once deployed in the cluster, log in and verify that the Resource Status panel and My Jobs list update dynamically).*
+
+---
+
 ## [Increment 6] - 2026-06-21: Multi-User Concurrent Job & Isolation Verification Suite
 
 *   **Author:** Jules (Async) & Antigravity
