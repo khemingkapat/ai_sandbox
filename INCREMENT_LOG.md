@@ -49,6 +49,28 @@ To execute the test suite:
 
 ---
 
+## [Increment 5] - 2026-06-21: Storage Layout and Permissions Script
+
+*   **Author:** Jules (Async)
+*   **Goal:** Initialize the directory hierarchy and set up Unix permissions to isolate student projects under `/mnt/storage`.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Storage Initialization Script:**
+    *   Created [scripts/init-storage.sh](file:///app/scripts/init-storage.sh): A Bash script that ensures the existence of `/mnt/storage` subdirectories (`projects/project1`, `projects/project2`, `common`, `datasets`) and applies specific UID/GID and chmod permissions to ensure tenant isolation and shared access to common resources.
+
+### 💡 Why This Design?
+*   **Native Isolation:** Leveraging standard Linux filesystem permissions (UID/GID) provides a robust and low-overhead method for isolating multi-tenant workloads.
+*   **Consistency:** Standardizing the directory layout ensures that the web portal and Slurm compute nodes have a predictable environment for accessing user data and shared datasets.
+
+### 🛠️ Verification Steps
+To execute the storage initialization:
+1.  **Run the script:** `sudo bash scripts/init-storage.sh`
+2.  **Verify results:** `ls -lnR /mnt/storage`
+    *(Confirm that `project1` is 1001:1001/700, `project2` is 1002:1002/700, and `common`/`datasets` are 0:0/555).*
+
+---
+
 ## [Increment 2] - 2026-06-13: Slinky Infrastructure Verification Suite & Automation Plan
 
 *   **Author:** Antigravity (Interactive) & Khem
