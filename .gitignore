@@ -33,3 +33,6 @@ traefik-dynamic/*
 !traefik-dynamic/.gitkeep
 
 *.ignore.*
+
+# Ignore compiled portal binary
+portal/portal
