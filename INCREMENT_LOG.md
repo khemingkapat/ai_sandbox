@@ -2,6 +2,38 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 8] - 2026-06-23: Deploy Go Portal with Traefik Sidecar in Kind Cluster
+
+*   **Author:** Jules (Async)
+*   **Goal:** Migrate the Go portal from host-running to a containerized deployment within the Kind cluster, using a Traefik sidecar for dynamic routing.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Kubernetes Manifests:**
+    *   Created `portal-deployment.yaml`: Defines the `hpc-portal` Deployment and `portal` Service.
+    *   Implemented the Sidecar pattern: `portal` container for the Go app and `traefik` container for the proxy.
+    *   Configured shared `emptyDir` volume for dynamic Traefik route generation.
+    *   Mounted `slinky-storage-pvc` for job log and app manifest access.
+    *   Mounted `slurm-auth-jwt` secret for secure Slurm REST API communication.
+2.  **Automation Scripts:**
+    *   Updated `scripts/start-slinky.sh`: Added local Docker build, image loading into Kind, and manifest application steps to the core startup workflow.
+
+### 💡 Why This Design?
+*   **Local Development Parity:** Containerizing the portal ensures the development environment closely matches production.
+*   **Sidecar for Dynamic Routing:** Using Traefik as a sidecar allows the portal to dynamically manage routes for interactive jobs (like Jupyter) by writing simple YAML files to a shared ephemeral volume, avoiding complex ingress controller reconfigurations.
+*   **Security:** Leveraging Kubernetes Secrets for the JWT key ensures sensitive credentials are managed natively by the cluster.
+
+### 🛠️ Verification Steps
+1.  **Build the Portal:** `cd portal && go build ./...`
+2.  **Run Startup Script:** `./scripts/start-slinky.sh`
+3.  **Verify Deployment:** `kubectl get pods -n slurm -l app=hpc-portal`
+    *(Confirm both containers are ready).*
+4.  **Check Connectivity:**
+    *   `kubectl port-forward svc/portal -n slurm 8080:8080` (UI access).
+    *   `kubectl port-forward svc/portal -n slurm 8000:80` (Proxy access).
+
+---
+
 ## [Increment 7] - 2026-06-21: Web Portal Enhancements
 
 *   **Author:** Jules (Async)
