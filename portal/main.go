@@ -27,6 +27,28 @@ var (
 	portManager   *PortManager
 )
 
+// Slurm API Structs
+type SlurmJob struct {
+	JobID     int         `json:"job_id"`
+	Name      string      `json:"name"`
+	JobState  interface{} `json:"job_state"`
+	UserName  string      `json:"user_name"`
+	Partition string      `json:"partition"`
+}
+
+type SlurmJobResponse struct {
+	Jobs []SlurmJob `json:"jobs"`
+}
+
+type SlurmNode struct {
+	Name  string      `json:"name"`
+	State interface{} `json:"state"`
+}
+
+type SlurmNodeResponse struct {
+	Nodes []SlurmNode `json:"nodes"`
+}
+
 // AppManifest represents an application configuration loaded from a yaml file
 type AppManifest struct {
 	ID          string            `yaml:"id"`
@@ -191,6 +213,9 @@ func main() {
 	ui.GET("/jobs/:job_id/log", jobLog)
 	ui.DELETE("/jobs/:job_id", cancelJob)
 
+	ui.GET("/api/jobs", apiUserJobs)
+	ui.GET("/api/cluster/status", apiClusterStatus)
+
 	e.Logger.Fatal(e.Start(":8080"))
 }
 
@@ -253,6 +278,101 @@ func indexPage(c echo.Context) error {
 		"project":    project,
 		"apps":       apps,
 		"expires_in": expiresIn,
+	})
+}
+
+func apiUserJobs(c echo.Context) error {
+	userToken := c.Get("user").(*jwt.Token)
+	claims := userToken.Claims.(jwt.MapClaims)
+	username := claims["sun"].(string)
+	tokenString := userToken.Raw
+
+	req, _ := http.NewRequest("GET", slurmRestURL+"/slurm/v0.0.42/jobs", nil)
+	req.Header.Set("X-SLURM-USER-TOKEN", tokenString)
+	req.Header.Set("X-SLURM-USER-NAME", username)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Slurm API Error")
+	}
+	defer resp.Body.Close()
+
+	var result SlurmJobResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return c.String(http.StatusInternalServerError, "Invalid JSON")
+	}
+
+	userJobs := []SlurmJob{}
+	for _, job := range result.Jobs {
+		if job.UserName == username {
+			userJobs = append(userJobs, job)
+		}
+	}
+
+	return c.JSON(http.StatusOK, userJobs)
+}
+
+func apiClusterStatus(c echo.Context) error {
+	userToken := c.Get("user").(*jwt.Token)
+	claims := userToken.Claims.(jwt.MapClaims)
+	username := claims["sun"].(string)
+	tokenString := userToken.Raw
+
+	client := &http.Client{Timeout: 10 * time.Second}
+
+	// 1. Fetch Jobs for Active & Queue Depth
+	reqJobs, _ := http.NewRequest("GET", slurmRestURL+"/slurm/v0.0.42/jobs", nil)
+	reqJobs.Header.Set("X-SLURM-USER-TOKEN", tokenString)
+	reqJobs.Header.Set("X-SLURM-USER-NAME", username)
+
+	activeJobs := 0
+	queueDepth := 0
+	respJobs, err := client.Do(reqJobs)
+	if err == nil {
+		defer respJobs.Body.Close()
+		if respJobs.StatusCode == 200 {
+			var jobRes SlurmJobResponse
+			json.NewDecoder(respJobs.Body).Decode(&jobRes)
+			for _, j := range jobRes.Jobs {
+				state := fmt.Sprintf("%v", j.JobState)
+				if strings.Contains(state, "RUNNING") {
+					activeJobs++
+				} else if strings.Contains(state, "PENDING") {
+					queueDepth++
+				}
+			}
+		}
+	}
+
+	// 2. Fetch Nodes for Resource counts
+	reqNodes, _ := http.NewRequest("GET", slurmRestURL+"/slurm/v0.0.42/nodes", nil)
+	reqNodes.Header.Set("X-SLURM-USER-TOKEN", tokenString)
+	reqNodes.Header.Set("X-SLURM-USER-NAME", username)
+
+	nodesTotal := 0
+	nodesFree := 0
+	respNodes, err := client.Do(reqNodes)
+	if err == nil {
+		defer respNodes.Body.Close()
+		if respNodes.StatusCode == 200 {
+			var nodeRes SlurmNodeResponse
+			json.NewDecoder(respNodes.Body).Decode(&nodeRes)
+			nodesTotal = len(nodeRes.Nodes)
+			for _, n := range nodeRes.Nodes {
+				state := fmt.Sprintf("%v", n.State)
+				if strings.Contains(state, "IDLE") {
+					nodesFree++
+				}
+			}
+		}
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"active_jobs":     activeJobs,
+		"cpu_nodes_total": nodesTotal,
+		"cpu_nodes_free":  nodesFree,
+		"queue_depth":     queueDepth,
 	})
 }
 
@@ -392,6 +512,9 @@ curl -s -X POST http://portal:8080/api/internal/release-port \
 		if v, err := strconv.Atoi(val); err == nil {
 			jobProps["cpus_per_task"] = v
 		}
+	}
+	if val, ok := finalSlurmArgs["partition"]; ok {
+		jobProps["partition"] = val
 	}
 
 	payload := map[string]interface{}{

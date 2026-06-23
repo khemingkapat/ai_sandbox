@@ -496,6 +496,22 @@
     </div>
   </header>
 
+  <!-- Resource Status Panel -->
+  <section class="status-section" style="margin-bottom: 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+    <div class="status-card" style="border: 1px solid var(--border); background: var(--surface); padding: 20px; border-radius: 2px;">
+      <div class="section-label" style="margin-bottom: 8px;">Active Jobs</div>
+      <div id="active-jobs-val" style="font-size: 24px; font-weight: 700; font-family: var(--sans);">0</div>
+    </div>
+    <div class="status-card" style="border: 1px solid var(--border); background: var(--surface); padding: 20px; border-radius: 2px;">
+      <div class="section-label" style="margin-bottom: 8px;">CPU Nodes (Free/Total)</div>
+      <div id="cpu-nodes-val" style="font-size: 24px; font-weight: 700; font-family: var(--sans);">0 / 0</div>
+    </div>
+    <div class="status-card" style="border: 1px solid var(--border); background: var(--surface); padding: 20px; border-radius: 2px;">
+      <div class="section-label" style="margin-bottom: 8px;">Queue Depth</div>
+      <div id="queue-depth-val" style="font-size: 24px; font-weight: 700; font-family: var(--sans); color: var(--warn);">0</div>
+    </div>
+  </section>
+
   <section class="apps-section">
     <div class="section-label">// Available applications</div>
     {{ if not .apps }}
@@ -534,6 +550,14 @@
       </div>
     </div>
     {{ end }}
+  </section>
+
+  <!-- My Jobs Dashboard -->
+  <section class="jobs-section" style="margin-bottom: 40px;">
+    <div class="section-label">// My active & recent jobs</div>
+    <div id="user-jobs-list" style="border: 1px solid var(--border); background: var(--surface); border-radius: 2px;">
+      <div style="padding: 20px; color: var(--text-dim); font-size: 13px;">No jobs found.</div>
+    </div>
   </section>
 
   <div id="result-panel">
@@ -615,6 +639,85 @@
 
   const sessionTick = setInterval(tickSession, 1000);
   document.getElementById('session-timer').textContent = formatTime(secondsLeft);
+
+  // Cluster & Jobs Polling logic
+  async function pollClusterStatus() {
+    try {
+      const resp = await fetch('/api/cluster/status');
+      if (resp.ok) {
+        const data = await resp.json();
+        document.getElementById('active-jobs-val').textContent = data.active_jobs;
+        document.getElementById('cpu-nodes-val').textContent = `${data.cpu_nodes_free} / ${data.cpu_nodes_total}`;
+        document.getElementById('queue-depth-val').textContent = data.queue_depth;
+      }
+    } catch (e) { console.error("Cluster poll failed", e); }
+  }
+
+  async function pollUserJobs() {
+    try {
+      const resp = await fetch('/api/jobs');
+      if (resp.ok) {
+        const jobs = await resp.json();
+        const container = document.getElementById('user-jobs-list');
+        if (jobs.length === 0) {
+          container.innerHTML = '<div style="padding: 20px; color: var(--text-dim); font-size: 13px;">No jobs found.</div>';
+          return;
+        }
+
+        let html = '<table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">';
+        html += '<tr style="border-bottom: 1px solid var(--border); color: var(--text-dim); text-transform: uppercase; font-size: 10px;"><th style="padding: 12px 20px;">ID</th><th style="padding: 12px 20px;">App</th><th style="padding: 12px 20px;">Partition</th><th style="padding: 12px 20px;">Status</th><th style="padding: 12px 20px;">Actions</th></tr>';
+
+        jobs.forEach(job => {
+          let state = Array.isArray(job.job_state) ? job.job_state[0] : job.job_state;
+          let stateClass = 'pending';
+          if (state === 'RUNNING') stateClass = 'running';
+          if (state === 'COMPLETED') stateClass = 'done';
+          if (['FAILED', 'CANCELLED', 'TIMEOUT'].includes(state)) stateClass = 'error';
+
+          html += `<tr style="border-bottom: 1px solid var(--border);">
+            <td style="padding: 12px 20px;">#${job.job_id}</td>
+            <td style="padding: 12px 20px;">${job.name}</td>
+            <td style="padding: 12px 20px; color: var(--text-dim);">${job.partition}</td>
+            <td style="padding: 12px 20px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div class="state-indicator ${stateClass.toLowerCase()}" style="width: 6px; height: 6px; box-shadow: none; animation: none;"></div>
+                <span>${state}</span>
+              </div>
+            </td>
+            <td style="padding: 12px 20px;">
+              <button onclick="trackJob(${job.job_id}, '${job.name}')" style="background: transparent; border: 1px solid var(--border-bright); color: var(--text); padding: 4px 8px; font-size: 10px; cursor: pointer; border-radius: 2px;">Track</button>
+            </td>
+          </tr>`;
+        });
+        html += '</table>';
+        container.innerHTML = html;
+      }
+    } catch (e) { console.error("Jobs poll failed", e); }
+  }
+
+  function trackJob(jobId, appId) {
+    currentJobId = jobId;
+    currentAppId = appId;
+    const panel = document.getElementById('result-panel');
+    panel.className = 'visible';
+    document.getElementById('job-badge').textContent = `job #${jobId}`;
+
+    const btnCancel = document.getElementById('btn-cancel');
+    btnCancel.style.display = 'inline-block';
+    btnCancel.textContent = 'Terminate';
+    btnCancel.disabled = false;
+
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(pollStatus, 3000);
+    pollStatus();
+  }
+
+  // Initial polls
+  pollClusterStatus();
+  pollUserJobs();
+  // Poll every 10s for dashboard
+  setInterval(pollClusterStatus, 10000);
+  setInterval(pollUserJobs, 10000);
 
   function showToast(msg) {
     const t = document.getElementById('toast');
