@@ -227,6 +227,60 @@ func loginPage(c echo.Context) error {
 	})
 }
 
+func registerUserExtrausers(username string, project string) error {
+	if !strings.HasPrefix(username, "user") {
+		return nil // Only register dynamic test users for now
+	}
+	suffixStr := strings.TrimPrefix(username, "user")
+	suffix, err := strconv.Atoi(suffixStr)
+	if err != nil {
+		return nil // skip if not numeric suffix
+	}
+	uid := 1000 + suffix
+	gid := 1000 + suffix
+
+	passwdFile := "/mnt/storage/common/etc/passwd"
+	groupFile := "/mnt/storage/common/etc/group"
+
+	// Ensure atomic write for passwd
+	if err := appendExtrauserEntry(passwdFile, username, fmt.Sprintf("%s:x:%d:%d::/mnt/storage/projects/%s:/bin/bash", username, uid, gid, project)); err != nil {
+		return err
+	}
+
+	// Ensure atomic write for group
+	if err := appendExtrauserEntry(groupFile, username, fmt.Sprintf("%s:x:%d:", username, gid)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func appendExtrauserEntry(filePath string, entryKey string, entryLine string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		if strings.HasPrefix(line, entryKey+":") {
+			return nil // Already exists
+		}
+	}
+
+	newData := string(data)
+	if len(newData) > 0 && !strings.HasSuffix(newData, "\n") {
+		newData += "\n"
+	}
+	newData += entryLine + "\n"
+
+	tmpPath := filePath + ".tmp"
+	if err := os.WriteFile(tmpPath, []byte(newData), 0644); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, filePath)
+}
+
 func loginAction(c echo.Context) error {
 	username := c.FormValue("username")
 	project := c.FormValue("project")
@@ -241,6 +295,10 @@ func loginAction(c echo.Context) error {
 	}
 	if !validProject {
 		return c.String(http.StatusForbidden, "User does not have access to this project")
+	}
+
+	if err := registerUserExtrausers(username, project); err != nil {
+		fmt.Printf("Error registering extrauser: %v\n", err)
 	}
 
 	token, err := makeSlurmToken(username, project)

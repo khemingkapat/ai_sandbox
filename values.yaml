@@ -174,8 +174,8 @@ controller:
     # -- (string \| object) The image to use.
     # Ref: https://kubernetes.io/docs/concepts/containers/images/#image-names
     image:
-      repository: ghcr.io/slinkyproject/slurmctld
-      tag: 25.11-ubuntu24.04
+      repository: slurmctld-custom
+      tag: latest
     # -- Arguments passed to the image.
     # Ref: https://slurm.schedmd.com/slurmctld.html#SECTION_OPTIONS
     args: []
@@ -186,13 +186,21 @@ controller:
       # requests:
       #   cpu: 1
       #   memory: 1Gi
+    volumeMounts:
+      - name: extrausers-vol
+        mountPath: /var/lib/extrausers
+        subPath: common/etc
   # Reconfigure container configurations.
   reconfigure:
     # -- (string \| object) The image to use.
     # Ref: https://kubernetes.io/docs/concepts/containers/images/#image-names
     image:
-      repository: ghcr.io/slinkyproject/slurmctld
-      tag: 25.11-ubuntu24.04
+      repository: slurmctld-custom
+      tag: latest
+    volumeMounts:
+      - name: extrausers-vol
+        mountPath: /var/lib/extrausers
+        subPath: common/etc
     # -- The container resource limits and requests.
     # Ref: https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/#resource-requests-and-limits-of-pod-and-container
     resources: {}
@@ -278,6 +286,10 @@ controller:
       # - key: key1
       #   operator: Exists
       #   effect: NoSchedule
+    volumes:
+      - name: extrausers-vol
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
   # -- The service configuration.
   service:
     # -- Labels and annotations.
@@ -329,8 +341,8 @@ restapi:
     # -- (string \| object) The image to use.
     # Ref: https://kubernetes.io/docs/concepts/containers/images/#image-names
     image:
-      repository: ghcr.io/slinkyproject/slurmrestd
-      tag: 25.11-ubuntu24.04
+      repository: slurmrestd-custom
+      tag: latest
     # -- Environment passed to the image.
     # Ref: https://slurm.schedmd.com/slurmrestd.html#SECTION_ENVIRONMENT-VARIABLES
     env: []
@@ -347,6 +359,10 @@ restapi:
       # requests:
       #   cpu: 1
       #   memory: 1Gi
+    volumeMounts:
+      - name: extrausers-vol
+        mountPath: /var/lib/extrausers
+        subPath: common/etc
   # -- Labels and annotations.
   # Ref: https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/
   metadata: {}
@@ -378,6 +394,10 @@ restapi:
       # - key: key1
       #   operator: Exists
       #   effect: NoSchedule
+    volumes:
+      - name: extrausers-vol
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
   # -- The service configuration.
   service:
     # -- Labels and annotations.
@@ -643,13 +663,14 @@ nodesets:
       # -- (string \| object) The image to use.
       # Ref: https://kubernetes.io/docs/concepts/containers/images/#image-names
       image:
-        repository: ghcr.io/slinkyproject/slurmd
-        tag: 25.11-ubuntu24.04
+        repository: slurmd-custom
+        tag: latest
       # -- Arguments passed to the image.
       # Ref: https://slurm.schedmd.com/slurmd.html#SECTION_OPTIONS
       args: []
         # - -vvv
       # -- Environment passed to the image.
+      # Ref: https://slurm.schedmd.com/slurmd.html#SECTION_ENVIRONMENT-VARIABLES
       env: []
         # - name: PAM_SLURM_ADOPT_OPTIONS
         #   value: action_adopt_failure=deny action_generic_failure=deny
@@ -664,6 +685,10 @@ nodesets:
       volumeMounts:
         - name: slinky-storage
           mountPath: /mnt/storage
+        - name: extrausers-vol
+          mountPath: /var/lib/extrausers
+          subPath: common/etc
+          readOnly: true
     # LogFile sidecar configurations.
     logfile:
       # -- (string \| object) The image to use.
@@ -754,6 +779,9 @@ nodesets:
       # Ref: https://kubernetes.io/docs/concepts/storage/volumes/
       volumes:
         - name: slinky-storage
+          persistentVolumeClaim:
+            claimName: slinky-storage-pvc
+        - name: extrausers-vol
           persistentVolumeClaim:
             claimName: slinky-storage-pvc
 
