@@ -193,6 +193,7 @@ if [ $? -eq 0 ]; then
 else
     echo "FAILURE: user1 write to project1 blocked!"
 fi
+sleep 45
 """
     j1 = submit_job("user1", "project1", token1, script_user1)
     wait_for_job("user1", token1, j1)
@@ -216,6 +217,7 @@ if [ $? -eq 0 ]; then
 else
     echo "FAILURE: user2 write to project2 blocked!"
 fi
+sleep 45
 """
     j2 = submit_job("user2", "project1", token2, script_user2)
     wait_for_job("user2", token2, j2)
