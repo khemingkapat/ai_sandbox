@@ -2,6 +2,34 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 8] - 2026-06-24: Dynamic User Resolution via libnss-extrausers
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Implement dynamic user resolution across Slurm pods using `libnss-extrausers` and a shared volume mount, enabling multi-user job submission and isolation without manual provisioning.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Custom Image Generation:**
+    *   Created [scripts/build-custom-images.sh](scripts/build-custom-images.sh): Shell script to compile custom `slurmctld`, `slurmrestd`, and `slurmd` Docker images with `libnss-extrausers` packages and update `/etc/nsswitch.conf` inside the containers.
+2.  **Helm Volume Mounting:**
+    *   Updated [values.yaml](values.yaml): Configured `extrausers-vol` volumes and `volumeMounts` mapping `/mnt/storage/common/etc` to `/var/lib/extrausers/` across all Slurm pods (controller, restapi, worker nodes).
+3.  **Portal Dynamic Mapping:**
+    *   Updated [portal/main.go](portal/main.go): Implemented `registerUserExtrausers` helper function inside `loginAction` to atomically register users inside the shared `/mnt/storage/common/etc/passwd` and `group` files upon login.
+4.  **Verification Script Update:**
+    *   Updated [scripts/test_api_isolation.py](scripts/test_api_isolation.py): Modified the Python test script to dynamically register users in the shared passwd/group folders, verifying job resolution and filesystem isolation boundaries.
+
+### 💡 Why This Design?
+*   **Decoupled & Native:** Avoids complex, high-overhead SSSD/LDAP infrastructure for prototyping while matching the exact numeric UID/GID permission boundaries of the production system.
+*   **Zero-Overhead Scaling:** Adding new users is a simple, atomic write to a text file that updates all nodes instantly.
+
+### 🛠️ Verification Steps
+To execute the dynamic isolation test:
+1.  **Run the verification script:**
+    ```bash
+    nix-shell -p kubectl -p python3 --run "python3 scripts/test_api_isolation.py"
+    ```
+    *(Confirm both test users are registered, jobs run under UIDs 1001/1002, and directory cross-writes are blocked).*
+
 ## [Increment 7] - 2026-06-21: Web Portal Enhancements
 
 *   **Author:** Jules (Async)
