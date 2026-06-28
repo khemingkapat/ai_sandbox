@@ -1,8 +1,9 @@
 id: "jupyterlab"
 name: "JupyterLab"
-description: "Interactive Python notebook environment running inside an Apptainer sandbox."
+description: "Interactive Python notebook environment."
 icon: "⬡"
-image_file: "jupyterlab.sif"
+type: "interactive"
+image: "localhost:5000/sandbox/jupyterlab:latest"
 exec_command: "jupyter lab --ip=0.0.0.0 --port=$ALLOCATED_PORT --no-browser --ServerApp.base_url=$BASE_URL --ServerApp.token='' --allow-root --notebook-dir=$WORKSPACE"
 slurm_args:
   nodes: "1"

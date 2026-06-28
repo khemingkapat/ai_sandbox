@@ -34,6 +34,37 @@ This file tracks every discrete increment made during the Slinky migration. Its 
 
 ---
 
+## [Increment 10] - 2026-06-30: Manifest Schema Migration (type + OCI image fields)
+
+*   **Author:** Jules (Async)
+*   **Goal:** Migrate the app manifest schema to support both OCI container images (for interactive workloads) and SIF images (for batch workloads).
+
+### 📝 Key Changes & Files Modified
+
+1.  **Backend Logic:**
+    *   Updated `portal/main.go`:
+        *   Expanded `AppManifest` struct with `Type` ("interactive" or "batch") and `Image` (OCI ref) fields.
+        *   Enhanced `scanApps()` with validation: defaults `Type` to "batch" for backward compatibility and ensures "interactive" apps have an OCI image defined.
+2.  **Application Manifests:**
+    *   Updated `storage/common/software/jupyterlab/manifest.yaml`: Converted to `type: interactive` using an OCI image ref.
+    *   Updated `storage/projects/project1/software/hello/manifest.yaml`: Explicitly set `type: batch`.
+
+### 💡 Why This Design?
+*   **Dispatcher Readiness:** Providing a clear type discriminator enables the portal to route jobs either to Kubernetes-native OCI pods (interactive) or Slurm-based Apptainer execs (batch).
+*   **Backward Compatibility:** Defaulting the type to "batch" ensures that existing Apptainer-only manifests continue to work without modification.
+
+### 🛠️ Verification Steps
+1.  **Compile the portal:**
+    ```bash
+    cd portal
+    go build ./...
+    ```
+    *(Confirm successful compilation without errors).*
+2.  **Verify Manifests:**
+    *(Confirm that JupyterLab and Hello manifests now contain the `type` field and JupyterLab has the `image` ref).*
+
+---
+
 ## [Increment 8] - 2026-06-24: Dynamic User Resolution via libnss-extrausers
 
 *   **Author:** Antigravity (Interactive) & Khem
