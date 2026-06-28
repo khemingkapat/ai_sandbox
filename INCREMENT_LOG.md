@@ -91,6 +91,37 @@ This file tracks every discrete increment made during the Slinky migration. Its 
     kubectl exec -n slurm test-interactive-pod -- id user1
     ```
     *(Confirm UID 1001 is resolved and `/mnt/storage` is writable).*
+## [Increment 11] - 2026-07-05: Adopt slurm-client Library in Go Portal
+
+*   **Author:** Jules (Async)
+*   **Goal:** Replace manual HTTP calls to the Slurm REST API with the official `slurm-client` Go library to improve type safety and maintainability.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Dependency Management:**
+    *   Updated `portal/go.mod`: Added `github.com/SlinkyProject/slurm-client` and `k8s.io/utils/ptr`.
+2.  **Portal Backend Refactoring:**
+    *   Updated `portal/main.go`:
+        *   Replaced all manual `http.NewRequest` calls to Slurm REST API with `slurmClient.List`, `slurmClient.Create`, `slurmClient.Get`, and `slurmClient.Delete`.
+        *   Refactored `apiUserJobs`, `apiClusterStatus`, `submitJob`, `jobStatus`, and `cancelJob` handlers to instantiate a fresh `slurm-client` per request using the user's JWT token.
+        *   Removed legacy Slurm API structs (`SlurmJob`, `SlurmJobResponse`, etc.) in favor of typed structures from the `slurm-client` library.
+        *   Eliminated hardcoded `/slurm/v0.0.42/` paths in the main job/node handlers.
+
+### 💡 Why This Design?
+*   **Type Safety:** Using a generated client library reduces the risk of errors from manual JSON unmarshaling and ensures compatibility with the Slurm REST API schema.
+*   **Security & Isolation:** Instantiating a new client per request with the user's own token ensures that all Slurm operations are performed with the correct user identity and permissions, maintaining strict multi-user isolation.
+*   **Maintainability:** Removing boilerplate HTTP code and hardcoded version strings makes the portal easier to update for future Slurm versions.
+
+### 🛠️ Verification Steps
+1.  **Compile the portal:**
+    ```bash
+    cd portal
+    go build ./...
+    ```
+    *(Confirm successful compilation without errors).*
+
+---
+
 ## [Increment 10] - 2026-06-30: Manifest Schema Migration (type + OCI image fields)
 
 *   **Author:** Jules (Async)

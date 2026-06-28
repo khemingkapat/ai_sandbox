@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -13,11 +13,15 @@ import (
 	"strings"
 	"time"
 
+	api "github.com/SlinkyProject/slurm-client/api/v0042"
+	"github.com/SlinkyProject/slurm-client/pkg/client"
+	"github.com/SlinkyProject/slurm-client/pkg/types"
 	"github.com/golang-jwt/jwt/v5"
 	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"gopkg.in/yaml.v3"
+	"k8s.io/utils/ptr"
 )
 
 var (
@@ -27,27 +31,6 @@ var (
 	portManager   *PortManager
 )
 
-// Slurm API Structs
-type SlurmJob struct {
-	JobID     int         `json:"job_id"`
-	Name      string      `json:"name"`
-	JobState  interface{} `json:"job_state"`
-	UserName  string      `json:"user_name"`
-	Partition string      `json:"partition"`
-}
-
-type SlurmJobResponse struct {
-	Jobs []SlurmJob `json:"jobs"`
-}
-
-type SlurmNode struct {
-	Name  string      `json:"name"`
-	State interface{} `json:"state"`
-}
-
-type SlurmNodeResponse struct {
-	Nodes []SlurmNode `json:"nodes"`
-}
 
 // AppManifest represents an application configuration loaded from a yaml file
 type AppManifest struct {
@@ -370,25 +353,19 @@ func apiUserJobs(c echo.Context) error {
 	username := claims["sun"].(string)
 	tokenString := userToken.Raw
 
-	req, _ := http.NewRequest("GET", slurmRestURL+"/slurm/v0.0.42/jobs", nil)
-	req.Header.Set("X-SLURM-USER-TOKEN", tokenString)
-	req.Header.Set("X-SLURM-USER-NAME", username)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	slurmClient, err := client.NewClient(&client.Config{Server: slurmRestURL, AuthToken: tokenString})
 	if err != nil {
+		return c.String(http.StatusInternalServerError, "Slurm Client Error")
+	}
+
+	jobList := &types.V0042JobInfoList{}
+	if err := slurmClient.List(context.Background(), jobList); err != nil {
 		return c.String(http.StatusInternalServerError, "Slurm API Error")
 	}
-	defer resp.Body.Close()
 
-	var result SlurmJobResponse
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return c.String(http.StatusInternalServerError, "Invalid JSON")
-	}
-
-	userJobs := []SlurmJob{}
-	for _, job := range result.Jobs {
-		if job.UserName == username {
+	userJobs := []types.V0042JobInfo{}
+	for _, job := range jobList.Items {
+		if ptr.Deref(job.UserName, "") == username {
 			userJobs = append(userJobs, job)
 		}
 	}
@@ -398,55 +375,38 @@ func apiUserJobs(c echo.Context) error {
 
 func apiClusterStatus(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
-	claims := userToken.Claims.(jwt.MapClaims)
-	username := claims["sun"].(string)
 	tokenString := userToken.Raw
 
-	client := &http.Client{Timeout: 10 * time.Second}
+	slurmClient, err := client.NewClient(&client.Config{Server: slurmRestURL, AuthToken: tokenString})
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Slurm Client Error")
+	}
 
 	// 1. Fetch Jobs for Active & Queue Depth
-	reqJobs, _ := http.NewRequest("GET", slurmRestURL+"/slurm/v0.0.42/jobs", nil)
-	reqJobs.Header.Set("X-SLURM-USER-TOKEN", tokenString)
-	reqJobs.Header.Set("X-SLURM-USER-NAME", username)
-
 	activeJobs := 0
 	queueDepth := 0
-	respJobs, err := client.Do(reqJobs)
-	if err == nil {
-		defer respJobs.Body.Close()
-		if respJobs.StatusCode == 200 {
-			var jobRes SlurmJobResponse
-			json.NewDecoder(respJobs.Body).Decode(&jobRes)
-			for _, j := range jobRes.Jobs {
-				state := fmt.Sprintf("%v", j.JobState)
-				if strings.Contains(state, "RUNNING") {
-					activeJobs++
-				} else if strings.Contains(state, "PENDING") {
-					queueDepth++
-				}
+	jobList := &types.V0042JobInfoList{}
+	if err := slurmClient.List(context.Background(), jobList); err == nil {
+		for _, j := range jobList.Items {
+			stateSet := j.GetStateAsSet()
+			if stateSet.Has(api.V0042JobInfoJobStateRUNNING) {
+				activeJobs++
+			} else if stateSet.Has(api.V0042JobInfoJobStatePENDING) {
+				queueDepth++
 			}
 		}
 	}
 
 	// 2. Fetch Nodes for Resource counts
-	reqNodes, _ := http.NewRequest("GET", slurmRestURL+"/slurm/v0.0.42/nodes", nil)
-	reqNodes.Header.Set("X-SLURM-USER-TOKEN", tokenString)
-	reqNodes.Header.Set("X-SLURM-USER-NAME", username)
-
 	nodesTotal := 0
 	nodesFree := 0
-	respNodes, err := client.Do(reqNodes)
-	if err == nil {
-		defer respNodes.Body.Close()
-		if respNodes.StatusCode == 200 {
-			var nodeRes SlurmNodeResponse
-			json.NewDecoder(respNodes.Body).Decode(&nodeRes)
-			nodesTotal = len(nodeRes.Nodes)
-			for _, n := range nodeRes.Nodes {
-				state := fmt.Sprintf("%v", n.State)
-				if strings.Contains(state, "IDLE") {
-					nodesFree++
-				}
+	nodeList := &types.V0042NodeList{}
+	if err := slurmClient.List(context.Background(), nodeList); err == nil {
+		nodesTotal = len(nodeList.Items)
+		for _, n := range nodeList.Items {
+			stateSet := n.GetStateAsSet()
+			if stateSet.Has(api.V0042NodeStateIDLE) {
+				nodesFree++
 			}
 		}
 	}
@@ -568,118 +528,82 @@ curl -s -X POST http://portal:8080/api/internal/release-port \
 
 	scriptTemplate := sbatchHeader + "\n" + sb.String()
 
-	jobProps := map[string]interface{}{
-		"current_working_directory": workspace,
-		"environment": map[string]string{
-			"PATH": "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-			"HOME": workspace,
-			"USER": username,
+	jobDesc := &api.V0042JobDescMsg{
+		CurrentWorkingDirectory: ptr.To(workspace),
+		Environment: &api.V0042StringArray{
+			"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+			"HOME=" + workspace,
+			"USER=" + username,
 		},
-		"name":            targetApp.ID,
-		"standard_output": fmt.Sprintf("%s/logs/%s_%%j.out", workspace, targetApp.ID),
-		"standard_error":  fmt.Sprintf("%s/logs/%s_%%j.err", workspace, targetApp.ID),
+		Name: ptr.To(targetApp.ID),
+		StandardOutput: ptr.To(fmt.Sprintf("%s/logs/%s_%%j.out", workspace, targetApp.ID)),
+		StandardError:  ptr.To(fmt.Sprintf("%s/logs/%s_%%j.err", workspace, targetApp.ID)),
 	}
 
 	// Map common Slurm arguments directly to the REST API fields
 	if val, ok := finalSlurmArgs["ntasks"]; ok {
 		if v, err := strconv.Atoi(val); err == nil {
-			jobProps["tasks"] = v
+			jobDesc.Tasks = ptr.To(int32(v))
 		}
 	}
 	if val, ok := finalSlurmArgs["nodes"]; ok {
 		if v, err := strconv.Atoi(val); err == nil {
-			jobProps["minimum_nodes"] = v
+			jobDesc.MinimumNodes = ptr.To(int32(v))
 		}
 	}
 	if val, ok := finalSlurmArgs["cpus-per-task"]; ok {
 		if v, err := strconv.Atoi(val); err == nil {
-			jobProps["cpus_per_task"] = v
+			jobDesc.CpusPerTask = ptr.To(int32(v))
 		}
 	}
 	if val, ok := finalSlurmArgs["partition"]; ok {
-		jobProps["partition"] = val
+		jobDesc.Partition = ptr.To(val)
 	}
 
-	payload := map[string]interface{}{
-		"job":    jobProps,
-		"script": scriptTemplate,
+	submitReq := api.V0042JobSubmitReq{
+		Job:    jobDesc,
+		Script: ptr.To(scriptTemplate),
 	}
 
-	body, _ := json.Marshal(payload)
-
-	req, _ := http.NewRequest("POST", slurmRestURL+"/slurm/v0.0.42/job/submit", bytes.NewBuffer(body))
-	req.Header.Set("X-SLURM-USER-TOKEN", tokenString)
-	req.Header.Set("X-SLURM-USER-NAME", username)
-	req.Header.Set("Content-Type", "application/json")
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != 200 {
-		return c.String(http.StatusInternalServerError, "Slurm API Error")
+	slurmClient, err := client.NewClient(&client.Config{Server: slurmRestURL, AuthToken: tokenString})
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Slurm Client Error")
 	}
-	defer resp.Body.Close()
 
-	var result map[string]interface{}
-	json.NewDecoder(resp.Body).Decode(&result)
+	job := &types.V0042JobInfo{}
+	err = slurmClient.Create(context.Background(), job, submitReq)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Slurm API Error: "+err.Error())
+	}
 
-	return c.JSON(http.StatusOK, map[string]interface{}{"job_id": result["job_id"]})
+	return c.JSON(http.StatusOK, map[string]interface{}{"job_id": ptr.Deref(job.JobId, 0)})
 }
 
 func jobStatus(c echo.Context) error {
-	jobID := c.Param("job_id")
+	jobIDStr := c.Param("job_id")
 	userToken := c.Get("user").(*jwt.Token)
-	claims := userToken.Claims.(jwt.MapClaims)
-	username := claims["sun"].(string)
 	tokenString := userToken.Raw
 
-	req, _ := http.NewRequest("GET", slurmRestURL+"/slurm/v0.0.42/job/"+jobID, nil)
-	req.Header.Set("X-SLURM-USER-TOKEN", tokenString)
-	req.Header.Set("X-SLURM-USER-NAME", username)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
+	slurmClient, err := client.NewClient(&client.Config{Server: slurmRestURL, AuthToken: tokenString})
 	if err != nil {
-		return c.String(http.StatusInternalServerError, "Slurm API Error")
-	}
-	defer resp.Body.Close()
-
-	var result map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return c.String(http.StatusInternalServerError, "Invalid JSON")
+		return c.String(http.StatusInternalServerError, "Slurm Client Error")
 	}
 
-	jobsInterface, ok := result["jobs"]
-	if !ok {
+	job := &types.V0042JobInfo{}
+	err = slurmClient.Get(context.Background(), client.ObjectKey(jobIDStr), job)
+	if err != nil {
 		return c.String(http.StatusNotFound, "Job not found")
 	}
 
-	jobs, ok := jobsInterface.([]interface{})
-	if !ok || len(jobs) == 0 {
-		return c.String(http.StatusNotFound, "Job not found")
-	}
-
-	jobData, ok := jobs[0].(map[string]interface{})
-	if !ok {
-		return c.String(http.StatusInternalServerError, "Invalid job format")
-	}
-
-	var stateStr string
-	switch v := jobData["job_state"].(type) {
-	case string:
-		stateStr = v
-	case []interface{}:
-		if len(v) > 0 {
-			stateStr = fmt.Sprintf("%v", v[0])
-		} else {
-			stateStr = "UNKNOWN"
-		}
-	default:
-		stateStr = "UNKNOWN"
+	stateSet := job.GetStateAsSet()
+	stateStr := "UNKNOWN"
+	if len(ptr.Deref(job.JobState, []api.V0042JobInfoJobState{})) > 0 {
+		stateStr = string((*job.JobState)[0])
 	}
 
 	var proxyURL *string
-	if stateStr == "RUNNING" {
-		jID, err := strconv.Atoi(jobID)
+	if stateSet.Has(api.V0042JobInfoJobStateRUNNING) {
+		jID, err := strconv.Atoi(jobIDStr)
 		if err == nil {
 			lease, _ := portManager.GetLeaseByJob(jID)
 			if lease != nil {
@@ -690,7 +614,7 @@ func jobStatus(c echo.Context) error {
 	}
 
 	return c.JSON(http.StatusOK, map[string]interface{}{
-		"job_id":    jobID,
+		"job_id":    jobIDStr,
 		"state":     stateStr,
 		"proxy_url": proxyURL,
 	})
@@ -749,21 +673,25 @@ func getEnv(key, fallback string) string {
 }
 
 func cancelJob(c echo.Context) error {
-	jobID := c.Param("job_id")
+	jobIDStr := c.Param("job_id")
 	userToken := c.Get("user").(*jwt.Token)
-	username := userToken.Claims.(jwt.MapClaims)["sun"].(string)
 	tokenString := userToken.Raw
 
-	req, _ := http.NewRequest("DELETE", slurmRestURL+"/slurm/v0.0.42/job/"+jobID, nil)
-	req.Header.Set("X-SLURM-USER-TOKEN", tokenString)
-	req.Header.Set("X-SLURM-USER-NAME", username)
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode >= 400 {
-		return c.String(http.StatusInternalServerError, "Failed to cancel job")
+	slurmClient, err := client.NewClient(&client.Config{Server: slurmRestURL, AuthToken: tokenString})
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Slurm Client Error")
 	}
-	defer resp.Body.Close()
+
+	jobID, _ := strconv.Atoi(jobIDStr)
+	job := &types.V0042JobInfo{
+		V0042JobInfo: api.V0042JobInfo{
+			JobId: ptr.To(int32(jobID)),
+		},
+	}
+	err = slurmClient.Delete(context.Background(), job)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "Failed to cancel job: "+err.Error())
+	}
 
 	return c.JSON(http.StatusOK, map[string]string{"status": "cancelled"})
 }
