@@ -1,3 +1,6 @@
 project1:x:2001:user1,user2
 project2:x:2002:user2,user3
 project3:x:2003:user4
+user1:x:1001:
+user2:x:1002:
+user4:x:1004:

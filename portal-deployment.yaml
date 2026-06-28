@@ -22,7 +22,7 @@ spec:
           name: ui
         env:
         - name: SLURMRESTD_URL
-          value: "http://slurmrestd:6820"
+          value: "http://slurm-restapi:6820"
         - name: JWT_KEY_PATH
           value: "/etc/slurm/jwt_hs256.key"
         - name: TRAEFIK_CONFIG_DIR
