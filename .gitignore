@@ -36,3 +36,4 @@ traefik-dynamic/*
 
 # Ignore compiled portal binary
 portal/portal
+/storage/projects/**/.jupyter/
