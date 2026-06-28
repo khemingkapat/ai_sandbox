@@ -3,8 +3,9 @@ set -e
 
 PORT=${ALLOCATED_PORT:-8888}
 BASE_URL=${BASE_URL:-/}
+NOTEBOOK_DIR=${WORKSPACE:-/mnt/storage}
 
-echo "Starting JupyterLab on port $PORT with base URL $BASE_URL"
+echo "Starting JupyterLab on port $PORT with base URL $BASE_URL and notebook dir $NOTEBOOK_DIR"
 
 # If running as root, we must allow it. In production, we expect to run as a dynamic user.
 ALLOW_ROOT=""
@@ -19,4 +20,5 @@ exec jupyter lab \
     --ServerApp.base_url=$BASE_URL \
     --ServerApp.token='' \
     --ServerApp.password='' \
+    --notebook-dir=$NOTEBOOK_DIR \
     --no-browser
