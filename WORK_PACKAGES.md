@@ -13,10 +13,10 @@
 |---|---|---|---|
 | 1 | Environment Assessment & Requirements | 🏗️ Foundation | 🟡 Partial |
 | 2 | Capacity Planning & Workload Profiling | 🏗️ Foundation | 🔴 Not started |
-| 3 | Tech Stack Selection & Architecture Decision | 🏗️ Foundation | 🟢 Mostly done |
+| 3 | Tech Stack Selection & Architecture Decision | 🏗️ Foundation | 🟢 Done |
 | 4 | Slinky Deployment & Orchestrator Integration | 🏗️ Foundation | 🟡 Partial |
 | 5 | Slurm Policy & Resource Configuration | 🧩 Services | 🔴 Not started |
-| 6 | Container Environment & Image Pipeline | 🧩 Services | 🔴 Not started |
+| 6 | Container Environment & Image Pipeline | 🧩 Services | 🟡 Partial |
 | 7 | Shared Storage, Datasets & Model Repository | 🧩 Services | 🟡 Partial |
 | 8 | Network & Security Baseline | 🧩 Services | 🟡 Partial |
 | 9 | LLM Inference Server Deployment | 🧩 Services | 🔴 Not started |
@@ -48,19 +48,21 @@ Define expected student workloads and size partitions and quotas for fair multi-
 - Resource quotas per student/project
 - Autoscaling policy (NodeSet min/max replicas)
 
-### WP3-1-3: Tech Stack Selection & Architecture Decision
+### WP3-1-3: Tech Stack Selection & Architecture Decision ✅
 Record all technology choices made (Slinky, Kind, Nix, Go portal) and remaining open decisions.
 - Architecture Decision Records (ADRs)
 - Reference architecture diagram
 - Tech comparison matrices for open decisions
+- **Decision finalized:** Two-path dispatcher (interactive=k8s OCI pod, batch=Apptainer SIF), slurm-bridge for unified queue, slurm-client for API
 
 ### WP3-1-4: Slinky Deployment & Orchestrator Integration
 Deploy the full Slinky stack — slurm-operator, slurm-bridge, controller, worker NodeSets.
-- Working slurm-operator + CRDs
-- slurm-bridge for K8s-native job partition
-- CPU and GPU NodeSet configurations
-- Finalized Helm values.yaml
-- Infrastructure verification suite passing
+- ✅ Working slurm-operator + CRDs
+- ✅ CPU NodeSet configurations
+- ✅ Finalized Helm values.yaml
+- ✅ Infrastructure verification suite passing
+- 🔴 **slurm-bridge deployment** — deploy the bridge that intercepts k8s pod requests and registers them as Slurm jobs for fairshare/accounting
+- 🔴 GPU NodeSet configuration
 
 ---
 
@@ -74,12 +76,13 @@ Configure scheduling policies — partitions, QoS, fair-share, preemption.
 - Resource limit enforcement
 
 ### WP3-1-6: Container Environment & Image Pipeline
-Build curated OCI images for every workload type (JupyterLab, PyTorch, etc.).
-- Dockerfiles per workload type
-- OCI registry deployment
-- Image build automation
-- Pre-pull DaemonSet for fast startup
-- Updated manifest schema
+Build curated OCI images for interactive workloads, validate Apptainer for batch, and migrate manifest schema.
+- 🔴 **Manifest schema migration** — add `type` (interactive|batch) and `image` (OCI ref) fields; keep `image_file` (SIF) for batch only. Update `AppManifest` struct in portal.
+- 🔴 **OCI images for interactive workloads** — Dockerfiles for JupyterLab, code-server, bash TUI. Push to local registry.
+- 🟢 **Apptainer batch validation** ⚠️ EXPERIMENTAL — validate `apptainer exec user.sif` works inside slurmd pods under Slinky. Test GPU passthrough, shared filesystem binding, rootless UID enforcement. *This is interactive/experimental work — not Jules-delegatable.*
+- 🔴 OCI registry deployment (local `registry:2`)
+- 🔴 Pre-pull DaemonSet for fast startup
+- 🟡 Existing manifests still reference `.sif` files (jupyterlab.sif, python.sif) — need migration
 
 ### WP3-1-7: Shared Storage, Datasets & Model Repository
 Shared storage for workspaces, pre-downloaded datasets, and model weights.
@@ -127,11 +130,14 @@ Deploy MLflow (or similar) so students import mlflow and go.
 
 ### WP3-1-12: Web Portal Enhancements
 The Go/Echo portal is the single entry point. Launch notebooks, submit jobs, call inference, view usage.
-- Remove legacy SSH + ext_* code paths
-- GPU job submission support
-- Inference server integration (model picker, chat UI)
-- User dashboard (active jobs, usage, quota)
-- Resource availability view (free GPUs, queue depth)
+- ✅ Remove legacy SSH + ext_* code paths
+- ✅ User dashboard (active jobs, usage, quota) — `apiUserJobs`, `apiClusterStatus`
+- ✅ Resource availability view (free GPUs, queue depth)
+- 🔴 **Adopt `slurm-client` library** — replace raw `net/http` REST calls with `github.com/SlinkyProject/slurm-client`. Removes hardcoded `v0.0.42` API version. Adds client-side caching.
+- 🔴 **Two-path dispatcher** — route interactive jobs to k8s Pod spec (+ Service + Ingress), batch jobs to sbatch with `apptainer exec`. Requires k8s client in portal. `slurm-bridge` handles Slurm registration for the interactive path.
+- 🔴 **Interactive session Pod management** — generate Pod spec, Service, and Ingress for Jupyter/VS Code/bash sessions. Replace Traefik sidecar dynamic routes with k8s-native Ingress routing.
+- 🔴 GPU job submission support
+- 🔴 Inference server integration (model picker, chat UI)
 
 ### WP3-1-13: Monitoring & Observability
 Prometheus, Grafana, slurm-exporter. Dashboards for admins and students.
