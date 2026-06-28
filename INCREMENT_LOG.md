@@ -34,6 +34,40 @@ This file tracks every discrete increment made during the Slinky migration. Its 
 
 ---
 
+## [Increment 10] - 2026-07-02: Curated OCI Images for Interactive Workloads
+
+*   **Author:** Jules (Async)
+*   **Goal:** Provide specialized OCI container images for JupyterLab, Code-server, and Bash workloads to replace Apptainer SIF files, ensuring compatibility with the cluster's dynamic user resolution and storage model.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Image Dockerfiles:**
+    *   `images/jupyterlab/Dockerfile`: Based on `jupyter/scipy-notebook`, adds `libnss-extrausers` and a custom startup script.
+    *   `images/codeserver/Dockerfile`: Based on `codercom/code-server`, adds `libnss-extrausers`.
+    *   `images/bash/Dockerfile`: Minimal Ubuntu-based image with common CLI tools and `libnss-extrausers`.
+2.  **Automation & Integration:**
+    *   Created `scripts/build-oci-images.sh`: Builds all three interactive images and loads them into the Kind cluster.
+    *   Updated `scripts/start-slinky.sh`: Integrated the image building and loading process into the cluster startup workflow.
+3.  **Dynamic Configuration:**
+    *   Implemented `images/jupyterlab/start-jupyter.sh` to allow the portal to inject `$ALLOCATED_PORT` and `$BASE_URL` for Traefik-ready routing.
+
+### 💡 Why This Design?
+*   **Performance & Flexibility:** Native OCI images are faster to launch and easier to customize than Apptainer SIF images within a Kubernetes environment.
+*   **Unified Identity:** Including `libnss-extrausers` in all interactive images ensures they can resolve the same dynamic UIDs used by the Slurm daemons, maintaining strict storage isolation.
+*   **Portal Compatibility:** Exposing port and base URL configuration in the Jupyter image prepares the system for the upcoming dynamic proxy routing feature.
+
+### 🛠️ Verification Steps
+1.  **Build and Load Images:** `./scripts/build-oci-images.sh`
+2.  **Verify Cluster Integration:** Run `./scripts/start-slinky.sh` and ensure no `ImagePullBackOff` errors occur when interactive pods are launched.
+3.  **Manual Test Pod:**
+    ```bash
+    kubectl apply -f test-interactive-pod.yaml
+    kubectl exec -n slurm test-interactive-pod -- id user1
+    ```
+    *(Confirm UID 1001 is resolved and `/mnt/storage` is writable).*
+
+---
+
 ## [Increment 8] - 2026-06-24: Dynamic User Resolution via libnss-extrausers
 
 *   **Author:** Antigravity (Interactive) & Khem
