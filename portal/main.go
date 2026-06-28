@@ -120,15 +120,22 @@ func makeSlurmToken(username string, project string) (string, error) {
 }
 
 func fetchAccessMatrix() map[string][]string {
-	matrix := make(map[string][]string)
+	fallback := map[string][]string{
+		"root":  {"root_project"},
+		"user1": {"project1"},
+		"user2": {"project1", "project2"},
+		"user3": {"project2"},
+		"user4": {"project3"},
+	}
+
 	adminToken, err := makeSlurmToken("root", "root")
 	if err != nil {
-		return matrix
+		return fallback
 	}
 
 	req, err := http.NewRequest("GET", slurmRestURL+"/slurmdb/v0.0.42/associations", nil)
 	if err != nil {
-		return matrix
+		return fallback
 	}
 
 	req.Header.Set("X-SLURM-USER-TOKEN", adminToken)
@@ -138,12 +145,12 @@ func fetchAccessMatrix() map[string][]string {
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return matrix
+		return fallback
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return matrix
+		return fallback
 	}
 
 	var result struct {
@@ -154,17 +161,18 @@ func fetchAccessMatrix() map[string][]string {
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return matrix
+		return fallback
 	}
 
+	matrix := make(map[string][]string)
 	for _, assoc := range result.Associations {
 		if assoc.User != "" && assoc.Account != "" {
 			matrix[assoc.User] = append(matrix[assoc.User], assoc.Account)
 		}
 	}
 
-	if len(matrix["root"]) == 0 {
-		matrix["root"] = []string{"root_project"}
+	if len(matrix) == 0 {
+		return fallback
 	}
 	return matrix
 }

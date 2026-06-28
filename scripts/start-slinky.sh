@@ -10,4 +10,10 @@ kubectl create namespace slurm --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f pv-pvc.yaml
 
 helm install slurm oci://ghcr.io/slinkyproject/charts/slurm --namespace slurm --create-namespace -f values.yaml
-echo "✅ Slinky is ready!"
+
+echo "🏗️ Building and deploying HPC Portal..."
+docker build -t hpc-portal:local -f portal/Dockerfile.portal portal/
+kind load docker-image hpc-portal:local
+kubectl apply -f portal-deployment.yaml
+
+echo "✅ Slinky and HPC Portal are ready!"
