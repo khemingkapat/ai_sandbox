@@ -19,6 +19,10 @@ done
 echo "🏗️ Building and deploying HPC Portal..."
 docker build -t hpc-portal:local -f portal/Dockerfile.portal portal/
 kind load docker-image hpc-portal:local
+
+echo "🛠️ Building and loading interactive OCI images..."
+./scripts/build-oci-images.sh
+
 kubectl apply -f portal-deployment.yaml
 
 echo "✅ Slinky and HPC Portal are ready!"
