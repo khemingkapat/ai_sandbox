@@ -2,6 +2,32 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 10] - 2026-06-28: Apptainer Integration & Traefik Bugfix
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Validate and integrate `apptainer-suid` with `proot` into the Slurm worker nodes to support rootless Apptainer execution within Kubernetes, and resolve a hidden Traefik file-watcher limit bug preventing proxy routing.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Apptainer Worker Configuration:**
+    *   Updated `scripts/build-custom-images.sh`: Added `apptainer`, `apptainer-suid`, and `proot` installation steps to the `slurmd-custom` image.
+    *   Configured `apptainer.conf` to force the use of `proot` (`allow setuid = no`) to bypass Kubernetes unprivileged container restrictions on worker nodes.
+2.  **Traefik Routing Fix:**
+    *   Updated `scripts/start-slinky.sh`: Added a dynamic fix that increases the host `inotify.max_user_instances` limit to 8192 on all Kind nodes prior to portal deployment. This prevents Traefik from silently failing to watch the `dynamic-routes.yml` file due to "too many open files".
+3.  **Project Tracking:**
+    *   Updated `WORK_PACKAGES.md`: Marked WP3-1-6 (Apptainer batch validation) as completed (🟢).
+
+### 💡 Why This Design?
+*   **Rootless Apptainer in K8s:** Kubernetes strictly limits privileged operations. By injecting `proot` and disabling `setuid` in the Apptainer configuration, we achieve fully rootless container nesting without needing `--privileged` worker pods.
+*   **Host-Level Inotify Limits:** Traefik's dynamic file provider relies heavily on `inotify`. Kind inherits host OS limits, which are often too low (default 128). Automatically increasing this limit in the startup script ensures Traefik functions reliably across environments.
+
+### 🛠️ Verification Steps
+1.  **Check Apptainer execution:** 
+    Submit an interactive job from the portal and verify the generated `jupyterlab.err` shows it launching correctly.
+2.  **Verify Traefik Routing:**
+    Run `kubectl port-forward svc/portal -n slurm 8000:80` and ensure accessing `http://localhost:8000/...` correctly proxies into the JupyterLab container without a 404 error.
+
+
 ## [Increment 9] - 2026-06-28: Deploy Go Portal with Traefik Sidecar in Kind Cluster
 
 *   **Author:** Jules (Async)
@@ -65,6 +91,34 @@ This file tracks every discrete increment made during the Slinky migration. Its 
     kubectl exec -n slurm test-interactive-pod -- id user1
     ```
     *(Confirm UID 1001 is resolved and `/mnt/storage` is writable).*
+## [Increment 10] - 2026-06-30: Manifest Schema Migration (type + OCI image fields)
+
+*   **Author:** Jules (Async)
+*   **Goal:** Migrate the app manifest schema to support both OCI container images (for interactive workloads) and SIF images (for batch workloads).
+
+### 📝 Key Changes & Files Modified
+
+1.  **Backend Logic:**
+    *   Updated `portal/main.go`:
+        *   Expanded `AppManifest` struct with `Type` ("interactive" or "batch") and `Image` (OCI ref) fields.
+        *   Enhanced `scanApps()` with validation: defaults `Type` to "batch" for backward compatibility and ensures "interactive" apps have an OCI image defined.
+2.  **Application Manifests:**
+    *   Updated `storage/common/software/jupyterlab/manifest.yaml`: Converted to `type: interactive` using an OCI image ref.
+    *   Updated `storage/projects/project1/software/hello/manifest.yaml`: Explicitly set `type: batch`.
+
+### 💡 Why This Design?
+*   **Dispatcher Readiness:** Providing a clear type discriminator enables the portal to route jobs either to Kubernetes-native OCI pods (interactive) or Slurm-based Apptainer execs (batch).
+*   **Backward Compatibility:** Defaulting the type to "batch" ensures that existing Apptainer-only manifests continue to work without modification.
+
+### 🛠️ Verification Steps
+1.  **Compile the portal:**
+    ```bash
+    cd portal
+    go build ./...
+    ```
+    *(Confirm successful compilation without errors).*
+2.  **Verify Manifests:**
+    *(Confirm that JupyterLab and Hello manifests now contain the `type` field and JupyterLab has the `image` ref).*
 
 ---
 

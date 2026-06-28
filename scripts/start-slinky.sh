@@ -11,6 +11,11 @@ kubectl apply -f pv-pvc.yaml
 
 helm install slurm oci://ghcr.io/slinkyproject/charts/slurm --namespace slurm --create-namespace -f values.yaml
 
+echo "🔧 Fixing inotify limits for Traefik file watcher..."
+for node in $(kind get nodes); do
+  docker exec $node sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=524288
+done
+
 echo "🏗️ Building and deploying HPC Portal..."
 docker build -t hpc-portal:local -f portal/Dockerfile.portal portal/
 kind load docker-image hpc-portal:local

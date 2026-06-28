@@ -55,7 +55,9 @@ type AppManifest struct {
 	Name        string            `yaml:"name"`
 	Description string            `yaml:"description"`
 	Icon        string            `yaml:"icon"`
-	ImageFile   string            `yaml:"image_file"`
+	Type        string            `yaml:"type"`       // "interactive" or "batch"
+	Image       string            `yaml:"image"`      // OCI image ref (e.g., "localhost:5000/sandbox/jupyterlab:latest")
+	ImageFile   string            `yaml:"image_file"` // Apptainer SIF file (e.g., "python.sif")
 	ExecCommand string            `yaml:"exec_command"`
 	SourcePath  string            `yaml:"-"` // We fill this manually
 	SlurmArgs   map[string]string `yaml:"slurm_args"`
@@ -77,6 +79,21 @@ func scanApps(project string) []AppManifest {
 			if err == nil {
 				var app AppManifest
 				if err := yaml.Unmarshal(data, &app); err == nil {
+					// Validation logic
+					if app.Type == "" {
+						app.Type = "batch"
+					}
+
+					if app.Type != "interactive" && app.Type != "batch" {
+						fmt.Printf("Warning: manifest %s has invalid type %s, skipping\n", file, app.Type)
+						continue
+					}
+
+					if app.Type == "interactive" && app.Image == "" {
+						fmt.Printf("Warning: interactive manifest %s is missing image field, skipping\n", file)
+						continue
+					}
+
 					app.SourcePath = filepath.Dir(file)
 					// Initialize map if missing
 					if app.SlurmArgs == nil {
