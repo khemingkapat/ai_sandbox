@@ -157,12 +157,12 @@ log_step "4. Persistent Shared Storage"
 
 echo "📝 Submitting storage test job..."
 kubectl exec -n slurm -c slurmctld slurm-controller-0 -- \
-  sbatch --wait --wrap="echo 'storage_write_test_passed' > /mnt/storage/projects/project1/storage_test.txt" -N 1
+  sbatch --wait --wrap="echo 'storage_write_test_passed' > /mnt/storage/storage_test.txt" -N 1
 
 echo "🔍 Verifying files on host machine..."
-if [ -f "./storage/projects/project1/storage_test.txt" ] && grep -q "storage_write_test_passed" "./storage/projects/project1/storage_test.txt"; then
-  echo "File contents: $(cat ./storage/projects/project1/storage_test.txt)"
-  rm -f ./storage/projects/project1/storage_test.txt
+if [ -f "./storage/storage_test.txt" ] && grep -q "storage_write_test_passed" "./storage/storage_test.txt"; then
+  echo "File contents: $(cat ./storage/storage_test.txt)"
+  rm -f ./storage/storage_test.txt
   echo "✅ Test 4 Passed: Compute pod successfully wrote to shared storage!"
 else
   echo "❌ ERROR: Shared storage test file not found or contains incorrect data."
@@ -277,12 +277,13 @@ echo "✅ Test 6 Passed: Multi-user storage isolation verified!"
 log_step "7. Slurm Bridge Integration"
 
 echo "📝 Submitting test pod to slurm-bridge..."
+kubectl create namespace workload --dry-run=client -o yaml | kubectl apply -f -
 cat <<EOF | kubectl apply -f -
 apiVersion: v1
 kind: Pod
 metadata:
   name: test-bridge-job
-  namespace: slurm
+  namespace: workload
   annotations:
     slinky.slurm.net/job-name: test-bridge-job
 spec:
@@ -311,7 +312,7 @@ else
 fi
 
 echo "🧹 Cleaning up test pod..."
-kubectl delete pod test-bridge-job -n slurm --grace-period=0 --force || true
+kubectl delete pod test-bridge-job -n workload --grace-period=0 --force || true
 
 echo ""
 echo "====================================================="

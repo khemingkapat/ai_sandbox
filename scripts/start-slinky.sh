@@ -9,6 +9,9 @@ helm install slurm-operator oci://ghcr.io/slinkyproject/charts/slurm-operator --
 kubectl create namespace slurm --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f pv-pvc.yaml
 
+echo "🛠️ Building and loading custom Slurm images..."
+./scripts/build-custom-images.sh
+
 helm install slurm oci://ghcr.io/slinkyproject/charts/slurm --namespace slurm --create-namespace -f values.yaml
 
 echo "⏳ Waiting for slurmctld to be ready (needed for token generation)..."
