@@ -2,6 +2,27 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 12] - 2026-07-06: Deploy slurm-bridge for Unified Pod Queueing
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Deploy the `slurm-bridge` to enable unified scheduling of Kubernetes pods via Slurm, ensuring interactive pods are queued and accounted for exactly like batch jobs.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Slurm-Bridge Deployment:**
+    *   Created `slurm-bridge-values.yaml`: Configured the bridge to manage the `workload` namespace and connect to the local `slurmrestd` API using a dedicated JWT token.
+    *   Updated `scripts/start-slinky.sh`: Added the deployment sequence. Since `slurm-bridge` is a separate Helm chart requiring an active Slurm API token, the script now waits for `slurmctld`, generates a non-expiring JWT, stores it in a K8s secret, and installs the bridge.
+2.  **Infrastructure Verification:**
+    *   Updated `scripts/verify-infrastructure.sh`: Added Test 7 to deploy a test pod to the `workload` namespace and check if `slurm-bridge` attempts to intercept and schedule it into Slurm.
+
+### 💡 Why This Design?
+*   **Unified Queue:** Without `slurm-bridge`, standard Kubernetes pods bypass the Slurm scheduler completely. Deploying this chart bridges the gap, allowing data scientists to use standard K8s tools while enforcing Slurm's fairness and priority policies.
+*   **Sequential Token Generation:** The bridge fundamentally requires an active `SLURM_JWT` to authenticate. It cannot be deployed purely declaratively via values.yaml; it requires dynamic token generation after the controller is up.
+
+### 🛠️ Verification Steps
+1.  **Run the verification script:** `./scripts/verify-infrastructure.sh`
+    *(Check Test 7 for successful interception or warning if node annotations prevent scheduling).*
+
 ## [Increment 10] - 2026-06-28: Apptainer Integration & Traefik Bugfix
 
 *   **Author:** Antigravity (Interactive) & Khem

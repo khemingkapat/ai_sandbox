@@ -1,0 +1,68 @@
+{{- /*
+SPDX-FileCopyrightText: Copyright (C) SchedMD LLC.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "slurm-bridge.controllers.name" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "slurm-bridge.controllers.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.controllers.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "slurm-bridge.controllers.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "slurm-bridge.controllers.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.controllers.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      serviceAccountName: {{ include "slurm-bridge.controllers.name" . }}
+      containers:
+        - name: {{ include "slurm-bridge.controllers.name" . }}
+          image: {{ include "slurm-bridge.controllers.imageRef" . }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: SLURM_JWT
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.sharedConfig.slurmJwtSecret }}
+                  key: auth-token
+          args:
+            - -zap-log-level
+            - {{ .Values.controllers.verbosity | default "info" | quote }}
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+            initialDelaySeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8081
+          {{- with .Values.admission.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controllers.nodeSelector }}
+          nodeSelector: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          {{- with .Values.controllers.affinity }}
+          affinity: {{- toYaml . | nindent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: slurm-bridge-config
+              mountPath: /etc/slurm-bridge/
+              readOnly: true
+      {{- with .Values.controllers.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: slurm-bridge-config
+          configMap:
+            name: slurm-bridge-config

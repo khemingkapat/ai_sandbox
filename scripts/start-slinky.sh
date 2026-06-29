@@ -11,6 +11,16 @@ kubectl apply -f pv-pvc.yaml
 
 helm install slurm oci://ghcr.io/slinkyproject/charts/slurm --namespace slurm --create-namespace -f values.yaml
 
+echo "⏳ Waiting for slurmctld to be ready (needed for token generation)..."
+kubectl wait --for=condition=ready pod/slurm-controller-0 -n slurm --timeout=300s
+
+echo "🔐 Generating SLURM_JWT token for slurm-bridge..."
+BRIDGE_TOKEN=$(kubectl exec -n slurm slurm-controller-0 -c slurmctld -- scontrol token lifespan=unlimited | cut -d= -f2 | tr -d '\r')
+kubectl create secret generic slurm-bridge-token -n slurm --from-literal=auth-token=$BRIDGE_TOKEN --dry-run=client -o yaml | kubectl apply -f -
+
+echo "🌉 Deploying slurm-bridge..."
+helm install slurm-bridge oci://ghcr.io/slinkyproject/charts/slurm-bridge --namespace slurm -f slurm-bridge-values.yaml --wait
+
 echo "🔧 Fixing inotify limits for Traefik file watcher..."
 for node in $(kind get nodes); do
   docker exec $node sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=524288

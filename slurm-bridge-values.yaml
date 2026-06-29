@@ -1,0 +1,8 @@
+admission:
+  managedNamespaces:
+    - workload
+sharedConfig:
+  slurmRestApi: http://slurm-restapi.slurm:6820
+  slurmJwtSecret: slurm-bridge-token
+schedulerConfig:
+  partition: all

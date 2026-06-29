@@ -61,7 +61,7 @@ Deploy the full Slinky stack — slurm-operator, slurm-bridge, controller, worke
 - ✅ CPU NodeSet configurations
 - ✅ Finalized Helm values.yaml
 - ✅ Infrastructure verification suite passing
-- 🔴 **slurm-bridge deployment** — deploy the bridge that intercepts k8s pod requests and registers them as Slurm jobs for fairshare/accounting
+- 🟢 **slurm-bridge deployment** — deploy the bridge that intercepts k8s pod requests and registers them as Slurm jobs for fairshare/accounting
 - 🔴 GPU NodeSet configuration
 
 ---

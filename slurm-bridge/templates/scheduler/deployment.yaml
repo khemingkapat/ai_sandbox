@@ -1,0 +1,83 @@
+{{- /*
+SPDX-FileCopyrightText: Copyright (C) SchedMD LLC.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    {{- include "slurm-bridge.scheduler.labels" . | nindent 4 }}
+  name: {{ include "slurm-bridge.scheduler.name" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "slurm-bridge.scheduler.selectorLabels" . | nindent 6 }}
+  replicas: {{ .Values.scheduler.replicaCount }}
+  template:
+    metadata:
+      labels:
+        {{- include "slurm-bridge.scheduler.labels" . | nindent 8 }}
+    spec:
+      {{- with .Values.scheduler.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      serviceAccountName: {{ include "slurm-bridge.scheduler.name" . }}
+      containers:
+      - args:
+        - --config=/etc/kubernetes/scheduler-config.yaml
+        - --feature-gates=DRAExtendedResource=true,DynamicResourceAllocation=true
+        {{- with .Values.scheduler.verbosity }}
+        - --v={{ . }}
+        {{- end }}
+        env:
+        - name: SLURM_JWT
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.sharedConfig.slurmJwtSecret }}
+              key: auth-token
+        image: {{ include "slurm-bridge.scheduler.imageRef" . }}
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+          initialDelaySeconds: 15
+        name: scheduler
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 10259
+            scheme: HTTPS
+        {{- with .Values.scheduler.nodeSelector }}
+        nodeSelector: {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.scheduler.affinity }}
+        affinity: {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.scheduler.resources }}
+        resources: {{- toYaml . | nindent 10 }}
+        {{- end }}
+        securityContext:
+          privileged: false
+        volumeMounts:
+        - name: scheduler-config
+          mountPath: /etc/kubernetes
+          readOnly: true
+        - name: slurm-bridge-config
+          mountPath: /etc/slurm-bridge/
+          readOnly: true
+      hostNetwork: false
+      hostPID: false
+      {{- with .Values.scheduler.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+      - name: scheduler-config
+        configMap:
+          name: scheduler-config
+      - name: slurm-bridge-config
+        configMap:
+          name: slurm-bridge-config

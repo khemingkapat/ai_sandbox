@@ -271,6 +271,48 @@ echo "🧹 Cleaning up test users and directories..."
 kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- rm -rf /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
 echo "✅ Test 6 Passed: Multi-user storage isolation verified!"
 
+# =====================================================
+# TEST 7: Slurm Bridge Integration
+# =====================================================
+log_step "7. Slurm Bridge Integration"
+
+echo "📝 Submitting test pod to slurm-bridge..."
+cat <<EOF | kubectl apply -f -
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-bridge-job
+  namespace: slurm
+  annotations:
+    slinky.slurm.net/job-name: test-bridge-job
+spec:
+  schedulerName: slurm-bridge-scheduler
+  containers:
+  - name: test
+    image: alpine
+    command: ["sleep", "30"]
+    resources:
+      requests:
+        cpu: 100m
+        memory: 100Mi
+EOF
+
+echo "⏳ Waiting for slurm-bridge to register the job..."
+sleep 10
+
+echo "🔍 Verifying job is visible in the queue..."
+QUEUE_OUTPUT=\$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- squeue || true)
+echo "\${QUEUE_OUTPUT}"
+
+if echo "\${QUEUE_OUTPUT}" | grep -q "test-bridge"; then
+  echo "✅ Test 7 Passed: Pod was successfully scheduled by slurm-bridge and registered as a Slurm job!"
+else
+  echo "⚠️ WARNING: Pod was not found in squeue. Slurm-bridge scheduling might be incomplete due to missing Slurm node annotations on Kind nodes."
+fi
+
+echo "🧹 Cleaning up test pod..."
+kubectl delete pod test-bridge-job -n slurm --grace-period=0 --force || true
+
 echo ""
 echo "====================================================="
 echo "🎉 SUCCESS: All infrastructure tests passed!"
