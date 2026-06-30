@@ -25,10 +25,11 @@ import (
 )
 
 var (
-	slurmRestURL  string
-	jwtKeyPath    string
-	tokenLifespan int
-	portManager   *PortManager
+	slurmRestURL   string
+	jwtKeyPath     string
+	tokenLifespan  int
+	portManager    *PortManager
+	sessionManager *SessionManager
 )
 
 
@@ -186,6 +187,13 @@ func main() {
 	traefikDir := getEnv("TRAEFIK_CONFIG_DIR", "/etc/traefik/dynamic")
 
 	portManager = NewPortManager(dbPath, 30000, 31000, traefikDir)
+
+	sm, err := NewSessionManager("slurm")
+	if err == nil {
+		sessionManager = sm
+	} else {
+		fmt.Printf("Warning: failed to initialize session manager: %v\n", err)
+	}
 
 	e := echo.New()
 	e.Use(middleware.Logger())
@@ -447,6 +455,15 @@ func submitJob(c echo.Context) error {
 		workspace = "/root"
 	}
 
+	if targetApp.Type == "interactive" && sessionManager != nil {
+		sessionID := fmt.Sprintf("%d", time.Now().UnixMilli())
+		proxyURL, err := sessionManager.CreateSession(context.Background(), targetApp, username, project, sessionID)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "Failed to create interactive session: "+err.Error())
+		}
+		return c.JSON(http.StatusOK, map[string]interface{}{"job_id": sessionID, "proxy_url": proxyURL})
+	}
+
 	// 1. Prepare Slurm arguments (Override defaults with Form data)
 	finalSlurmArgs := make(map[string]string)
 	for k, v := range targetApp.SlurmArgs {
@@ -584,6 +601,18 @@ func jobStatus(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
 	tokenString := userToken.Raw
 
+	if sessionManager != nil {
+		status, err := sessionManager.GetSessionStatus(context.Background(), jobIDStr)
+		if err == nil && status != "UNKNOWN" {
+			proxyURL := fmt.Sprintf("http://localhost:8000/%s/jupyter/%s", userToken.Claims.(jwt.MapClaims)["sun"].(string), jobIDStr)
+			return c.JSON(http.StatusOK, map[string]interface{}{
+				"job_id":    jobIDStr,
+				"state":     status,
+				"proxy_url": proxyURL,
+			})
+		}
+	}
+
 	slurmClient, err := client.NewClient(&client.Config{Server: slurmRestURL, AuthToken: tokenString})
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Slurm Client Error")
@@ -676,6 +705,13 @@ func cancelJob(c echo.Context) error {
 	jobIDStr := c.Param("job_id")
 	userToken := c.Get("user").(*jwt.Token)
 	tokenString := userToken.Raw
+
+	if sessionManager != nil {
+		err := sessionManager.DeleteSession(context.Background(), jobIDStr)
+		if err == nil {
+			return c.JSON(http.StatusOK, map[string]string{"status": "cancelled"})
+		}
+	}
 
 	slurmClient, err := client.NewClient(&client.Config{Server: slurmRestURL, AuthToken: tokenString})
 	if err != nil {

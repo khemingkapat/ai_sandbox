@@ -22,8 +22,7 @@ RUN chmod +x /usr/local/bin/start-jupyter.sh
 # although usually they will use /mnt/storage
 RUN chmod -R 777 /home/jovyan
 
-# Switch back to a non-root user by default (jovyan is 1000 in this image)
-USER 1000
+# Removed USER 1000 to allow start-jupyter.sh to run as root and drop privileges
 
 EXPOSE 8888
 
