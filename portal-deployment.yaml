@@ -13,6 +13,7 @@ spec:
       labels:
         app: hpc-portal
     spec:
+      serviceAccountName: portal-sa
       containers:
       - name: portal
         image: hpc-portal:local
@@ -43,6 +44,8 @@ spec:
         args:
         - --providers.file.directory=/etc/traefik/dynamic
         - --providers.file.watch=true
+        - --providers.kubernetesingress=true
+        - --providers.kubernetesingress.namespaces=slurm
         - --entrypoints.web.address=:80
         ports:
         - containerPort: 80
