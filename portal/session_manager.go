@@ -14,19 +14,23 @@ import (
 	"k8s.io/client-go/rest"
 )
 
+// SessionManager handles the lifecycle of interactive OCI-based sessions in Kubernetes.
 type SessionManager struct {
-	client    *kubernetes.Clientset
+	// client is the Kubernetes clientset used for API operations.
+	client *kubernetes.Clientset
+	// namespace is the Kubernetes namespace where session resources are created.
 	namespace string
 }
 
+// NewSessionManager initializes a new SessionManager using the in-cluster configuration.
 func NewSessionManager(namespace string) (*SessionManager, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get in-cluster config: %w", err)
 	}
 	clientset, err := kubernetes.NewForConfig(config)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create clientset: %w", err)
 	}
 	return &SessionManager{
 		client:    clientset,
@@ -34,6 +38,7 @@ func NewSessionManager(namespace string) (*SessionManager, error) {
 	}, nil
 }
 
+// CreateSession provisions a new interactive session (Pod, Service, and Ingress).
 func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManifest, username, project, sessionID string) (string, error) {
 	labels := map[string]string{
 		"app":        "interactive-session",
@@ -178,10 +183,11 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 	return fmt.Sprintf("/%s/jupyter/%s", username, sessionID), nil
 }
 
+// GetSessionStatus retrieves the current phase of the Pod associated with an interactive session.
 func (sm *SessionManager) GetSessionStatus(ctx context.Context, sessionID string) (string, error) {
 	pod, err := sm.client.CoreV1().Pods(sm.namespace).Get(ctx, fmt.Sprintf("session-%s", sessionID), metav1.GetOptions{})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("failed to get pod: %w", err)
 	}
 	switch pod.Status.Phase {
 	case corev1.PodPending:
@@ -197,6 +203,7 @@ func (sm *SessionManager) GetSessionStatus(ctx context.Context, sessionID string
 	}
 }
 
+// DeleteSession removes all Kubernetes resources associated with an interactive session.
 func (sm *SessionManager) DeleteSession(ctx context.Context, sessionID string) error {
 	var errs []string
 
