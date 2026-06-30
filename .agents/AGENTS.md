@@ -91,3 +91,4 @@ Use `verify` to check Jules PRs before merging.
 - **Approval gate on edit-issue** — never run `gh issue edit` or add the `jules` label without explicit user confirmation
 - **Spec is final in design-spec** — do not re-open design decisions; if Khem has decided, spec it as decided
 - **Verdicts are honest in verify** — do not soften NEEDS REVISION findings to avoid friction
+- **Google Style Comments** — ALWAYS write code and comments following the Google Style Comment formatting.
