@@ -9,17 +9,17 @@ This document outlines the target environments and hardware specifications for t
 ```mermaid
 graph TD
     subgraph "Local Development (Kind)"
-        Host[Docker Host / Laptop] --> NodeCP[Control Plane Node Pod]
+        Host["Docker Host / Laptop"] --> NodeCP[Control Plane Node Pod]
         Host --> NodeW1[Worker Node 1 Pod]
         Host --> NodeW2[Worker Node 2 Pod]
-        StorageLocal[Local Folder: ./storage] -->|Bind Mount| Nodes[/mnt/storage]
+        StorageLocal["Local Folder: ./storage"] -->|Bind Mount| Nodes["/mnt/storage"]
     end
 
     subgraph "Production Environment (Physical HPC)"
         Infra[K8s Management Nodes] --> ControllerNode[HPC Controller Node]
         HPCWorkers[HPC Compute Nodes] --> NodeCPU[CPU Compute Nodes]
         HPCWorkers --> NodeGPU[GPU Compute Nodes]
-        NFS[Enterprise NFS / CephFS] -->|CSI Driver| StorageHPC[/mnt/storage]
+        NFS["Enterprise NFS / CephFS"] -->|CSI Driver| StorageHPC["/mnt/storage"]
     end
 ```
 
@@ -68,7 +68,7 @@ flowchart TD
 
     subgraph "Compute Namespace (workload)"
         Slurmctld -->|Launch Container| WorkerNodes[slurmd Worker Pods]
-        WorkerNodes -->|Interactive Session| InterPod[Jupyter / VS Code Pod]
+        WorkerNodes -->|Interactive Session| InterPod["Jupyter / VS Code Pod"]
         WorkerNodes -->|Batch Job| ApptainerJob[Apptainer SIF Execution]
     end
 
