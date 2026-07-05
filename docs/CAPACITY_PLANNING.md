@@ -65,21 +65,21 @@ gantt
 
 ---
 
-## 🔒 Resource Quotas Per Student/Project
+## 🔒 Resource Quotas Per Student/Project (Virtual vs. Physical Mapping)
 
-To prevent a single student or project group from monopolizing the physical cluster, we enforce limits at the user level:
+To support many students on limited hardware, the limits below represent **virtual allocations**. Because of overcommitting and partitioning, the sum of all active user quotas can exceed physical cluster capacity.
 
 *   **Student (Individual Sandbox):**
     *   **Max Concurrent Jobs:** 3
-    *   **Max CPU Cores (Total):** 8
-    *   **Max Memory (Total):** 32 GB
-    *   **Max GPUs (Total):** 1 (Interactive or Batch)
+    *   **Max CPU Cores (Total):** 8 Virtual Cores *(maps to ~2 physical cores under 4:1 overcommit)*
+    *   **Max Memory (Total):** 32 GB Virtual RAM *(maps to ~16 GB physical RAM under 2:1 overcommit)*
+    *   **Max GPUs (Total):** 1 Virtual MIG Slice / vGPU *(e.g., a `1g.10gb` slice; students do not get a full physical GPU)*
     *   **Shared Storage Quota:** 50 GB per user
-*   **Project Group (Collaborative Research):**
+*   **Project Group (Collaborative Research / Batch):**
     *   **Max Concurrent Jobs:** 10
-    *   **Max CPU Cores (Total):** 32
-    *   **Max Memory (Total):** 128 GB
-    *   **Max GPUs (Total):** 4
+    *   **Max CPU Cores (Total):** 32 Virtual Cores *(maps to ~8 physical cores)*
+    *   **Max Memory (Total):** 128 GB Virtual RAM *(maps to ~64 GB physical RAM)*
+    *   **Max GPUs (Total):** 4 Virtual MIG Slices OR 1 dedicated physical GPU (for batch runs)
     *   **Shared Storage Quota:** 200 GB per project
 
 ---
