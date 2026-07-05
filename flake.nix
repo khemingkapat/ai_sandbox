@@ -18,7 +18,7 @@
         # Define commands as binary scripts on the PATH
         kup = pkgs.writeShellScriptBin "kup" ''
           echo "Creating Kubernetes cluster..."
-          kind create cluster --config kind-config.yaml
+          kind create cluster --config k8s/kind-config.yaml
           echo "Waiting for cluster to be ready..."
           kubectl wait --for=condition=Ready nodes --all --timeout=60s
           echo "Running Slinky installation script..."

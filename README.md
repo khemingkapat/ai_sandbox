@@ -8,15 +8,15 @@ This prototype implements a **Kubernetes-native storage isolation** pattern, map
 
 ## Project Structure
 
-*   [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/kind-config.yaml) — Defines the multi-node Kind cluster and mounts host-level storage.
-*   [pv-pvc.yaml](file:///home/khemi/workspace/ai_sandbox/pv-pvc.yaml) — Configures the PersistentVolume and claim to link the mounted host storage.
-*   [values.yaml](file:///home/khemi/workspace/ai_sandbox/values.yaml) — Helm configuration values for Slinky components (operator, controller, NodeSets).
+*   [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/kind-config.yaml) — Defines the multi-node Kind cluster and mounts host-level storage.
+*   [pv-pvc.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/pv-pvc.yaml) — Configures the PersistentVolume and claim to link the mounted host storage.
+*   [values.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/values.yaml) — Helm configuration values for Slinky components (operator, controller, NodeSets).
 *   [flake.nix](file:///home/khemi/workspace/ai_sandbox/flake.nix) — Nix environment defining local tools (`kind`, `kubectl`, `helm`) and shell helpers.
 *   [scripts/start-slinky.sh](file:///home/khemi/workspace/ai_sandbox/scripts/start-slinky.sh) — Automates Slinky CRDs, Operator, and Slurm cluster installation.
 *   [storage/projects/project1](file:///home/khemi/workspace/ai_sandbox/storage/projects/project1) — Shared storage mock project directory containing test workloads.
-*   [slinky_migration_report.md](file:///home/khemi/workspace/ai_sandbox/slinky_migration_report.md) — Comprehensive technical report on Slinky architecture and migration plans.
-*   [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/DEVELOPMENT_WORKFLOW.md) — Team development roles and Git workflows.
-*   [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/INCREMENT_LOG.md) — Incremental record of design choices and verification steps.
+*   [slinky_migration_report.md](file:///home/khemi/workspace/ai_sandbox/docs/slinky_migration_report.md) — Comprehensive technical report on Slinky architecture and migration plans.
+*   [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/docs/DEVELOPMENT_WORKFLOW.md) — Team development roles and Git workflows.
+*   [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md) — Incremental record of design choices and verification steps.
 
 ---
 
@@ -63,7 +63,7 @@ We migrated from manual Rocky Linux 9 containers in Docker Compose to Slinky (Sc
 We deliberately discarded the complex SSSD and OpenLDAP configuration. Configuring LDAP servers and client SSSD daemons on container runtimes adds high configuration drift risk and runtime overhead. Instead, we mount the host [storage/](file:///home/khemi/workspace/ai_sandbox/storage) directory to Kind nodes and provision a manual PersistentVolume mapping. Compute pods mount this PVC at `/mnt/storage`, allowing workspace files and execution directories to be read and written directly with simple path-based separation.
 
 ### Shared Host Directory Simulation
-To simulate a multi-host network filesystem (like NFS or Lustre), we mount the local host's `./storage` folder to `/mnt/storage` on all Kind nodes (control-plane and workers) via `extraMounts` in [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/kind-config.yaml). The `pv-pvc.yaml` defines a PersistentVolume (`slinky-storage-pv`) using the `hostPath` driver targeting `/mnt/storage`, which is bound by `slinky-storage-pvc` inside the `slurm` namespace.
+To simulate a multi-host network filesystem (like NFS or Lustre), we mount the local host's `./storage` folder to `/mnt/storage` on all Kind nodes (control-plane and workers) via `extraMounts` in [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/kind-config.yaml). The `pv-pvc.yaml` defines a PersistentVolume (`slinky-storage-pv`) using the `hostPath` driver targeting `/mnt/storage`, which is bound by `slinky-storage-pvc` inside the `slurm` namespace.
 
 ### Nix Flake Environment
 A Nix configuration ([flake.nix](file:///home/khemi/workspace/ai_sandbox/flake.nix)) packages the correct versions of `kind`, `kubectl`, and `kubernetes-helm`, eliminating manual environment setups and configuration conflicts. It loads shell helpers automatically upon activation.
@@ -84,7 +84,7 @@ To create the Kind cluster and deploy the entire Slinky stack automatically, run
 ```bash
 kup
 ```
-*This command creates the cluster using [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/kind-config.yaml) and runs [scripts/start-slinky.sh](file:///home/khemi/workspace/ai_sandbox/scripts/start-slinky.sh) to deploy Slinky charts and the storage PV/PVC.*
+*This command creates the cluster using [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/kind-config.yaml) and runs [scripts/start-slinky.sh](file:///home/khemi/workspace/ai_sandbox/scripts/start-slinky.sh) to deploy Slinky charts and the storage PV/PVC.*
 
 ### 3. Verify the Deployment
 Confirm that your PV and PVC are correctly created and bound:
@@ -143,7 +143,7 @@ kubectl get pv
 ```
 Ensure `pv-pvc.yaml` was applied. If needed, re-apply it manually:
 ```bash
-kubectl apply -f pv-pvc.yaml
+kubectl apply -f k8s/pv-pvc.yaml
 ```
 
 **Slurmd Compute Pods Fail to Register**
@@ -162,4 +162,4 @@ kup
 
 ---
 
-*For detailed comparisons of the Compose vs Kubernetes design, see [slinky_migration_report.md](file:///home/khemi/workspace/ai_sandbox/slinky_migration_report.md).*
+*For detailed comparisons of the Compose vs Kubernetes design, see [slinky_migration_report.md](file:///home/khemi/workspace/ai_sandbox/docs/slinky_migration_report.md).*

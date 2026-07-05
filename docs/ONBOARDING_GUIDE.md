@@ -22,9 +22,9 @@ Instead of using a traditional bare-metal Slurm cluster, we use **Slinky (Slurm 
 
 | Phase | Focus | Architectural Concept | Key Files to Read |
 | :--- | :--- | :--- | :--- |
-| **Phase 1** | **Infrastructure & Storage Topology** | Multi-node Kind clusters, Persistent Storage mapping, and K8s-to-Slurm orchestration layers. | [README.md](file:///home/khemi/workspace/ai_sandbox/README.md), [slinky_migration_report.md](file:///home/khemi/workspace/ai_sandbox/slinky_migration_report.md) |
+| **Phase 1** | **Infrastructure & Storage Topology** | Multi-node Kind clusters, Persistent Storage mapping, and K8s-to-Slurm orchestration layers. | [README.md](file:///home/khemi/workspace/ai_sandbox/README.md), [slinky_migration_report.md](file:///home/khemi/workspace/ai_sandbox/docs/slinky_migration_report.md) |
 | **Phase 2** | **Networking, Routing & Control Plane** | The request-response lifecycle, JWT propagation, dynamic port lease databases, and Traefik reverse-proxy routing. | [main.go](file:///home/khemi/workspace/ai_sandbox/portal/main.go), [port_manager.go](file:///home/khemi/workspace/ai_sandbox/portal/port_manager.go) |
-| **Phase 3** | **Verification & Fault-Tolerance Models** | System validation architecture, state recovery mechanisms, and multi-user isolation design. | [verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh), [values.yaml](file:///home/khemi/workspace/ai_sandbox/values.yaml) |
+| **Phase 3** | **Verification & Fault-Tolerance Models** | System validation architecture, state recovery mechanisms, and multi-user isolation design. | [verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh), [values.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/values.yaml) |
 
 ---
 
@@ -82,7 +82,7 @@ Under `/mnt/storage/`, we enforce a strict directory structure:
 
 ### 3. The Orchestration Bridge (Slinky)
 Running Slurm inside K8s introduces a mapping problem: K8s thinks of containers as temporary, while Slurm expects compute nodes to have static hostnames and long-term identities.
-- **slurm-operator:** A K8s controller that reads [values.yaml](file:///home/khemi/workspace/ai_sandbox/values.yaml) and translates K8s configurations into running Slurm components.
+- **slurm-operator:** A K8s controller that reads [values.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/values.yaml) and translates K8s configurations into running Slurm components.
 - **NodeSets:** A Slinky custom resource definition that acts like a K8s Deployment but is customized for Slurm worker nodes. If a worker pod crashes, the operator automatically recreates it and registers it back to the Slurm controller.
 
 ---
@@ -147,6 +147,6 @@ A production infrastructure cluster must handle failures gracefully. The verific
 
 ### 2. Understanding the Development Workflow
 Before starting features:
-- Read [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/DEVELOPMENT_WORKFLOW.md) to understand branch naming conventions (`feature/*`, `agent/*`) and PR processes.
-- Read [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/INCREMENT_LOG.md) to see a diary of recent architectural decisions.
-- Read [work_packages.md](file:///home/khemi/workspace/ai_sandbox/work_packages.md) to understand which work package is assigned to you and how your contributions fit into the roadmap.
+- Read [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/docs/DEVELOPMENT_WORKFLOW.md) to understand branch naming conventions (`feature/*`, `agent/*`) and PR processes.
+- Read [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md) to see a diary of recent architectural decisions.
+- Read [WORK_PACKAGES.md](file:///home/khemi/workspace/ai_sandbox/docs/WORK_PACKAGES.md) to understand which work package is assigned to you and how your contributions fit into the roadmap.

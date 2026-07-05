@@ -11,8 +11,8 @@
 
 | WP | Name | Phase | Status |
 |---|---|---|---|
-| 1 | Environment Assessment & Requirements | 🏗️ Foundation | 🟡 Partial |
-| 2 | Capacity Planning & Workload Profiling | 🏗️ Foundation | 🔴 Not started |
+| 1 | Environment Assessment & Requirements | 🏗️ Foundation | 🟢 Done |
+| 2 | Capacity Planning & Workload Profiling | 🏗️ Foundation | 🟢 Done |
 | 3 | Tech Stack Selection & Architecture Decision | 🏗️ Foundation | 🟢 Done |
 | 4 | Slinky Deployment & Orchestrator Integration | 🏗️ Foundation | 🟡 Partial |
 | 5 | Slurm Policy & Resource Configuration | 🧩 Services | 🔴 Not started |
@@ -34,19 +34,19 @@
 
 ## Phase 1: Foundation 🏗️
 
-### WP3-1-1: Environment Assessment & Requirements
+### WP3-1-1: Environment Assessment & Requirements ✅
 Document the target environments — local Kind cluster (now) and physical HPC cluster with GPUs (later). Define hardware requirements.
-- Target environment specification (local dev vs. production HPC)
-- Hardware requirements matrix (CPU, GPU, memory, storage per role)
-- Network topology diagram
-- Gap analysis: Kind prototype → production cluster
+- ✅ Target environment specification (local dev vs. production HPC)
+- ✅ Hardware requirements matrix (CPU, GPU, memory, storage per role)
+- ✅ Network topology diagram
+- ✅ Gap analysis: Kind prototype → production cluster
 
-### WP3-1-2: Capacity Planning & Workload Profiling
+### WP3-1-2: Capacity Planning & Workload Profiling ✅
 Define expected student workloads and size partitions and quotas for fair multi-user access.
-- Workload profile catalog (job types, resource needs, durations)
-- Partition design (interactive, batch-cpu, batch-gpu, inference)
-- Resource quotas per student/project
-- Autoscaling policy (NodeSet min/max replicas)
+- ✅ Workload profile catalog (job types, resource needs, durations)
+- ✅ Partition design (interactive, batch-cpu, batch-gpu, inference)
+- ✅ Resource quotas per student/project
+- ✅ Autoscaling policy (NodeSet min/max replicas)
 
 ### WP3-1-3: Tech Stack Selection & Architecture Decision ✅
 Record all technology choices made (Slinky, Kind, Nix, Go portal) and remaining open decisions.

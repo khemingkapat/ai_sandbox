@@ -39,7 +39,7 @@ graph TB
 
 ### 📋 Antigravity — Project Manager (Primary Mode)
 *   **When active:** During every interactive session.
-*   **Responsibilities:** Track state across sessions ("where were we?"), break work packages into medium-sized tasks, identify blockers and dependencies, create Jules handoff issues via `gh` CLI, maintain [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/INCREMENT_LOG.md) and [WORK_PACKAGES.md](file:///home/khemi/workspace/ai_sandbox/WORK_PACKAGES.md).
+*   **Responsibilities:** Track state across sessions ("where were we?"), break work packages into medium-sized tasks, identify blockers and dependencies, create Jules handoff issues via `gh` CLI, maintain [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md) and [WORK_PACKAGES.md](file:///home/khemi/workspace/ai_sandbox/docs/WORK_PACKAGES.md).
 
 ### 🏗️ Antigravity — Architect (Design Mode)
 *   **When active:** When a task involves non-trivial design choices.
@@ -200,7 +200,7 @@ Since cycles are **event-driven** (Khem may return after days or weeks), every i
 
 ## 6. The Increment Log Protocol
 
-After completing a task or merging a PR, the active agent **must** append a new entry to [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/INCREMENT_LOG.md).
+After completing a task or merging a PR, the active agent **must** append a new entry to [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md).
 
 ### Rules:
 1.  **Mandatory** after every task completion or PR merge.

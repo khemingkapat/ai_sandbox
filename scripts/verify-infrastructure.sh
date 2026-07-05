@@ -62,7 +62,7 @@ echo "🧹 Wiping existing Kind cluster..."
 kind delete cluster || true
 
 echo "☸️ Creating new Kind cluster..."
-kind create cluster --config kind-config.yaml
+kind create cluster --config k8s/kind-config.yaml
 
 echo "⏳ Waiting for Kubernetes nodes..."
 kubectl wait --for=condition=Ready nodes --all --timeout=60s

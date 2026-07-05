@@ -9,6 +9,7 @@ layout {
     // Tab 1: Editor
     tab name="nvim" focus=true {
         pane command="nvim" {
+	    args "."
         }
     }
 

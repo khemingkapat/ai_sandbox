@@ -2,6 +2,28 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 13] - 2026-07-05: Environment Assessment & Capacity Planning Specs
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Document target environments, hardware matrices, network topologies, workload profile catalogs, partition designs, and autoscaling policies to define the foundation layer requirements.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Environment Assessment:**
+    *   Created [ENVIRONMENT_ASSESSMENT.md](file:///home/khemi/workspace/ai_sandbox/docs/ENVIRONMENT_ASSESSMENT.md): Documented hardware requirements, network diagrams, and a local Kind to production HPC gap analysis.
+2.  **Capacity Planning:**
+    *   Created [CAPACITY_PLANNING.md](file:///home/khemi/workspace/ai_sandbox/docs/CAPACITY_PLANNING.md): Cataloged workload profiles, partition architecture, and NodeSet replica limits.
+3.  **Project Progress:**
+    *   Updated [WORK_PACKAGES.md](file:///home/khemi/workspace/ai_sandbox/docs/WORK_PACKAGES.md): Marked WP3-1-1 and WP3-1-2 as completed (🟢 Done).
+
+### 💡 Why This Design?
+*   **Structured Foundation:** Defining concrete hardware bounds and workload resource footprints ensures that future scheduling configurations (partitions, QoS, fair-share rules) have a clear baseline.
+*   **Clear Scaling Limits:** Setting bounds on minimum and maximum replicas prevents unexpected cloud/HPC cost overruns.
+
+### 🛠️ Verification Steps
+1.  Verify documents render properly as markdown.
+2.  Confirm that target constraints map to the requirements of university students and typical Deep Learning tasks.
+
 ## [Increment 12] - 2026-07-06: Deploy slurm-bridge for Unified Pod Queueing
 
 *   **Author:** Antigravity (Interactive) & Khem
