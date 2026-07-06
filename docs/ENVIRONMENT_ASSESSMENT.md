@@ -38,6 +38,108 @@ graph TD
 
 ---
 
+## 🏗️ Why Slinky for a University AI Sandbox
+
+The selection of Slinky (Slurm-on-Kubernetes) as the architectural foundation for the AI Sandbox is a strategic decision to address the unique pressures of a university research and teaching environment. This hybrid model combines the rigorous resource management of traditional HPC with the agility of modern cloud-native infrastructure.
+
+### 1. The University Sandbox Problem Space
+University environments face a "triple threat" of workload diversity that standard K8s or Slurm clusters struggle to handle in isolation [1]:
+*   **Mixed Workload Types:** Students require long-running batch training (7+ days), short-lived interactive notebook sessions (4 hours), and persistent shared services like LLM inference endpoints and vector databases.
+*   **Fair Multi-tenant Access:** Supporting 50–100 students on a single cluster requires strict quota enforcement and fair-share algorithms to prevent "noisy neighbors" from hogging expensive GPU resources [4].
+*   **Heterogeneous Hardware:** The cluster must efficiently manage a mix of CPU-only nodes, L4/L40S GPUs for inference, and H100 GPUs for high-end training, often requiring different orchestration strategies for each [2].
+
+### 2. Why Slurm (The Scheduler)
+Slurm remains the industry standard for HPC due to its sophisticated scheduling logic that Kubernetes' default scheduler lacks [7]:
+*   **Fair-Share Scheduling:** Ensures that students who have used fewer resources recently are prioritized, preventing a single research group from monopolizing the cluster [4].
+*   **GRES & MIG Management:** Native support for Generic RESources (GRES) and Multi-Instance GPU (MIG) allows the platform to slice a single A100/H100 into 7 isolated instances, maximizing student density [5].
+*   **Partition-Based Isolation:** Logic-level separation (interactive vs. batch vs. inference) allows for different preemption and priority rules on the same physical hardware [2].
+
+### 3. Why Kubernetes (The Infrastructure)
+Kubernetes provides the operational "fabric" that makes the cluster resilient and easy to manage [15]:
+*   **Elastic NodeSets:** Slinky allows NodeSets to scale from 0 to N based on Slurm queue depth, enabling a "scale-to-zero" model for expensive GPU nodes that saves significant energy and cost [15][17].
+*   **Container-Native Lifecycle:** Replacing Apptainer .sif files with OCI images simplifies the image build/test/deploy pipeline for students and staff [17].
+*   **Storage & Network Abstraction:** PVCs and NetworkPolicies provide a standardized way to handle multi-tenant isolation and data persistence across heterogeneous nodes [15].
+
+### 4. Why Slinky Specifically (Slurm + K8s Combined)
+Slinky is the first project to offer deep, bi-directional integration between Slurm and Kubernetes rather than just running one on top of the other [17]:
+*   **slurm-operator:** Manages Slurm daemons as native Kubernetes pods, eliminating manual OS-level daemon management and configuration drift [16].
+*   **slurm-bridge:** Intercepts Slurm allocations to create real Kubernetes pods, giving interactive workloads (like Jupyter) real Slurm job IDs for unified accounting and tracking [16].
+*   **Unified Infrastructure:** Administrators manage a single Kubernetes control plane while researchers use familiar Slurm CLI tools, reducing the "learning tax" for new students [2].
+
+---
+
+## ⚙️ Slinky Component Mapping — How Each Workload Type Runs
+
+This section details the lifecycle and component interaction for the three primary workload modes supported by the platform.
+
+### 1. Batch Jobs (Training & Preprocessing)
+Batch jobs follow a traditional HPC lifecycle but run inside ephemeral containers.
+*   **Lifecycle:** `sbatch` submission → `slurmctld` scheduling → `slurmd` execution in a NodeSet pod → Job completion/cleanup.
+*   **Components:** `slurmctld` (decider), `NodeSet` (execution pool), `slurm-bridge` (pod creation).
+*   **Isolation:** Bounded by K8s resource `limits` (CPU/Mem) and Slurm `GRES` (GPU).
+*   **Student Benefit:** Familiar `#SBATCH` scripts work out of the box; jobs can run for days without interruption.
+
+### 2. Interactive Sessions (Jupyter & VS Code)
+Interactive workloads prioritize low latency and web-based access.
+*   **Lifecycle:** Portal API submit → `slurmctld` allocation → `slurm-bridge` creates K8s Pod → Traefik sidecar maps dynamic route → Student connects via browser.
+*   **Components:** `slurm-bridge` (interceptor), `Traefik` (dynamic ingress), `portal` (orchestrator).
+*   **Isolation:** UID-based filesystem isolation via `libnss-extrausers` [11].
+*   **Student Benefit:** Instant access to a powerful GPU-backed coding environment through a simple web UI.
+
+### 3. Central Services (LLM Inference & Vector DBs)
+These are "Service-Jobs" that provide persistent endpoints for other applications.
+*   **Lifecycle:** See diagram below.
+*   **Components:** `inference` partition (high priority), `vLLM` / `Ollama` / `Qdrant` OCI images.
+*   **Scaling:** Typically fixed-size allocations to ensure 24/7 API availability for student projects.
+*   **Student Benefit:** Provides a "Shared LLM" experience; students call an API rather than managing their own model servers.
+
+#### 📊 LLM Inference Service Lifecycle
+```mermaid
+sequenceDiagram
+    participant S as Student
+    participant P as Portal
+    participant C as slurmctld
+    participant B as slurm-bridge
+    participant K as Kubernetes (Kubelet)
+    participant T as Traefik Proxy
+
+    Note over S,T: Deployment Phase
+    P->>C: Submit Job (inference partition, 12h duration)
+    C->>B: Allocate GPU Resource
+    B->>K: Launch vLLM Pod (OCI Image)
+    K-->>P: Pod Status: RUNNING
+    P->>T: Write Dynamic Route (e.g. /proxy/job-123)
+
+    Note over S,T: Usage Phase
+    S->>T: POST /proxy/job-123/v1/completions
+    T->>K: Forward to vLLM Container (Port 8000)
+    K-->>S: LLM Response (JSON)
+```
+
+---
+
+## 📚 Architecture Decision References
+
+1.  **SchedMD Slinky Project.** "Slurm-on-Kubernetes Integration Suite." [Official Documentation](https://slinky.schedmd.com/).
+2.  **N. Arnold (AWS).** "Running Slurm on Amazon EKS with Slinky." [AWS Blog, Oct 2025](https://aws.amazon.com/blogs/containers/running-slurm-on-amazon-eks-with-slinky/).
+3.  **SchedMD Announcement.** "Introducing Slinky: Slurm on Kubernetes." [Press Release, Nov 2025](https://www.schedmd.com/introducing-slinky-slurm-kubernetes/).
+4.  **Slurm Documentation.** "Fair Share Scheduling Algorithm." [SchedMD Docs](https://slurm.schedmd.com/fair_share.html).
+5.  **Slurm Documentation.** "Generic Resource (GRES) Scheduling." [SchedMD Docs](https://slurm.schedmd.com/gres.html).
+6.  **PEARC Proceedings.** "Challenges in Campus Bridging for AI Research: Mixed Workload Orchestration." (Research context for university HPC).
+7.  **HPC Survey.** "Slurm Adoption Rates in the TOP500." [SchedMD Analysis](https://www.schedmd.com/).
+8.  **CNCF Survey 2024.** "State of Cloud Native in HPC and AI Workloads." [CNCF Reports](https://www.cncf.io/reports/).
+9.  **vLLM Team.** "Deployment Guide for vLLM on Kubernetes." [vLLM Docs](https://docs.vllm.ai/).
+10. **Ollama Project.** "Self-hosting Ollama as a Service." [Ollama Documentation](https://ollama.com/).
+11. **Increment Log.** "Increment 8: Dynamic User Resolution via libnss-extrausers." [Internal Document](./INCREMENT_LOG.md).
+12. **Capacity Planning.** "WP3-1-2: Partition Design & Resource Quotas." [Internal Document](./CAPACITY_PLANNING.md).
+13. **Migration Report.** "Current Architecture vs. Slinky." [Internal Document](./slinky_migration_report.md).
+14. **SchedMD.** "slurm-operator GitHub Repository." [Source Code](https://github.com/SlinkyProject/slurm-operator).
+15. **Kubernetes SIG-Scheduling.** "HPC Workloads on Kubernetes." [Community Documentation](https://kubernetes.io/).
+16. **SchedMD.** "slurm-bridge: Unified scheduling of Kubernetes pods via Slurm." [Source Code](https://github.com/SlinkyProject/slurm-bridge).
+17. **Slinky Project.** "Slinky Overview and Rationale." [Project Website](https://slinky.ai).
+
+---
+
 ## 📊 Hardware Requirements Matrix & Utilization Rationale
 
 Instead of sizing physical servers to match the theoretical sum of all users' peak needs, the AI Sandbox architecture optimizes for high resource density and sharing. The recommendations below assume a student pilot size of **50–100 concurrent users** using the following design rationales:
