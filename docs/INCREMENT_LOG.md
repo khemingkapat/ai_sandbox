@@ -501,3 +501,29 @@ To spin up the cluster and verify this storage isolation setup:
     *Confirm that the project folders (`project1`, etc.) are visible.*
 
 ---
+
+## [Increment 14] - 2026-07-08: Telemetry and Observability Research Extension
+
+*   **Author:** Jules (Async)
+*   **Goal:** Extend the telemetry research to evaluate native Slurm REST API vs. Prometheus exporters and design a Kubernetes-native observability stack for the AI Sandbox.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Observability Research:**
+    *   Updated [docs/slurm_info_exchange_research.md](docs/slurm_info_exchange_research.md):
+        *   Added a researched comparison between the Slurm REST API and the Prometheus `slurm_exporter`.
+        *   Recommended a transition to the native Slurm OpenMetrics plugin (via `slurmrestd`) to reduce architectural complexity.
+        *   Designed a standard observability stack using Prometheus, Grafana, and Alertmanager with a focus on GPU utilization and node health.
+        *   Proposed a Portal integration strategy for student-facing metrics using Prometheus queries.
+        *   Added a consolidated reference list with 5+ citations.
+
+### 💡 Why This Design?
+*   **Minimalist Architecture:** Leveraging the Slurm REST API's native metrics capabilities avoids the need for maintaining a separate exporter daemon, aligning with the "Edit Source, Not Artifacts" and "Reduced Dependencies" principles.
+*   **Unified Security:** Sharing the same JWT-based authentication for both the portal and the metrics stack simplifies credential management within the cluster.
+*   **Student Empowerment:** Providing real-time resource usage and quota tracking directly in the portal improves transparency and helps students manage their compute budgets effectively.
+
+### 🛠️ Verification Steps
+1.  **Document Verification:**
+    *   Confirmed all new sections exist in `docs/slurm_info_exchange_research.md`.
+    *   Validated the Mermaid diagram syntax.
+    *   Verified that original research content was preserved.
