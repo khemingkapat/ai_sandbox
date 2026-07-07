@@ -4,18 +4,188 @@ This document outlines the workload profiling, partition design, resource quotas
 
 ---
 
+## 🔧 Job Definition Catalog — From Capabilities to Resource Requirements
+
+This section derives concrete resource requirements from the platform's functional capabilities, explaining the "why" behind the numbers in the workload catalog.
+
+### Job: LLM Inference Server
+
+> **Capability:** Local LLM inference (Ollama, vLLM)
+
+**What it does:** Serves small-to-mid models (1B–13B parameters) for application access or interactive chat. Students use this to test prompt engineering, evaluate model behavior, and provide backends for their applications.
+
+**Resource Profile:**
+
+| Resource | Requirement | Reasoning |
+| :--- | :--- | :--- |
+| CPU | 4 cores | Required for managing API request concurrency and orchestrating model loading. |
+| Memory | 32 GB | Accommodates model weight overhead and provides headroom for high-concurrency KV caches. |
+| GPU | 1x L4 (24GB) or L40S (48GB) | L4 fits quantized 8B-13B models with context. L40S is preferred for unquantized or larger context windows. |
+| Storage | 50 GB | High-speed cache for multiple model weights and session logs. |
+| Network | Standard | API communication between student applications and the model server. |
+
+**Target Software & Models:**
+- **Tools:** Ollama, vLLM
+- **Tier 1 (1B-3B):** Phi-3 Mini (2.3GB Q4), Llama 3.2 1B (1.3GB Q4)
+- **Tier 2 (7B-8B):** Llama 3.1 8B (4.7GB Q4 / 8.5GB Q8), Mistral 7B (4.1GB Q4 / 7.7GB Q8)
+- **Tier 3 (13B-14B):** Llama 2 13B (7.4GB Q4 / 14GB Q8), Phi-3 Medium 14B (7.9GB Q4)
+
+**References:**
+1. [Ollama Llama 3.1 Model Tags](https://ollama.com/library/llama3.1/tags)
+2. [Ollama Phi-3 Model Tags](https://ollama.com/library/phi3/tags)
+3. [vLLM Engine Configuration Parameters](https://docs.vllm.ai/en/latest/configuration/engine_args/)
+
+### Job: Vector DB Service
+
+> **Capability:** Vector database hosting (Qdrant, Milvus)
+
+**What it does:** Hosts an embedding database for similarity search and retrieval. Students use it to build search engines, recommendation systems, or RAG backends.
+
+**Resource Profile:**
+
+| Resource | Requirement | Reasoning |
+| :--- | :--- | :--- |
+| CPU | 2 cores | Sufficient for handling indexing and similarity search queries at student pilot scale. |
+| Memory | 8 GB | Based on in-memory index requirements for typical student datasets (~1M vectors). |
+| GPU | None | CPU-based indexing is adequate for the intended student workloads. |
+| Storage | 50 GB | Persistence for vector collections, metadata, and snapshots. |
+| Network | Standard | Local cluster access for RAG applications. |
+
+**Target Software & Models:**
+- **Tools:** Qdrant, Milvus
+- **Vector Specs:** 1,000,000 vectors at 768 or 1536 dimensions.
+
+**References:**
+1. [Qdrant Sizing Guide - Memory Estimation](https://qdrant.tech/documentation/guides/sizing/)
+
+### Job: Interactive Prototyping Session
+
+> **Capability:** Interactive development (JupyterLab, VS Code)
+
+**What it does:** Provides a browser-based IDE for coding, data exploration, and model development. This is the entry point for most student projects.
+
+**Resource Profile:**
+
+| Resource | Requirement | Reasoning |
+| :--- | :--- | :--- |
+| CPU | 2 cores | Standard interactive coding and lightweight script execution. |
+| Memory | 8 GB | OS overhead plus local IDE memory requirements. |
+| GPU | None | CPU-only for code development and debugging. |
+| Storage | 20 GB | Student home directory and local scratch space. |
+| Network | Standard | Web UI access via Traefik proxy. |
+
+**Target Software & Models:**
+- **Tools:** JupyterLab, VS Code, Bash
+
+**References:**
+1. [Project Increment 13 - Capacity Planning Specs](INCREMENT_LOG.md)
+
+### Job: Small Model Fine-Tuning
+
+> **Capability:** Small model training (PyTorch on GPU)
+
+**What it does:** Executes Parameter-Efficient Fine-Tuning (PEFT) like LoRA or QLoRA on a single GPU. Students adapt pre-trained models to specific tasks or niche datasets.
+
+**Resource Profile:**
+
+| Resource | Requirement | Reasoning |
+| :--- | :--- | :--- |
+| CPU | 4 cores | Handling dataset tokenization and parallel data loading. |
+| Memory | 16 GB | Model state buffering and dataset memory mapping. |
+| GPU | 1x NVIDIA L4 (24GB) | Fits 4-bit (QLoRA) training of 7B/8B models with 512-1024 context length. |
+| Storage | 100 GB | Dataset storage and multi-epoch checkpointing. |
+| Network | Standard | Dataset downloads from Hugging Face. |
+
+**Target Software & Models:**
+- **Tools:** PyTorch, Hugging Face PEFT/BitsAndBytes
+- **Models:** Llama 3 8B, Mistral 7B (Fine-tuning via QLoRA)
+
+**References:**
+1. [Hugging Face PEFT Conceptual Guide](https://huggingface.co/docs/peft/main/en/conceptual_guides/lora)
+2. [BitsAndBytes 4-bit Quantization](https://huggingface.co/docs/bitsandbytes/main/en/main)
+
+### Job: Distributed Training Job
+
+> **Capability:** Heavy batch training (multi-GPU)
+
+**What it does:** Full-parameter training or multi-GPU sharded training (FSDP/DeepSpeed) for complex models. Used for intensive research projects requiring significant compute power.
+
+**Resource Profile:**
+
+| Resource | Requirement | Reasoning |
+| :--- | :--- | :--- |
+| CPU | 16 cores | High-speed data throughput to keep multiple GPUs saturated. |
+| Memory | 64 GB | Large batch sizes and optimizer state (Adam) overhead. |
+| GPU | 2x or 4x NVIDIA L40S | Requires high total VRAM for model sharding and large optimizers. |
+| Storage | 500 GB | Large-scale datasets (e.g., ImageNet, RedPajama) and frequent checkpoints. |
+| Network | 10+ Gbps | Required for efficient NCCL communication during weight syncing. |
+
+**Target Software & Models:**
+- **Tools:** PyTorch Distributed, DeepSpeed, Accelerate
+- **Models:** 7B+ models for full-parameter training.
+
+**References:**
+1. [Model Training Memory Requirements (Hugging Face)](https://huggingface.co/docs/transformers/v4.20.1/en/perf_train_gpu_one)
+
+### Job: Data Pipeline Job
+
+> **Capability:** Data preprocessing (Pandas, Spark)
+
+**What it does:** Batch ETL tasks, feature engineering, and dataset cleaning. Prepares raw data for model consumption at scale.
+
+**Resource Profile:**
+
+| Resource | Requirement | Reasoning |
+| :--- | :--- | :--- |
+| CPU | 8 cores | Parallel processing of multi-part data files. |
+| Memory | 32 GB | Efficient in-memory manipulation of large data frames. |
+| GPU | None | Data cleaning is primarily a CPU-bound operation. |
+| Storage | 200 GB | Staging raw data and outputting processed formats (Parquet/TFRecord). |
+| Network | High | Throughput to the shared cluster filesystem. |
+
+**Target Software & Models:**
+- **Tools:** Pandas, Apache Spark, Dask, Ray Data
+
+**References:**
+1. [Apache Spark Resource Sizing Recommendations](https://spark.apache.org/docs/latest/tuning.html)
+
+### Job: RAG Application Stack
+
+> **Capability:** RAG pipeline (LLM + Vector DB)
+
+**What it does:** Combines an LLM server with a Vector DB to provide end-to-end Retrieval-Augmented Generation. This represents a complete, production-ready AI application.
+
+**Resource Profile:**
+
+| Resource | Requirement | Reasoning |
+| :--- | :--- | :--- |
+| CPU | 6 cores | Aggregate load of serving the model and managing the vector index. |
+| Memory | 40 GB | Combined overhead of LLM weights, KV cache, and in-memory vector indexing. |
+| GPU | 1x NVIDIA L40S (48GB) | Provides ample VRAM for model+index and low-latency inference. |
+| Storage | 100 GB | Combined model cache and vector persistence. |
+| Network | Standard | Internal service-to-service orchestration. |
+
+**Target Software & Models:**
+- **Tools:** LangChain, LlamaIndex, Ollama, Qdrant
+- **Stack:** Llama 3.1 8B (Q8) + Qdrant (1M vectors)
+
+**References:**
+1. Combined requirements from LLM Inference and Vector DB Service specs.
+
+---
+
 ## 📋 Workload Profile Catalog
 
 Students run a diverse set of tasks ranging from basic notebook execution to intensive deep learning training runs. Below is the catalog of profiled workload types:
 
-| Workload Type | Run Mode | CPU Resources | Memory | GPU Resources | Duration Limit | Typical Tool / Executable |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Interactive Prototyping** | Interactive | 2 Cores | 8 GB | None | 4 Hours | JupyterLab, VS Code, Bash |
-| **Small Model Training** | Interactive | 4 Cores | 16 GB | 1x NVIDIA L4 (shared/mig) | 4 Hours | PyTorch, JupyterLab |
-| **LLM Inference Server** | Interactive | 4 Cores | 32 GB | 1x NVIDIA L40S or L4 | 12 Hours | Ollama, vLLM, Qdrant |
-| **Vector DB Setup** | Interactive | 2 Cores | 8 GB | None | 12 Hours | Qdrant, Milvus |
-| **Heavy Batch Training** | Batch | 16 Cores | 64 GB | 2x or 4x NVIDIA H100 | 7 Days | `sbatch` (Python training script) |
-| **Data Preprocessing** | Batch | 8 Cores | 32 GB | None | 24 Hours | `sbatch` (Pandas, Spark) |
+| Workload Type | Run Mode | CPU Resources | Memory | GPU Resources | Duration Limit | Typical Tool / Executable | Job Definition Ref |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Interactive Prototyping** | Interactive | 2 Cores | 8 GB | None | 4 Hours | JupyterLab, VS Code, Bash | [Interactive Prototyping Session](#job-interactive-prototyping-session) |
+| **Small Model Training** | Interactive | 4 Cores | 16 GB | 1x NVIDIA L4 (shared/mig) | 4 Hours | PyTorch, JupyterLab | [Small Model Fine-Tuning](#job-small-model-fine-tuning) |
+| **LLM Inference Server** | Interactive | 4 Cores | 32 GB | 1x NVIDIA L40S or L4 | 12 Hours | Ollama, vLLM, Qdrant | [LLM Inference Server](#job-llm-inference-server) |
+| **Vector DB Setup** | Interactive | 2 Cores | 8 GB | None | 12 Hours | Qdrant, Milvus | [Vector DB Service](#job-vector-db-service) |
+| **Heavy Batch Training** | Batch | 16 Cores | 64 GB | 2x or 4x NVIDIA H100 | 7 Days | `sbatch` (Python training script) | [Distributed Training Job](#job-distributed-training-job) |
+| **Data Preprocessing** | Batch | 8 Cores | 32 GB | None | 24 Hours | `sbatch` (Pandas, Spark) | [Data Pipeline Job](#job-data-pipeline-job) |
 
 ---
 
