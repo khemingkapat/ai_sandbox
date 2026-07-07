@@ -136,3 +136,8 @@ Instead of querying Slurm directly for historical data, the portal queries the *
 3.  **Prometheus Slurm Exporter (vpenso):** [GitHub Repository](https://github.com/vpenso/prometheus-slurm-exporter) — The industry-standard exporter used for comparison in this research.
 4.  **HPC Monitoring with Prometheus and Grafana:** [Reference Case Study](https://dl.acm.org/doi/10.1145/3332186.3333156) — Academic paper discussing best practices for monitoring large-scale HPC clusters.
 5.  **Grafana Labs: HPC Dashboarding:** [Grafana Documentation](https://grafana.com/grafana/dashboards/13350) — Example Slurm dashboard templates and visualization strategies for compute clusters.
+### Unified Telemetry via K8s-Slurm Bridge
+Rather than maintaining separate telemetry systems for Kubernetes interactive sessions (Jupyter) and Slurm batch jobs, we successfully implemented a **unified queue** using Slinky's `slurm-bridge`. 
+- **Queue Unification**: The bridge intercepts interactive K8s pods and automatically schedules them as native Slurm jobs on dynamically registered external nodes (`State=External`). 
+- **Resource Sharing**: By configuring `OverSubscribe="YES"`, Slurm natively handles fractional resource allocation (CPU/Memory) on the shared K8s worker nodes, preventing node-locking.
+- **Unified Telemetry**: Because all interactive Jupyter sessions exist as Slurm jobs, they natively emit telemetry, usage stats, and job state updates to the `slurmdbd` accounting database. The central portal can thus query a single source of truth (Slurm) to monitor both batch and interactive workload behaviors across the sandbox.

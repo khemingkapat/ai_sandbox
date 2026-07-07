@@ -45,7 +45,7 @@ spec:
         - --providers.file.directory=/etc/traefik/dynamic
         - --providers.file.watch=true
         - --providers.kubernetesingress=true
-        - --providers.kubernetesingress.namespaces=slurm
+        - --providers.kubernetesingress.namespaces=slurm,workload
         - --entrypoints.web.address=:80
         ports:
         - containerPort: 80

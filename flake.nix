@@ -28,7 +28,13 @@
           exec kind delete cluster "$@"
         '';
         kstat = pkgs.writeShellScriptBin "kstat" ''
-          exec kubectl get pods -n slurm "$@"
+          echo "=== Slurm Namespace ==="
+          kubectl get pods -n slurm "$@"
+          if kubectl get ns workload &>/dev/null; then
+            echo ""
+            echo "=== Workload Namespace ==="
+            kubectl get pods -n workload "$@" 2>/dev/null || echo "  (no pods)"
+          fi
         '';
         slurm-shell = pkgs.writeShellScriptBin "slurm-shell" ''
           exec kubectl exec -it slurm-controller-0 -n slurm -- bash "$@"

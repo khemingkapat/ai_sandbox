@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -36,11 +37,11 @@ func main() {
 
 	portManager = NewPortManager(dbPath, 30000, 31000, traefikDir)
 
-	sm, err := NewSessionManager("slurm")
+	sm, err := NewSessionManager("workload")
 	if err == nil {
 		sessionManager = sm
 	} else {
-		fmt.Printf("Warning: failed to initialize session manager: %v\n", err)
+		fmt.Printf("Warning: Failed to initialize session manager: %v\n", err)
 	}
 
 	e := echo.New()
@@ -79,6 +80,16 @@ func main() {
 
 	ui.GET("/api/jobs", apiUserJobs)
 	ui.GET("/api/cluster/status", apiClusterStatus)
+
+	// Proxy Jupyter session requests to the internal Traefik proxy on port 80
+	url1, err := url.Parse("http://localhost:80")
+	if err != nil {
+		e.Logger.Fatal(err)
+	}
+	proxyTarget := middleware.ProxyTarget{
+		URL: url1,
+	}
+	e.Group("/:user/jupyter").Use(middleware.Proxy(middleware.NewRoundRobinBalancer([]*middleware.ProxyTarget{&proxyTarget})))
 
 	e.Logger.Fatal(e.Start(":8080"))
 }
