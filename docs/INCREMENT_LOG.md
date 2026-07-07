@@ -2,6 +2,25 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 14] - 2026-07-10: Tutorial Placement Research - Use Cases & Trade-offs
+
+*   **Author:** Jules (Async)
+*   **Goal:** Expand the tutorial feasibility research with user-centric scenarios and a simplified trade-off analysis to guide placement decisions.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Research Documentation:**
+    *   Updated `docs/interactive_tutorial_feasibility.md`: Added "👥 Use Case Scenarios" and "⚖️ Trade-off Analysis (Simple Terms)" sections.
+
+### 💡 Why This Design?
+*   **User-Centric Perspective:** Moves beyond technical feasibility to consider the student experience, balancing the need for low-friction onboarding (Central Portal) with the requirement for full cluster access (Localized Sandbox).
+*   **Accessible Language:** Uses simple wording to ensure the trade-offs are understandable by stakeholders who may not be deeply technical.
+
+### 🛠️ Verification Steps
+1.  Verify `docs/interactive_tutorial_feasibility.md` renders correctly and contains the new sections.
+
+---
+
 ## [Increment 13] - 2026-07-05: Environment Assessment & Capacity Planning Specs
 
 *   **Author:** Antigravity (Interactive) & Khem

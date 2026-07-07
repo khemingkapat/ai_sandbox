@@ -33,3 +33,31 @@ Exposing an interactive, terminal-based tutorial inside the central portal that 
 ### Sources
 - [MDN Web Docs: window.postMessage](https://developer.mozilla.org/en-US/docs/Web/API/Window/postMessage) — Guidelines for secure cross-origin communication.
 - [xterm.js Documentation](https://xtermjs.org/) — Reference on embedding web terminals securely.
+
+---
+
+## 👥 Use Case Scenarios
+
+### Scenario 1: The Beginner on the Central Portal
+This is the "low friction" use case. Imagine a student who is brand new to AI. They just want to see a simple script run and understand the basics. They don't want to be overwhelmed by technical concepts like "compute clusters," "Slurm partitions," or "storage mounts" right away.
+
+*   **Why it fits:** A tutorial hosted directly on the Central Portal is the best fit here. It feels like a regular website, making it easy to start and much less intimidating for someone on their first day.
+
+### Scenario 2: The Advanced User on the Localized Sandbox
+This is the "full potential" use case. Imagine a student who is moving on to heavy AI training jobs. They need direct access to everything the system offers—Slurm commands for scheduling, their own local folders for data, and full Jupyter sessions.
+
+*   **Why it fits:** A tutorial hosted inside the Localized Sandbox is better for this user. It places them exactly where they need to be to do real work, giving them hands-on experience with the professional tools they'll use every day.
+
+---
+
+## ⚖️ Trade-off Analysis (Simple Terms)
+
+| Placement | Pros (The Good) | Cons (The Bad) |
+| :--- | :--- | :--- |
+| **Central Portal Tutorials** | Very easy to start. Welcoming to newcomers. Zero setup required. | Limited power. Cannot easily touch advanced cluster features or local files without a lot of complex technical "bridges." |
+| **Localized AI Sandbox Tutorials** | Full access to everything (GPUs, Slurm, local storage). Exactly mirrors how the system works in the real world. | Can feel a bit intimidating or complex for a student on their very first day. |
+
+### Recommendation: The Learning Journey
+We recommend a "graduation" path for students:
+1.  **Start on the Central Portal:** Provide a simple, interactive guide there to get their feet wet and build confidence.
+2.  **Graduate to the Localized Sandbox:** Once they are ready for heavy workloads and real-world projects, move the tutorials into the Sandbox where they have full access to the cluster's power.
