@@ -24,6 +24,10 @@ kubectl create secret generic slurm-bridge-token -n slurm --from-literal=auth-to
 echo "🌉 Deploying slurm-bridge..."
 helm install slurm-bridge oci://ghcr.io/slinkyproject/charts/slurm-bridge --namespace slurm -f k8s/slurm-bridge-values.yaml --wait
 
+echo "🏷️  Registering dedicated compute node (kind-worker3) with Slurm..."
+kubectl label node kind-worker3 scheduler.slinky.slurm.net/slurm-bridge-external-node=true --overwrite
+kubectl annotate node kind-worker3 scheduler.slinky.slurm.net/external-node-partitions=all --overwrite
+
 echo "🔧 Fixing inotify limits for Traefik file watcher..."
 for node in $(kind get nodes); do
   docker exec $node sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=524288
@@ -36,6 +40,7 @@ kind load docker-image hpc-portal:local
 echo "🛠️ Building and loading interactive OCI images..."
 ./scripts/build-oci-images.sh
 
+kubectl apply -f k8s/portal-rbac.yaml
 kubectl apply -f k8s/portal-deployment.yaml
 
 echo "✅ Slinky and HPC Portal are ready!"

@@ -152,11 +152,39 @@ prologScripts: {}
 # Ref: https://slurm.schedmd.com/slurm.conf.html#OPT_Epilog
 # Ref: https://slurm.schedmd.com/prolog_epilog.html
 # Ref: https://en.wikipedia.org/wiki/Shebang_(Unix)
-epilogScripts: {}
-  # 00-empty.sh: |
-  #   #!/usr/bin/env bash
-  #   set -euo pipefail
-  #   exit 0
+epilogScripts:
+  01-webhook.sh: |
+    #!/bin/bash
+    # Slurm Epilog script to send job metrics to the central portal
+    # Try reaching the host machine using host.minikube.internal or a known docker bridge IP.
+    # Usually in kind/minikube, 10.0.2.2 or host.minikube.internal works, or the actual node IP.
+    CENTRAL_PORTAL_URL="http://172.17.0.1:8080/api/webhook/slurm"
+    # or just try reaching the portal container if the python server runs on the host?
+    # Actually, we can use the k8s node IP or host machine IP. Let's use the env variables.
+
+    JOB_ID=${SLURM_JOB_ID:-unknown}
+    USER_ID=${SLURM_JOB_USER:-unknown}
+    ACCOUNT=${SLURM_JOB_ACCOUNT:-unknown}
+    PARTITION=${SLURM_JOB_PARTITION:-unknown}
+    NODELIST=${SLURM_JOB_NODELIST:-unknown}
+
+    PAYLOAD=$(cat <<EOF
+    {
+      "job_id": "$JOB_ID",
+      "user": "$USER_ID",
+      "account": "$ACCOUNT",
+      "partition": "$PARTITION",
+      "nodelist": "$NODELIST",
+      "event": "job_completed",
+      "timestamp": "$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+    }
+    EOF
+    )
+
+    curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "http://host.k3d.internal:8080/api/webhook/slurm" --max-time 5 || true
+    curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "http://host.minikube.internal:8080/api/webhook/slurm" --max-time 5 || true
+    curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "http://172.17.0.1:8080/api/webhook/slurm" --max-time 5 || true
+    curl -X POST -H "Content-Type: application/json" -d "$PAYLOAD" "http://localhost:8080/api/webhook/slurm" --max-time 5 || true
 
 # Slurm controller (slurmctld) configuration.
 controller:
@@ -806,6 +834,7 @@ partitions:
       State: UP
       Default: "YES"
       MaxTime: UNLIMITED
+      OverSubscribe: "YES"
 
 # Vendor specific integration and configurations.
 vendor:

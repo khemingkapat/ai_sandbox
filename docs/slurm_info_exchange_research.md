@@ -34,3 +34,9 @@ Integrating this into our Slinky-based Kubernetes stack is moderately straightfo
 ### Sources
 - [SchedMD Slurm Documentation](https://slurm.schedmd.com/) — Official guide on Slurm metrics plugins and job accounting database.
 - [GitHub: SckyzO/slurm_exporter](https://github.com/SckyzO/slurm_exporter) — Details on exporting Slurm cluster status and resource usage to Prometheus/Grafana.
+
+### Unified Telemetry via K8s-Slurm Bridge
+Rather than maintaining separate telemetry systems for Kubernetes interactive sessions (Jupyter) and Slurm batch jobs, we successfully implemented a **unified queue** using Slinky's `slurm-bridge`. 
+- **Queue Unification**: The bridge intercepts interactive K8s pods and automatically schedules them as native Slurm jobs on dynamically registered external nodes (`State=External`). 
+- **Resource Sharing**: By configuring `OverSubscribe="YES"`, Slurm natively handles fractional resource allocation (CPU/Memory) on the shared K8s worker nodes, preventing node-locking.
+- **Unified Telemetry**: Because all interactive Jupyter sessions exist as Slurm jobs, they natively emit telemetry, usage stats, and job state updates to the `slurmdbd` accounting database. The central portal can thus query a single source of truth (Slurm) to monitor both batch and interactive workload behaviors across the sandbox.

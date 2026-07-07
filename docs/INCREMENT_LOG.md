@@ -124,6 +124,27 @@ This file tracks every discrete increment made during the Slinky migration. Its 
 1.  Verify documents render properly as markdown.
 2.  Confirm Mermaid diagrams are syntactically correct.
 3.  Ensure all cross-references to internal docs (CAPACITY_PLANNING, INCREMENT_LOG) are correct.
+## [Increment 14] - 2026-07-06: Job Definition Catalog & Capacity Research
+
+*   **Author:** Jules (Async)
+*   **Goal:** Provide detailed functional and resource justifications for the profiled workloads to bridge the gap between platform capabilities and capacity planning numbers.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Capacity Planning Extension:**
+    *   Updated `docs/CAPACITY_PLANNING.md`:
+        *   Added "🔧 Job Definition Catalog" section defining 7 core job types (LLM Inference, Vector DB, Interactive Prototyping, Fine-Tuning, Distributed Training, Data Pipeline, RAG Stack).
+        *   Researched and documented concrete resource requirements (CPU, RAM, VRAM, Storage) for each job type, specifically detailing quantized model sizes for Llama 3.1, Phi-3, and Mistral.
+        *   Added a "Job Definition Ref" column to the "Workload Profile Catalog" table to cross-reference detailed definitions.
+
+### 💡 Why This Design?
+*   **Capability-Driven Planning:** Linking resource numbers to specific user actions (e.g., "fine-tuning a 7B model via QLoRA") provides better context for administrators than raw numbers alone.
+*   **Evidence-Based Limits:** Backing resource allocations with researched benchmarks (e.g., Ollama model tags and Qdrant sizing guides) ensures the platform is sized correctly for the intended academic workloads.
+
+### 🛠️ Verification Steps
+1.  Verify documents render properly as markdown.
+2.  Ensure anchor links in the workload table correctly navigate to job definitions.
+3.  Run `./scripts/verify-isolation.sh` to ensure repository integrity.
 
 ---
 
