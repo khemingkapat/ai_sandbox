@@ -147,23 +147,23 @@ Instead of sizing physical servers to match the theoretical sum of all users' pe
 ### 💡 Estimation & Overcommit Rationale
 1.  **CPU & Memory Overcommit (Interactive Nodes):**
     *   *Behavior:* Interactive coding sessions (JupyterLab/VS Code) are highly bursty. Students spend most of their session typing, reading, or debugging, leaving the CPU idle ~90% of the time.
-    *   *Strategy:* We apply a **4:1 CPU overcommit ratio** and a **2:1 memory overcommit ratio** at the Kubernetes resource level. For 100 students allocated 2 cores each, a single 48-core physical node can easily manage the load.
-2.  **GPU Partitioning (Multi-Instance GPU - MIG):**
-    *   *Behavior:* Standard model prototyping (e.g., training small classifiers or running inference on a 7B LLM) does not require a full 80GB high-end GPU.
-    *   *Strategy:* We leverage NVIDIA **MIG (Multi-Instance GPU)** or **vGPU** technology to partition a single high-end physical card (e.g., A100 or L40S) into 7 distinct virtual instances (e.g., `1g.10gb` slices). This lets 7 students share a single physical card with hardware-level memory boundaries and no interference.
+    *   *Strategy:* We apply a **4:1 CPU overcommit ratio** and a **2:1 memory overcommit ratio** at the Kubernetes resource level. Across a baseline of 2+ Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes, this comfortably supports ~100 concurrent users.
+2.  **GPU Partitioning & Sharing (Time-slicing / vGPU):**
+    *   *Behavior:* Standard model prototyping does not require a full 48GB GPU. Furthermore, we only have one dedicated GPU node.
+    *   *Strategy:* With a single node featuring 2x NVIDIA L40 (48GB each), one L40 can be devoted to a persistent LLM inference endpoint (vLLM/Ollama), while the other utilizes Kubernetes GPU time-slicing or NVIDIA vGPU to share access among multiple students for interactive notebooks or small batch jobs.
 3.  **Queue-Based Batch Scheduling:**
     *   *Behavior:* Heavy training runs (Deep Learning models) run at 100% capacity and cannot be overcommitted.
-    *   *Strategy:* Instead of dedicated hardware per student, these run on a shared pool of nodes. Slurm schedules these sequentially using fair-share queues. If all GPUs are busy, jobs queue up rather than crashing the system.
+    *   *Strategy:* Slurm schedules these sequentially using fair-share queues on the shared GPU. If the L40 is busy, jobs queue up rather than crashing the system.
 
-### 🖥️ Optimized Cluster Allocations
-The table below maps these utilization principles to the physical/virtual node roles:
+### 🖥️ Baseline Cluster Allocations (Based on Actual Specs)
+The table below maps these utilization principles to the specific physical node roles available:
 
-| Node / Role | Typical Physical Spec (What to Look For in Your HPC) | Allocation / Sharing Model | Target Workloads Accommodated |
+| Node / Role | Physical Spec | Allocation / Sharing Model | Target Workloads Accommodated |
 | :--- | :--- | :--- | :--- |
-| **K8s Control Plane** | 1x VM with 4 Cores, 8 GB RAM, 50 GB NVMe | Shared among all management pods | Go Portal, database, Traefik proxy, Slurm control plane daemons. |
-| **Interactive CPU Worker Node** | 1x Server with 32–64 Cores, 128–256 GB RAM | Overcommitted (4:1 CPU, 2:1 Mem) | Supports up to 50–70 concurrent student notebooks (`interactive` partition). |
-| **Interactive GPU Worker Node** | 1x Server with 16–32 Cores, 128 GB RAM + 2x NVIDIA L4 (24GB) or 1x A100 (80GB) | MIG partitioned (up to 7 slices per GPU) | Small-scale model prototyping, local LLM running, vector databases. |
-| **Batch GPU Compute Node** | 1-2x Servers with 32–64 Cores, 256–512 GB RAM + 4x NVIDIA A100/H100 | Dedicated allocation (No overcommit, Slurm queued) | Heavy model training scripts, parallel hyperparameter searches (`batch-gpu` partition). |
+| **K8s Control Plane** | 1x VM or small partition of CPU Node | Shared among all management pods | Go Portal, database, Traefik proxy, Slurm control plane daemons. |
+| **CPU Worker Nodes (1++ Nodes)** | Intel Xeon E5-2698 v3 (32-Core/64-Thread), 256GB RAM | Overcommitted (4:1 CPU, 2:1 Mem) | Supports up to 100 concurrent student notebooks (`interactive` partition). |
+| **GPU Worker Node (1 Node)** | AMD EPYC 7313 (32-Core/64-Thread), 256GB RAM, 2x NVIDIA L40 (48GB) | L40 #1: Dedicated to LLM Inference<br>L40 #2: GPU time-slicing / queued | Persistent LLM API, queued student model prototyping, and small batch jobs. |
+| **Shared Storage** | On-demand NFS/CephFS | `ReadWriteMany` PVCs | Centralized student home directories and dataset storage. |
 
 ---
 

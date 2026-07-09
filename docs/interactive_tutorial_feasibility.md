@@ -61,3 +61,44 @@ This is the "full potential" use case. Imagine a student who is moving on to hea
 We recommend a "graduation" path for students:
 1.  **Start on the Central Portal:** Provide a simple, interactive guide there to get their feet wet and build confidence.
 2.  **Graduate to the Localized Sandbox:** Once they are ready for heavy workloads and real-world projects, move the tutorials into the Sandbox where they have full access to the cluster's power.
+
+---
+
+## Addendum: Constrained Demo Pod Approach (PR-Oriented)
+
+### Context
+Team lead feedback noted that the original "full interactive tutorial on the Central Portal" use case was somewhat moot in practice — the AI Sandbox itself is already easy enough to use that replicating a full interactive experience on the portal doesn't add much real value. However, there is a distinct, narrower use case worth pursuing: a lightweight, PR-oriented demo that gives newcomers (and external visitors) a tangible "it's really running on our cluster" moment directly on the Central Portal, without rebuilding the full interactive bridge originally evaluated above.
+
+### Concept
+Maintain **one persistent, isolated pod**, scheduled via **Slinky** on the HPC cluster, dedicated solely to demo purposes. The Central Portal exposes a small set of **pre-defined, allowlisted actions** — not a raw terminal — such as buttons for `sinfo`, `squeue`, or submitting a canned `sbatch` demo job. Clicking a button triggers a backend call that executes the *fixed* command against the demo pod and streams the output back to the portal UI as read-only text.
+
+This is fundamentally different from the original "embed a terminal cross-origin" proposal: there is no raw input channel, no arbitrary command execution, and no user-supplied shell strings. That distinction is what changes the risk profile relative to the Key Findings and Cons sections above.
+
+### Why This Sidesteps the Original Security Concerns
+| Original Concern (Full Interactive Bridge) | Demo Pod Approach |
+|---|---|
+| Arbitrary shell execution cross-origin | Only a fixed, backend-validated command set (allowlist, no free-text input) |
+| Complex `postMessage`/WebSocket auth | Simple authenticated REST call → backend → `kubectl exec` or `srun` on the pod |
+| Compromise exposes whole cluster | Demo pod is isolated (separate namespace, no mounts to real user data, tight resource quotas, no credentials to production Slurm partitions) |
+| SSO bridging between portal and sandbox | Can be anonymous/low-privilege — no real user session needed, since it's not touching a user's actual environment |
+
+### Suggested Architecture
+1.  **Demo Pod:** Persistent, lightweight, scheduled via Slinky in its own namespace with strict CPU/mem/GPU quotas — enough to run `sinfo`/`squeue` against a demo partition and accept one simple pre-baked `sbatch` script.
+2.  **Backend API:** A thin service (not exposed to the pod directly) that receives an action ID (`"sinfo"`, `"squeue"`, `"submit_demo_job"`) from the portal, validates it against a server-side allowlist, executes it against the pod, and returns captured stdout/stderr.
+3.  **Frontend (Central Portal):** Static markdown/read-through content with embedded buttons wired to the backend action IDs. Output rendered in a simple read-only console-style widget — no keystroke-level terminal emulation needed.
+4.  **Job submission demo:** The "sbatch" button submits an already-authored trivial script (e.g., sleep + echo hostname) so users see the queue → run → complete lifecycle without needing custom job authorship.
+5.  **Reset/idempotency:** Since it's shared and persistent, consider periodic cleanup of demo job history (cron or TTL) so `squeue` output doesn't accumulate stale entries indefinitely.
+
+### Pros
+- **Very low engineering lift** compared to the original cross-origin terminal bridge — no `xterm.js`, no WebSocket ingress, no SSO federation.
+- **Drastically reduced attack surface** — command allowlisting removes the core risk that made the original Central Portal option "high risk."
+- **Strong PR value** — newcomers get a tangible, clickable "look, it's really running on our cluster" moment directly on the portal, without needing an account or sandbox provisioning.
+- **Decoupled from real user sandboxes** — the demo pod is disposable/replaceable and never touches actual user data or credentials.
+
+### Cons / Considerations
+- **Shared state:** since it's one persistent pod for everyone, concurrent demo usage could show other users' demo job output in `squeue` — worth deciding whether that's a feature ("look, others are trying it too!") or something to namespace/filter per-session.
+- **Not representative of full power:** this remains a curated, cosmetic demo — it doesn't replace the "graduate to the real Sandbox" recommendation above for actual hands-on training.
+- **Abuse potential:** even with allowlisted actions, a public-facing submit button needs basic rate-limiting to prevent someone spamming `sbatch` submissions.
+
+### Updated Recommendation
+This does not replace the original hybrid recommendation — it **refines** it. The "Beginner on the Central Portal" scenario (Scenario 1) can now be made concretely interactive (not just static reading) via this constrained demo pod, closing the gap the team lead identified, while the "Advanced User on the Localized Sandbox" scenario (Scenario 2) and the graduation-path recommendation remain unchanged.
