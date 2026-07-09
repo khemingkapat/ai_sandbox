@@ -145,9 +145,15 @@ sequenceDiagram
 Instead of sizing physical servers to match the theoretical sum of all users' peak needs, the AI Sandbox architecture optimizes for high resource density and sharing. The recommendations below assume a student pilot size of **50–100 concurrent users** using the following design rationales:
 
 ### 💡 Estimation & Overcommit Rationale
+
+**What is Overcommitting?**
+Overcommitting is like an airline overbooking a flight. It means promising more virtual resources to users than we physically have, based on the fact that not everyone uses their max limit at the exact same time. It's a standard industry practice (used heavily by VMware and Kubernetes) to save massive amounts of hardware costs.
+
 1.  **CPU & Memory Overcommit (Interactive Nodes):**
-    *   *Behavior:* Interactive coding sessions (JupyterLab/VS Code) are highly bursty. Students spend most of their session typing, reading, or debugging, leaving the CPU idle ~90% of the time.
-    *   *Strategy:* We apply a **4:1 CPU overcommit ratio** and a **2:1 memory overcommit ratio** at the Kubernetes resource level. Across a baseline of 2+ Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes, this comfortably supports ~100 concurrent users.
+    *   *Behavior (The Idle Time):* When students open Jupyter or VS Code, they spend about 90% of their time reading, thinking, or typing. During this time, their CPU is completely idle. When they finally hit "Run", the CPU spikes for a few seconds. 
+    *   *4:1 CPU Strategy:* We use a **4:1 CPU overcommit ratio**. This means for every 1 physical CPU core, we hand out 4 "virtual" cores. Because the 90% idle times overlap, the system simply lends physical power to whoever is hitting "Run" at that exact second. This allows a 32-core server to effortlessly act like a 128-core server.
+    *   *2:1 Memory Strategy:* We use a **2:1 memory overcommit ratio**. Memory is slightly riskier to overbook than CPU (running out of CPU just slows things down, but running out of RAM crashes programs). A 2:1 ratio is a safe middle-ground to save money without risking stability.
+    *   *Result:* Across a baseline of 2+ Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes, this comfortably supports ~100 concurrent users without buying 4x the hardware.
 2.  **GPU Partitioning & Sharing (Time-slicing / vGPU):**
     *   *Behavior:* Standard model prototyping does not require a full 48GB GPU. Furthermore, we only have one dedicated GPU node.
     *   *Strategy:* With a single node featuring 2x NVIDIA L40 (48GB each), one L40 can be devoted to a persistent LLM inference endpoint (vLLM/Ollama), while the other utilizes Kubernetes GPU time-slicing or NVIDIA vGPU to share access among multiple students for interactive notebooks or small batch jobs.

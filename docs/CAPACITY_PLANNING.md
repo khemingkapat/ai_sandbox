@@ -189,8 +189,32 @@ Students run a diverse set of tasks ranging from basic notebook execution to int
 
 ---
 
-## 🧩 Partition Design
+## Budget-Conscious CPU Node Recommendations & Performance Suitability
 
+Based on the workload profiles above, we can strategically expand the cluster's CPU capacity to support 100 concurrent students without breaking the budget. 
+
+### CPU Node Recommendation for 100 Users
+If 100 students log in to perform **Interactive Prototyping**, they each request 2 virtual CPU cores (totaling 200 virtual cores). 
+*   **The Math:** Using our **4:1 CPU overcommit strategy** (accounting for 90% idle time while reading/typing), we only need **50 physical CPU cores** to comfortably support all 100 users simultaneously.
+*   **Recommendation:** Purchasing just **two affordable 32-core servers** (or one robust 64-core server, e.g., AMD EPYC) provides 64 physical cores. This easily absorbs the 50-core requirement with plenty of headroom for operating system overhead and background data preprocessing tasks. This keeps the budget extremely low while maximizing student capacity.
+
+### Performance Suitability Assessment on CPU Nodes
+In formal systems engineering, "QoS" often refers strictly to network traffic shaping. When assessing how workloads map to compute hardware, we evaluate **Performance Suitability** and **SLA Compliance**. When running the cataloged workloads strictly on the recommended CPU nodes (without GPU acceleration), the suitability varies drastically:
+
+| Workload Type | Hardware Suitability | Assessment |
+| :--- | :--- | :--- |
+| **Interactive Prototyping** | **Optimal** | Code editing and light data exploration run perfectly well on shared, overcommitted CPUs. |
+| **Data Preprocessing** | **Optimal** | Tasks like Pandas and Spark are CPU-bound and will fully utilize the physical cores efficiently. |
+| **Vector DB Setup** | **Satisfactory** | In-memory indexing works fine on CPUs for student-sized datasets (~1M vectors), though search latency might be slightly higher than GPU-accelerated environments. |
+| **LLM Inference Server** | **Unacceptable** | Running an LLM (like Llama 3) purely on CPU yields extremely high latency (e.g., 1-2 tokens per second), violating acceptable SLAs for real-time applications. |
+| **Small Model Training** | **Unacceptable** | CPU-only PyTorch training is computationally unfeasible for modern neural networks. |
+| **Heavy Batch Training** | **Unacceptable** | Cannot be executed without high-end GPU accelerators. |
+
+**Conclusion:** The addition of 1-2 affordable CPU nodes flawlessly handles 100% of the interactive prototyping and data prep for 100 students. However, to maintain acceptable performance SLAs, GPU-dependent tasks (Inference and Training) must be strictly routed to dedicated GPU nodes via the `inference` and `batch-gpu` partitions.
+
+---
+
+## 🧩 Partition Design
 We define four distinct Slurm/Slinky partitions to isolate workloads and prioritize resources appropriately.
 
 ```mermaid
