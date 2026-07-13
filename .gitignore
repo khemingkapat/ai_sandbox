@@ -26,6 +26,7 @@ jobs/
 /storage/projects/project1/.apptainer/
 /storage/projects/project1/slurm-*.out
 /storage/**/*.ipynb
+/storage/projects/*.log
 
 storage.bak/
 
@@ -37,3 +38,5 @@ traefik-dynamic/*
 # Ignore compiled portal binary
 portal/portal
 /storage/projects/**/.jupyter/
+/storage/projects/**/.npm/
+/storage/projects/**/.local/

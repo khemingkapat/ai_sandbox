@@ -80,15 +80,15 @@ clusterName: null
 
 # -- (map[string]string) Extra Slurm config files to be mounted to `/etc/slurm`.
 # Ref: https://slurm.schedmd.com/man_index.html#configuration_files
-configFiles: {}
+configFiles:
   # Ref: https://slurm.schedmd.com/cgroup.conf.html
-  # cgroup.conf: |
-  #   CgroupPlugin=cgroup/v2
-  #   IgnoreSystemd=yes
-  #   ConstrainCores=yes
-  #   ConstrainRAMSpace=yes
-  #   ConstrainDevices=yes
-  #   ConstrainSwapSpace=yes
+  cgroup.conf: |
+    CgroupPlugin=cgroup/v2
+    IgnoreSystemd=yes
+    ConstrainCores=yes
+    ConstrainRAMSpace=yes
+    ConstrainDevices=yes
+    ConstrainSwapSpace=yes
   # Ref: https://slurm.schedmd.com/gres.conf.html
   # gres.conf: |
   #   AutoDetect=nvidia

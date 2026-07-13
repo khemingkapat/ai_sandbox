@@ -46,12 +46,12 @@ The selection of Slinky (Slurm-on-Kubernetes) as the architectural foundation fo
 University environments face a "triple threat" of workload diversity that standard K8s or Slurm clusters struggle to handle in isolation [1]:
 *   **Mixed Workload Types:** Students require long-running batch training (7+ days), short-lived interactive notebook sessions (4 hours), and persistent shared services like LLM inference endpoints and vector databases.
 *   **Fair Multi-tenant Access:** Supporting 50–100 students on a single cluster requires strict quota enforcement and fair-share algorithms to prevent "noisy neighbors" from hogging expensive GPU resources [4].
-*   **Heterogeneous Hardware:** The cluster must efficiently manage a mix of CPU-only nodes, L4/L40S GPUs for inference, and H100 GPUs for high-end training, often requiring different orchestration strategies for each [2].
+*   **Heterogeneous Hardware:** The cluster must efficiently manage a mix of CPU-only nodes and shared L40 GPUs for inference and queued training, often requiring different orchestration strategies for each [2].
 
 ### 2. Why Slurm (The Scheduler)
 Slurm remains the industry standard for HPC due to its sophisticated scheduling logic that Kubernetes' default scheduler lacks [7]:
 *   **Fair-Share Scheduling:** Ensures that students who have used fewer resources recently are prioritized, preventing a single research group from monopolizing the cluster [4].
-*   **GRES & MIG Management:** Native support for Generic RESources (GRES) and Multi-Instance GPU (MIG) allows the platform to slice a single A100/H100 into 7 isolated instances, maximizing student density [5].
+*   **GRES & Time-Slicing Management:** Native support for Generic RESources (GRES) and Kubernetes GPU time-slicing allows the platform to slice a single L40 into multiple isolated instances, maximizing student density [5].
 *   **Partition-Based Isolation:** Logic-level separation (interactive vs. batch vs. inference) allows for different preemption and priority rules on the same physical hardware [2].
 
 ### 3. Why Kubernetes (The Infrastructure)
@@ -153,7 +153,7 @@ Overcommitting is like an airline overbooking a flight. It means promising more 
     *   *Behavior (The Idle Time):* When students open Jupyter or VS Code, they spend about 90% of their time reading, thinking, or typing. During this time, their CPU is completely idle. When they finally hit "Run", the CPU spikes for a few seconds. 
     *   *4:1 CPU Strategy:* We use a **4:1 CPU overcommit ratio**. This means for every 1 physical CPU core, we hand out 4 "virtual" cores. Because the 90% idle times overlap, the system simply lends physical power to whoever is hitting "Run" at that exact second. This allows a 32-core server to effortlessly act like a 128-core server.
     *   *2:1 Memory Strategy:* We use a **2:1 memory overcommit ratio**. Memory is slightly riskier to overbook than CPU (running out of CPU just slows things down, but running out of RAM crashes programs). A 2:1 ratio is a safe middle-ground to save money without risking stability.
-    *   *Result:* Across a baseline of 2+ Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes, this comfortably supports ~100 concurrent users without buying 4x the hardware.
+    *   *Result:* Across a baseline of 3 Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes, this comfortably supports ~100 concurrent users without buying excessive hardware, leaving a healthy buffer for background tasks.
 2.  **GPU Partitioning & Sharing (Time-slicing / vGPU):**
     *   *Behavior:* Standard model prototyping does not require a full 48GB GPU. Furthermore, we only have one dedicated GPU node.
     *   *Strategy:* With a single node featuring 2x NVIDIA L40 (48GB each), one L40 can be devoted to a persistent LLM inference endpoint (vLLM/Ollama), while the other utilizes Kubernetes GPU time-slicing or NVIDIA vGPU to share access among multiple students for interactive notebooks or small batch jobs.
@@ -167,7 +167,7 @@ The table below maps these utilization principles to the specific physical node 
 | Node / Role | Physical Spec | Allocation / Sharing Model | Target Workloads Accommodated |
 | :--- | :--- | :--- | :--- |
 | **K8s Control Plane** | 1x VM or small partition of CPU Node | Shared among all management pods | Go Portal, database, Traefik proxy, Slurm control plane daemons. |
-| **CPU Worker Nodes (1++ Nodes)** | Intel Xeon E5-2698 v3 (32-Core/64-Thread), 256GB RAM | Overcommitted (4:1 CPU, 2:1 Mem) | Supports up to 100 concurrent student notebooks (`interactive` partition). |
+| **CPU Worker Nodes (3 Nodes)** | Intel Xeon E5-2698 v3 (32-Core/64-Thread), 256GB RAM | Overcommitted (4:1 CPU, 2:1 Mem) | Supports up to 100 concurrent student notebooks (`interactive` partition) alongside data preprocessing tasks. |
 | **GPU Worker Node (1 Node)** | AMD EPYC 7313 (32-Core/64-Thread), 256GB RAM, 2x NVIDIA L40 (48GB) | L40 #1: Dedicated to LLM Inference<br>L40 #2: GPU time-slicing / queued | Persistent LLM API, queued student model prototyping, and small batch jobs. |
 | **Shared Storage** | On-demand NFS/CephFS | `ReadWriteMany` PVCs | Centralized student home directories and dataset storage. |
 
@@ -204,7 +204,7 @@ This gap analysis highlights key technical differences and migration steps neede
 
 | Feature Area | Kind Development Prototype | Production HPC Environment Target | Migration / Action Required |
 | :--- | :--- | :--- | :--- |
-| **GPU Access** | CPU-emulated workloads only (no physical GPU resources). | Native physical GPU passthrough (NVIDIA L4/L40S/A100). | Deploy **NVIDIA GPU Operator** on production Kubernetes cluster; configure node labeling and taints. |
+| **GPU Access** | CPU-emulated workloads only (no physical GPU resources). | Native physical GPU passthrough (NVIDIA L40). | Deploy **NVIDIA GPU Operator** on production Kubernetes cluster; configure node labeling and taints. |
 | **Storage CSI** | Local host volume mounts simulated via `hostPath` PV. | High-performance enterprise storage (NFS/CephFS). | Configure an enterprise **CSI Driver** (e.g., NFS-Client provisioner or Ceph-CSI) with dynamic volume sizing. |
 | **Identity & Authentication** | Mock JWT identities and static UID generation (1001-1004). | University LDAP / Active Directory / Single Sign-On (OIDC). | Integrate portal JWT signer with OAuth2/SSO provider; synchronize UID/GID mapping with directory server. |
 | **Autoscaling** | Static worker pods defined in Helm values.yaml. | Dynamic scaling based on partition queue and load. | Integrate Slinky NodeSet controller with the **Kubernetes Cluster Autoscaler** to provision bare-metal worker nodes. |
