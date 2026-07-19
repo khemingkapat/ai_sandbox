@@ -1,5 +1,11 @@
 # WP3-1-2: Capacity Planning & Workload Profiling
 
+> **📋 System Assessment Report**
+> This document is part of the System Assessment & Planning Report:
+> - [Environment Assessment](./ENVIRONMENT_ASSESSMENT.md) — Hardware, architecture, and deployment topology
+> - **[Capacity Planning](./CAPACITY_PLANNING.md)** — Workload profiles, partitions, and resource quotas
+> - [Tech Stack Decisions](./TECH_STACK_DECISION.md) — Technology choices and architectural decision records
+
 This document outlines the workload profiling, partition design, resource quotas, and autoscaling configurations required to support a fair multi-user AI engineering environment for students.
 
 ---
@@ -68,7 +74,7 @@ This section derives concrete resource requirements from the platform's function
 
 | Resource | Requirement | Reasoning |
 | :--- | :--- | :--- |
-| CPU | 2 cores | Standard interactive coding and lightweight script execution. |
+| CPU | 4 cores | Standard interactive coding and snappy script execution. |
 | Memory | 8 GB | OS overhead plus local IDE memory requirements. |
 | GPU | None | CPU-only for code development and debugging. |
 | Storage | 20 GB | Student home directory and local scratch space. |
@@ -114,15 +120,15 @@ This section derives concrete resource requirements from the platform's function
 
 | Resource | Requirement | Reasoning |
 | :--- | :--- | :--- |
-| CPU | 16 cores | High-speed data throughput to keep multiple GPUs saturated. |
+| CPU | 16 cores | High-speed data loading to keep the single GPU fully saturated. |
 | Memory | 64 GB | Large batch sizes and optimizer state (Adam) overhead. |
 | GPU | 1x NVIDIA L40 (capped at 24GB VRAM) | Uses a max of 50% of the shared GPU to prevent starving interactive users. |
 | Storage | 500 GB | Large-scale datasets (e.g., ImageNet, RedPajama) and frequent checkpoints. |
-| Network | 10+ Gbps | Required for efficient NCCL communication during weight syncing. |
+| Network | High | Throughput to the shared cluster filesystem for dataset streaming. No inter-node GPU communication required (single-GPU constraint). |
 
 **Target Software & Models:**
-- **Tools:** PyTorch Distributed, DeepSpeed, Accelerate
-- **Models:** 7B+ models for full-parameter training.
+- **Tools:** PyTorch, Accelerate
+- **Models:** 7B+ models for full-parameter training on a single GPU.
 
 **References:**
 1. [Model Training Memory Requirements (Hugging Face)](https://huggingface.co/docs/transformers/v4.20.1/en/perf_train_gpu_one)
@@ -149,9 +155,11 @@ This section derives concrete resource requirements from the platform's function
 **References:**
 1. [Apache Spark Resource Sizing Recommendations](https://spark.apache.org/docs/latest/tuning.html)
 
-### Job: RAG Application Stack
+### Reference Deployment: RAG Application Stack
 
 > **Capability:** RAG pipeline (LLM + Vector DB)
+
+> ⚠️ **Note:** This is a **composite reference deployment**, not a standalone resource allocation. Its resource profile is the union of the [LLM Inference Server](#job-llm-inference-server) and [Vector DB Service](#job-vector-db-service) jobs. It is documented here to illustrate a complete end-to-end AI application stack.
 
 **What it does:** Combines an LLM server with a Vector DB to provide end-to-end Retrieval-Augmented Generation. This represents a complete, production-ready AI application.
 
@@ -180,8 +188,8 @@ Students run a diverse set of tasks ranging from basic notebook execution to int
 
 | Workload Type | Run Mode | CPU Resources | Memory | GPU Resources | Duration Limit | Typical Tool / Executable | Job Definition Ref |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Interactive Prototyping** | Interactive | 2 Cores | 8 GB | None | 4 Hours | JupyterLab, VS Code, Bash | [Interactive Prototyping Session](#job-interactive-prototyping-session) |
-| **Small Model Training** | Interactive | 4 Cores | 16 GB | 1x NVIDIA L40 (8GB limit) | 4 Hours | PyTorch, JupyterLab | [Small Model Fine-Tuning](#job-small-model-fine-tuning) |
+| **Interactive Prototyping** | Interactive | 4 Cores | 8 GB | None | 2 Hours | JupyterLab, VS Code, Bash | [Interactive Prototyping Session](#job-interactive-prototyping-session) |
+| **Small Model Training** | Interactive | 4 Cores | 16 GB | 1x NVIDIA L40 (8GB limit) | 2 Hours | PyTorch, JupyterLab | [Small Model Fine-Tuning](#job-small-model-fine-tuning) |
 | **LLM Inference Server** | Interactive | 4 Cores | 32 GB | 1x NVIDIA L40 | 12 Hours | Ollama, vLLM, Qdrant | [LLM Inference Server](#job-llm-inference-server) |
 | **Vector DB Setup** | Interactive | 2 Cores | 8 GB | None | 12 Hours | Qdrant, Milvus | [Vector DB Service](#job-vector-db-service) |
 | **Heavy Batch Training** | Batch | 16 Cores | 64 GB | 1x NVIDIA L40 (24GB limit) | 7 Days | `sbatch` (Python training script) | [Heavy Batch Training](#job-heavy-batch-training) |
@@ -194,9 +202,10 @@ Students run a diverse set of tasks ranging from basic notebook execution to int
 Based on the workload profiles above, we can strategically expand the cluster's CPU capacity to support 100 concurrent students without breaking the budget. 
 
 ### CPU Node Recommendation for 100 Users
-If 100 students log in to perform **Interactive Prototyping**, they each request 2 virtual CPU cores (totaling 200 virtual cores). 
-*   **The Math:** Using our **4:1 CPU overcommit strategy** (accounting for 90% idle time while reading/typing), we only need **50 physical CPU cores** to comfortably support all 100 users simultaneously for interactive work.
-*   **Recommendation:** To safely provide these 50 cores while also leaving ample headroom for OS overhead, control plane services, and background `batch-cpu` data preprocessing tasks, we recommend purchasing **three affordable 32-core servers**. This provides a total of 96 physical cores. It comfortably absorbs the interactive burst load and ensures smooth system stability for 100 concurrent users across all task types without breaking the budget.
+If 100 students log in to perform **Interactive Prototyping**, they each request 4 virtual CPU cores (totaling 400 virtual cores). 
+*   **The Math:** By leveraging the 5 CPU nodes, we can actually lower our overcommit ratio to a **3:1 CPU overcommit strategy**. This means to support 400 virtual cores, we only need **~133 physical CPU cores** to comfortably support all 100 users simultaneously for interactive work.
+*   **Recommendation:** To safely provide these 133 cores while also leaving ample headroom for OS overhead, control plane services, and background `batch-cpu` data preprocessing tasks, we standardize on the **5 affordable CPU nodes** we currently have access to (providing 160 physical cores). This allows us to offer a snappy 4-core interactive experience without breaking the budget.
+*   **Future Expansion (Federation):** There is potential to federate this setup with other university Slurm clusters to borrow additional GPU resources in the future. However, the current baseline capacity plan safely focuses strictly on the guaranteed footprint of **5 CPU nodes and 1 GPU node (2x L40)**.
 
 ### Performance Suitability Assessment on CPU Nodes
 In formal systems engineering, "QoS" often refers strictly to network traffic shaping. When assessing how workloads map to compute hardware, we evaluate **Performance Suitability** and **SLA Compliance**. When running the cataloged workloads strictly on the recommended CPU nodes (without GPU acceleration), the suitability varies drastically:
@@ -238,17 +247,17 @@ gantt
 
 1.  **`interactive` (Default):**
     *   **Purpose:** Live student environments (Jupyter, VS Code).
-    *   **Scheduling Priority:** High (`PriorityTier=2`). Preemption enabled over batch jobs (via `PreemptMode=SUSPEND`) if cluster is full.
-    *   **Max Job Duration:** 4 hours.
+    *   **Scheduling Priority:** High (`PriorityTier=2`). **Preemption is DISABLED** to protect long-running batch jobs from failing. Interactive jobs rely strictly on resource fencing to find available gaps.
+    *   **Max Job Duration:** 2 hours (strictly enforced to prevent students from using interactive sessions as stealth batch jobs).
     *   **Resource Limits:** Max 4 CPUs, 16GB RAM, and max 1 GPU (capped at 8GB VRAM) per job.
 2.  **`batch-cpu`:**
     *   **Purpose:** Long-running CPU data prep or non-GPU model training.
-    *   **Scheduling Priority:** Medium (`PriorityTier=1`, `PreemptMode=SUSPEND`).
+    *   **Scheduling Priority:** Medium (`PriorityTier=1`).
     *   **Max Job Duration:** 24 hours.
     *   **Resource Limits:** Max 16 CPUs and 64GB RAM per job.
 3.  **`batch-gpu`:**
     *   **Purpose:** Deep learning training runs requiring high GPU performance.
-    *   **Scheduling Priority:** Medium (`PriorityTier=1`, `PreemptMode=SUSPEND`).
+    *   **Scheduling Priority:** Medium (`PriorityTier=1`).
     *   **Max Job Duration:** 7 days.
     *   **Resource Limits:** Max 1 GPU (capped at 24GB VRAM), 16 CPUs, and 64GB RAM per job.
 4.  **`inference`:**
@@ -257,8 +266,8 @@ gantt
     *   **Max Job Duration:** 12 hours (continuous renewal).
     *   **Resource Limits:** Max 1 GPU (typically L40) and 32GB RAM per job.
 
-> ⚠️ **Deployment Prerequisite for Suspend-Based Preemption (Slinky):**
-> For suspend-based preemption to function on shared nodes, `slurmd` must enforce resource isolation via cgroups v2 at the individual job level. This requires **Slurm 25.11+**. On older versions, per-job suspension is ineffective. You must ensure `slurmd` runs 25.11+ and `cgroup.conf` is properly configured with `CgroupPlugin=cgroup/v2` and strict constrain flags.
+> 🛡️ **Resource Fencing Strategy (No Preemption):**
+> Because preemption is disabled, we rely on Slurm's `MaxTRESPerJob` and partition limits to ensure that `batch-gpu` jobs can never consume 100% of the VRAM on the single GPU node, thus guaranteeing there is always room to instantly launch `interactive` tasks.
 
 ---
 
@@ -268,7 +277,7 @@ To support many students on limited hardware, the limits below represent **virtu
 
 *   **Student (Individual Sandbox):**
     *   **Max Concurrent Jobs:** 3
-    *   **Max CPU Cores (Total):** 8 Virtual Cores *(maps to ~2 physical cores under 4:1 overcommit)*
+    *   **Max CPU Cores (Total):** 8 Virtual Cores *(maps to ~2.6 physical cores under 3:1 overcommit)*
     *   **Max Memory (Total):** 32 GB Virtual RAM *(maps to ~16 GB physical RAM under 2:1 overcommit)*
     *   **Max GPUs (Total):** 1 Virtual MIG Slice / vGPU *(e.g., a `1g.10gb` slice; students do not get a full physical GPU)*
     *   **Shared Storage Quota:** 50 GB per user (enforced via PVC/Filesystem quotas)

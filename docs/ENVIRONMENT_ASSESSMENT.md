@@ -1,5 +1,11 @@
 # WP3-1-1: Environment Assessment & Requirements
 
+> **📋 System Assessment Report**
+> This document is part of the System Assessment & Planning Report:
+> - **[Environment Assessment](./ENVIRONMENT_ASSESSMENT.md)** — Hardware, architecture, and deployment topology
+> - [Capacity Planning](./CAPACITY_PLANNING.md) — Workload profiles, partitions, and resource quotas
+> - [Tech Stack Decisions](./TECH_STACK_DECISION.md) — Technology choices and architectural decision records
+
 This document outlines the target environments and hardware specifications for the AI Sandbox, establishing requirements for both the local development Kind cluster and the production physical HPC cluster with GPU acceleration.
 
 ---
@@ -83,7 +89,7 @@ Batch jobs follow a traditional HPC lifecycle but run inside ephemeral container
 Interactive workloads prioritize low latency and web-based access.
 *   **Lifecycle:** Portal API submit → `slurmctld` allocation → `slurm-bridge` creates K8s Pod → Traefik sidecar maps dynamic route → Student connects via browser.
 *   **Components:** `slurm-bridge` (interceptor), `Traefik` (dynamic ingress), `portal` (orchestrator).
-*   **Isolation:** UID-based filesystem isolation via `libnss-extrausers` [11].
+*   **Isolation:** OIDC/SSO identity at the Go Portal level with per-student dynamic PVC provisioning for filesystem isolation. *(Local development uses `libnss-extrausers` as a lightweight substitute — see [Increment 9](./INCREMENT_LOG.md).)*
 *   **Student Benefit:** Instant access to a powerful GPU-backed coding environment through a simple web UI.
 
 ### 3. Central Services (LLM Inference & Vector DBs)
@@ -151,9 +157,9 @@ Overcommitting is like an airline overbooking a flight. It means promising more 
 
 1.  **CPU & Memory Overcommit (Interactive Nodes):**
     *   *Behavior (The Idle Time):* When students open Jupyter or VS Code, they spend about 90% of their time reading, thinking, or typing. During this time, their CPU is completely idle. When they finally hit "Run", the CPU spikes for a few seconds. 
-    *   *4:1 CPU Strategy:* We use a **4:1 CPU overcommit ratio**. This means for every 1 physical CPU core, we hand out 4 "virtual" cores. Because the 90% idle times overlap, the system simply lends physical power to whoever is hitting "Run" at that exact second. This allows a 32-core server to effortlessly act like a 128-core server.
+    *   *3:1 CPU Strategy:* We use a **3:1 CPU overcommit ratio**. This means for every 1 physical CPU core, we hand out 3 "virtual" cores. Because the 90% idle times overlap, the system simply lends physical power to whoever is hitting "Run" at that exact second. A 3:1 ratio is more conservative than the industry-standard 4:1, accounting for synchronized classroom usage where many students may hit "Run" simultaneously during lab sessions.
     *   *2:1 Memory Strategy:* We use a **2:1 memory overcommit ratio**. Memory is slightly riskier to overbook than CPU (running out of CPU just slows things down, but running out of RAM crashes programs). A 2:1 ratio is a safe middle-ground to save money without risking stability.
-    *   *Result:* Across a baseline of 3 Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes, this comfortably supports ~100 concurrent users without buying excessive hardware, leaving a healthy buffer for background tasks.
+    *   *Result:* Across a baseline of 5 Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes (160 physical cores × 3 = 480 virtual cores), this comfortably supports ~100 concurrent students at 4 virtual cores each (400 virtual cores), leaving a healthy 20% buffer for OS overhead, control plane services, and background batch-cpu tasks.
 2.  **GPU Partitioning & Sharing (Time-slicing / vGPU):**
     *   *Behavior:* Standard model prototyping does not require a full 48GB GPU. Furthermore, we only have one dedicated GPU node.
     *   *Strategy:* With a single node featuring 2x NVIDIA L40 (48GB each), one L40 can be devoted to a persistent LLM inference endpoint (vLLM/Ollama), while the other utilizes Kubernetes GPU time-slicing or NVIDIA vGPU to share access among multiple students for interactive notebooks or small batch jobs.
@@ -167,7 +173,7 @@ The table below maps these utilization principles to the specific physical node 
 | Node / Role | Physical Spec | Allocation / Sharing Model | Target Workloads Accommodated |
 | :--- | :--- | :--- | :--- |
 | **K8s Control Plane** | 1x VM or small partition of CPU Node | Shared among all management pods | Go Portal, database, Traefik proxy, Slurm control plane daemons. |
-| **CPU Worker Nodes (3 Nodes)** | Intel Xeon E5-2698 v3 (32-Core/64-Thread), 256GB RAM | Overcommitted (4:1 CPU, 2:1 Mem) | Supports up to 100 concurrent student notebooks (`interactive` partition) alongside data preprocessing tasks. |
+| **CPU Worker Nodes (5 Nodes)** | Intel Xeon E5-2698 v3 (32-Core/64-Thread), 256GB RAM | Overcommitted (3:1 CPU, 2:1 Mem) | Supports up to 100 concurrent student notebooks (`interactive` partition) alongside data preprocessing tasks. |
 | **GPU Worker Node (1 Node)** | AMD EPYC 7313 (32-Core/64-Thread), 256GB RAM, 2x NVIDIA L40 (48GB) | L40 #1: Dedicated to LLM Inference<br>L40 #2: GPU time-slicing / queued | Persistent LLM API, queued student model prototyping, and small batch jobs. |
 | **Shared Storage** | On-demand NFS/CephFS | `ReadWriteMany` PVCs | Centralized student home directories and dataset storage. |
 
@@ -190,7 +196,7 @@ flowchart TD
     subgraph "Compute Namespace (workload)"
         Slurmctld -->|Launch Container| WorkerNodes[slurmd Worker Pods]
         WorkerNodes -->|Interactive Session| InterPod["Jupyter / VS Code Pod"]
-        WorkerNodes -->|Batch Job| ApptainerJob[Apptainer SIF Execution]
+        WorkerNodes -->|Batch Job| OCIJob[OCI Container Execution]
     end
 
     Ingress -.->|Dynamic Session Proxy| InterPod
