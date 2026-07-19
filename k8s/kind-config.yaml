@@ -31,3 +31,13 @@ nodes:
   extraMounts:
   - hostPath: /home/khemi/workspace/ai_sandbox/storage
     containerPath: /mnt/storage
+- role: worker         # Dedicated interactive compute node (kind-worker3)
+  kubeadmConfigPatches:
+  - |
+    kind: JoinConfiguration
+    nodeRegistration:
+      kubeletExtraArgs:
+        feature-gates: KubeletInUserNamespace=true
+  extraMounts:
+  - hostPath: /home/khemi/workspace/ai_sandbox/storage
+    containerPath: /mnt/storage

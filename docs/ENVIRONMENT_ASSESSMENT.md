@@ -1,5 +1,11 @@
 # WP3-1-1: Environment Assessment & Requirements
 
+> **📋 System Assessment Report**
+> This document is part of the System Assessment & Planning Report:
+> - **[Environment Assessment](./ENVIRONMENT_ASSESSMENT.md)** — Hardware, architecture, and deployment topology
+> - [Capacity Planning](./CAPACITY_PLANNING.md) — Workload profiles, partitions, and resource quotas
+> - [Tech Stack Decisions](./TECH_STACK_DECISION.md) — Technology choices and architectural decision records
+
 This document outlines the target environments and hardware specifications for the AI Sandbox, establishing requirements for both the local development Kind cluster and the production physical HPC cluster with GPU acceleration.
 
 ---
@@ -38,30 +44,138 @@ graph TD
 
 ---
 
+## 🏗️ Why Slinky for a University AI Sandbox
+
+The selection of Slinky (Slurm-on-Kubernetes) as the architectural foundation for the AI Sandbox is a strategic decision to address the unique pressures of a university research and teaching environment. This hybrid model combines the rigorous resource management of traditional HPC with the agility of modern cloud-native infrastructure.
+
+### 1. The University Sandbox Problem Space
+University environments face a "triple threat" of workload diversity that standard K8s or Slurm clusters struggle to handle in isolation [1]:
+*   **Mixed Workload Types:** Students require long-running batch training (7+ days), short-lived interactive notebook sessions (4 hours), and persistent shared services like LLM inference endpoints and vector databases.
+*   **Fair Multi-tenant Access:** Supporting 50–100 students on a single cluster requires strict quota enforcement and fair-share algorithms to prevent "noisy neighbors" from hogging expensive GPU resources [4].
+*   **Heterogeneous Hardware:** The cluster must efficiently manage a mix of CPU-only nodes and shared L40 GPUs for inference and queued training, often requiring different orchestration strategies for each [2].
+
+### 2. Why Slurm (The Scheduler)
+Slurm remains the industry standard for HPC due to its sophisticated scheduling logic that Kubernetes' default scheduler lacks [7]:
+*   **Fair-Share Scheduling:** Ensures that students who have used fewer resources recently are prioritized, preventing a single research group from monopolizing the cluster [4].
+*   **GRES & Time-Slicing Management:** Native support for Generic RESources (GRES) and Kubernetes GPU time-slicing allows the platform to slice a single L40 into multiple isolated instances, maximizing student density [5].
+*   **Partition-Based Isolation:** Logic-level separation (interactive vs. batch vs. inference) allows for different preemption and priority rules on the same physical hardware [2].
+
+### 3. Why Kubernetes (The Infrastructure)
+Kubernetes provides the operational "fabric" that makes the cluster resilient and easy to manage [15]:
+*   **Elastic NodeSets:** Slinky allows NodeSets to scale from 0 to N based on Slurm queue depth, enabling a "scale-to-zero" model for expensive GPU nodes that saves significant energy and cost [15][17].
+*   **Container-Native Lifecycle:** Replacing Apptainer .sif files with OCI images simplifies the image build/test/deploy pipeline for students and staff [17].
+*   **Storage & Network Abstraction:** PVCs and NetworkPolicies provide a standardized way to handle multi-tenant isolation and data persistence across heterogeneous nodes [15].
+
+### 4. Why Slinky Specifically (Slurm + K8s Combined)
+Slinky is the first project to offer deep, bi-directional integration between Slurm and Kubernetes rather than just running one on top of the other [17]:
+*   **slurm-operator:** Manages Slurm daemons as native Kubernetes pods, eliminating manual OS-level daemon management and configuration drift [16].
+*   **slurm-bridge:** Intercepts Slurm allocations to create real Kubernetes pods, giving interactive workloads (like Jupyter) real Slurm job IDs for unified accounting and tracking [16].
+*   **Unified Infrastructure:** Administrators manage a single Kubernetes control plane while researchers use familiar Slurm CLI tools, reducing the "learning tax" for new students [2].
+
+---
+
+## ⚙️ Slinky Component Mapping — How Each Workload Type Runs
+
+This section details the lifecycle and component interaction for the three primary workload modes supported by the platform.
+
+### 1. Batch Jobs (Training & Preprocessing)
+Batch jobs follow a traditional HPC lifecycle but run inside ephemeral containers.
+*   **Lifecycle:** `sbatch` submission → `slurmctld` scheduling → `slurmd` execution in a NodeSet pod → Job completion/cleanup.
+*   **Components:** `slurmctld` (decider), `NodeSet` (execution pool), `slurm-bridge` (pod creation).
+*   **Isolation:** Bounded by K8s resource `limits` (CPU/Mem) and Slurm `GRES` (GPU).
+*   **Student Benefit:** Familiar `#SBATCH` scripts work out of the box; jobs can run for days without interruption.
+
+### 2. Interactive Sessions (Jupyter & VS Code)
+Interactive workloads prioritize low latency and web-based access.
+*   **Lifecycle:** Portal API submit → `slurmctld` allocation → `slurm-bridge` creates K8s Pod → Traefik sidecar maps dynamic route → Student connects via browser.
+*   **Components:** `slurm-bridge` (interceptor), `Traefik` (dynamic ingress), `portal` (orchestrator).
+*   **Isolation:** OIDC/SSO identity at the Go Portal level with per-student dynamic PVC provisioning for filesystem isolation. *(Local development uses `libnss-extrausers` as a lightweight substitute — see [Increment 9](./INCREMENT_LOG.md).)*
+*   **Student Benefit:** Instant access to a powerful GPU-backed coding environment through a simple web UI.
+
+### 3. Central Services (LLM Inference & Vector DBs)
+These are "Service-Jobs" that provide persistent endpoints for other applications.
+*   **Lifecycle:** See diagram below.
+*   **Components:** `inference` partition (high priority), `vLLM` / `Ollama` / `Qdrant` OCI images.
+*   **Scaling:** Typically fixed-size allocations to ensure 24/7 API availability for student projects.
+*   **Student Benefit:** Provides a "Shared LLM" experience; students call an API rather than managing their own model servers.
+
+#### 📊 LLM Inference Service Lifecycle
+```mermaid
+sequenceDiagram
+    participant S as Student
+    participant P as Portal
+    participant C as slurmctld
+    participant B as slurm-bridge
+    participant K as Kubernetes (Kubelet)
+    participant T as Traefik Proxy
+
+    Note over S,T: Deployment Phase
+    P->>C: Submit Job (inference partition, 12h duration)
+    C->>B: Allocate GPU Resource
+    B->>K: Launch vLLM Pod (OCI Image)
+    K-->>P: Pod Status: RUNNING
+    P->>T: Write Dynamic Route (e.g. /proxy/job-123)
+
+    Note over S,T: Usage Phase
+    S->>T: POST /proxy/job-123/v1/completions
+    T->>K: Forward to vLLM Container (Port 8000)
+    K-->>S: LLM Response (JSON)
+```
+
+---
+
+## 📚 Architecture Decision References
+
+1.  **SchedMD Slinky Project.** "Slurm-on-Kubernetes Integration Suite." [Official Documentation](https://slinky.schedmd.com/).
+2.  **N. Arnold (AWS).** "Running Slurm on Amazon EKS with Slinky." [AWS Blog, Oct 2025](https://aws.amazon.com/blogs/containers/running-slurm-on-amazon-eks-with-slinky/).
+3.  **SchedMD Announcement.** "Introducing Slinky: Slurm on Kubernetes." [Press Release, Nov 2025](https://www.schedmd.com/introducing-slinky-slurm-kubernetes/).
+4.  **Slurm Documentation.** "Fair Share Scheduling Algorithm." [SchedMD Docs](https://slurm.schedmd.com/fair_share.html).
+5.  **Slurm Documentation.** "Generic Resource (GRES) Scheduling." [SchedMD Docs](https://slurm.schedmd.com/gres.html).
+6.  **PEARC Proceedings.** "Challenges in Campus Bridging for AI Research: Mixed Workload Orchestration." (Research context for university HPC).
+7.  **HPC Survey.** "Slurm Adoption Rates in the TOP500." [SchedMD Analysis](https://www.schedmd.com/).
+8.  **CNCF Survey 2024.** "State of Cloud Native in HPC and AI Workloads." [CNCF Reports](https://www.cncf.io/reports/).
+9.  **vLLM Team.** "Deployment Guide for vLLM on Kubernetes." [vLLM Docs](https://docs.vllm.ai/).
+10. **Ollama Project.** "Self-hosting Ollama as a Service." [Ollama Documentation](https://ollama.com/).
+11. **Increment Log.** "Increment 8: Dynamic User Resolution via libnss-extrausers." [Internal Document](./INCREMENT_LOG.md).
+12. **Capacity Planning.** "WP3-1-2: Partition Design & Resource Quotas." [Internal Document](./CAPACITY_PLANNING.md).
+13. **Migration Report.** "Current Architecture vs. Slinky." [Internal Document](./slinky_migration_report.md).
+14. **SchedMD.** "slurm-operator GitHub Repository." [Source Code](https://github.com/SlinkyProject/slurm-operator).
+15. **Kubernetes SIG-Scheduling.** "HPC Workloads on Kubernetes." [Community Documentation](https://kubernetes.io/).
+16. **SchedMD.** "slurm-bridge: Unified scheduling of Kubernetes pods via Slurm." [Source Code](https://github.com/SlinkyProject/slurm-bridge).
+17. **Slinky Project.** "Slinky Overview and Rationale." [Project Website](https://slinky.ai).
+
+---
+
 ## 📊 Hardware Requirements Matrix & Utilization Rationale
 
 Instead of sizing physical servers to match the theoretical sum of all users' peak needs, the AI Sandbox architecture optimizes for high resource density and sharing. The recommendations below assume a student pilot size of **50–100 concurrent users** using the following design rationales:
 
 ### 💡 Estimation & Overcommit Rationale
+
+**What is Overcommitting?**
+Overcommitting is like an airline overbooking a flight. It means promising more virtual resources to users than we physically have, based on the fact that not everyone uses their max limit at the exact same time. It's a standard industry practice (used heavily by VMware and Kubernetes) to save massive amounts of hardware costs.
+
 1.  **CPU & Memory Overcommit (Interactive Nodes):**
-    *   *Behavior:* Interactive coding sessions (JupyterLab/VS Code) are highly bursty. Students spend most of their session typing, reading, or debugging, leaving the CPU idle ~90% of the time.
-    *   *Strategy:* We apply a **4:1 CPU overcommit ratio** and a **2:1 memory overcommit ratio** at the Kubernetes resource level. For 100 students allocated 2 cores each, a single 48-core physical node can easily manage the load.
-2.  **GPU Partitioning (Multi-Instance GPU - MIG):**
-    *   *Behavior:* Standard model prototyping (e.g., training small classifiers or running inference on a 7B LLM) does not require a full 80GB high-end GPU.
-    *   *Strategy:* We leverage NVIDIA **MIG (Multi-Instance GPU)** or **vGPU** technology to partition a single high-end physical card (e.g., A100 or L40S) into 7 distinct virtual instances (e.g., `1g.10gb` slices). This lets 7 students share a single physical card with hardware-level memory boundaries and no interference.
+    *   *Behavior (The Idle Time):* When students open Jupyter or VS Code, they spend about 90% of their time reading, thinking, or typing. During this time, their CPU is completely idle. When they finally hit "Run", the CPU spikes for a few seconds. 
+    *   *3:1 CPU Strategy:* We use a **3:1 CPU overcommit ratio**. This means for every 1 physical CPU core, we hand out 3 "virtual" cores. Because the 90% idle times overlap, the system simply lends physical power to whoever is hitting "Run" at that exact second. A 3:1 ratio is more conservative than the industry-standard 4:1, accounting for synchronized classroom usage where many students may hit "Run" simultaneously during lab sessions.
+    *   *2:1 Memory Strategy:* We use a **2:1 memory overcommit ratio**. Memory is slightly riskier to overbook than CPU (running out of CPU just slows things down, but running out of RAM crashes programs). A 2:1 ratio is a safe middle-ground to save money without risking stability.
+    *   *Result:* Across a baseline of 5 Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes (160 physical cores × 3 = 480 virtual cores), this comfortably supports ~100 concurrent students at 4 virtual cores each (400 virtual cores), leaving a healthy 20% buffer for OS overhead, control plane services, and background batch-cpu tasks.
+2.  **GPU Partitioning & Sharing (Time-slicing / vGPU):**
+    *   *Behavior:* Standard model prototyping does not require a full 48GB GPU. Furthermore, we only have one dedicated GPU node.
+    *   *Strategy:* With a single node featuring 2x NVIDIA L40 (48GB each), one L40 can be devoted to a persistent LLM inference endpoint (vLLM/Ollama), while the other utilizes Kubernetes GPU time-slicing or NVIDIA vGPU to share access among multiple students for interactive notebooks or small batch jobs.
 3.  **Queue-Based Batch Scheduling:**
     *   *Behavior:* Heavy training runs (Deep Learning models) run at 100% capacity and cannot be overcommitted.
-    *   *Strategy:* Instead of dedicated hardware per student, these run on a shared pool of nodes. Slurm schedules these sequentially using fair-share queues. If all GPUs are busy, jobs queue up rather than crashing the system.
+    *   *Strategy:* Slurm schedules these sequentially using fair-share queues on the shared GPU. If the L40 is busy, jobs queue up rather than crashing the system.
 
-### 🖥️ Optimized Cluster Allocations
-The table below maps these utilization principles to the physical/virtual node roles:
+### 🖥️ Baseline Cluster Allocations (Based on Actual Specs)
+The table below maps these utilization principles to the specific physical node roles available:
 
-| Node / Role | Typical Physical Spec (What to Look For in Your HPC) | Allocation / Sharing Model | Target Workloads Accommodated |
+| Node / Role | Physical Spec | Allocation / Sharing Model | Target Workloads Accommodated |
 | :--- | :--- | :--- | :--- |
-| **K8s Control Plane** | 1x VM with 4 Cores, 8 GB RAM, 50 GB NVMe | Shared among all management pods | Go Portal, database, Traefik proxy, Slurm control plane daemons. |
-| **Interactive CPU Worker Node** | 1x Server with 32–64 Cores, 128–256 GB RAM | Overcommitted (4:1 CPU, 2:1 Mem) | Supports up to 50–70 concurrent student notebooks (`interactive` partition). |
-| **Interactive GPU Worker Node** | 1x Server with 16–32 Cores, 128 GB RAM + 2x NVIDIA L4 (24GB) or 1x A100 (80GB) | MIG partitioned (up to 7 slices per GPU) | Small-scale model prototyping, local LLM running, vector databases. |
-| **Batch GPU Compute Node** | 1-2x Servers with 32–64 Cores, 256–512 GB RAM + 4x NVIDIA A100/H100 | Dedicated allocation (No overcommit, Slurm queued) | Heavy model training scripts, parallel hyperparameter searches (`batch-gpu` partition). |
+| **K8s Control Plane** | 1x VM or small partition of CPU Node | Shared among all management pods | Go Portal, database, Traefik proxy, Slurm control plane daemons. |
+| **CPU Worker Nodes (5 Nodes)** | Intel Xeon E5-2698 v3 (32-Core/64-Thread), 256GB RAM | Overcommitted (3:1 CPU, 2:1 Mem) | Supports up to 100 concurrent student notebooks (`interactive` partition) alongside data preprocessing tasks. |
+| **GPU Worker Node (1 Node)** | AMD EPYC 7313 (32-Core/64-Thread), 256GB RAM, 2x NVIDIA L40 (48GB) | L40 #1: Dedicated to LLM Inference<br>L40 #2: GPU time-slicing / queued | Persistent LLM API, queued student model prototyping, and small batch jobs. |
+| **Shared Storage** | On-demand NFS/CephFS | `ReadWriteMany` PVCs | Centralized student home directories and dataset storage. |
 
 ---
 
@@ -82,7 +196,7 @@ flowchart TD
     subgraph "Compute Namespace (workload)"
         Slurmctld -->|Launch Container| WorkerNodes[slurmd Worker Pods]
         WorkerNodes -->|Interactive Session| InterPod["Jupyter / VS Code Pod"]
-        WorkerNodes -->|Batch Job| ApptainerJob[Apptainer SIF Execution]
+        WorkerNodes -->|Batch Job| OCIJob[OCI Container Execution]
     end
 
     Ingress -.->|Dynamic Session Proxy| InterPod
@@ -96,7 +210,7 @@ This gap analysis highlights key technical differences and migration steps neede
 
 | Feature Area | Kind Development Prototype | Production HPC Environment Target | Migration / Action Required |
 | :--- | :--- | :--- | :--- |
-| **GPU Access** | CPU-emulated workloads only (no physical GPU resources). | Native physical GPU passthrough (NVIDIA L4/L40S/A100). | Deploy **NVIDIA GPU Operator** on production Kubernetes cluster; configure node labeling and taints. |
+| **GPU Access** | CPU-emulated workloads only (no physical GPU resources). | Native physical GPU passthrough (NVIDIA L40). | Deploy **NVIDIA GPU Operator** on production Kubernetes cluster; configure node labeling and taints. |
 | **Storage CSI** | Local host volume mounts simulated via `hostPath` PV. | High-performance enterprise storage (NFS/CephFS). | Configure an enterprise **CSI Driver** (e.g., NFS-Client provisioner or Ceph-CSI) with dynamic volume sizing. |
 | **Identity & Authentication** | Mock JWT identities and static UID generation (1001-1004). | University LDAP / Active Directory / Single Sign-On (OIDC). | Integrate portal JWT signer with OAuth2/SSO provider; synchronize UID/GID mapping with directory server. |
 | **Autoscaling** | Static worker pods defined in Helm values.yaml. | Dynamic scaling based on partition queue and load. | Integrate Slinky NodeSet controller with the **Kubernetes Cluster Autoscaler** to provision bare-metal worker nodes. |

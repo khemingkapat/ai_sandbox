@@ -2,29 +2,98 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
-## [Increment 13] - 2026-07-05: Environment Assessment & Capacity Planning Specs
+## [Increment 20] - 2026-07-10: Tutorial Placement Research - Use Cases & Trade-offs
 
-*   **Author:** Antigravity (Interactive) & Khem
-*   **Goal:** Document target environments, hardware matrices, network topologies, workload profile catalogs, partition designs, and autoscaling policies to define the foundation layer requirements.
+*   **Author:** Jules (Async)
+*   **Goal:** Expand the tutorial feasibility research with user-centric scenarios and a simplified trade-off analysis to guide placement decisions.
 
 ### 📝 Key Changes & Files Modified
 
-1.  **Environment Assessment:**
-    *   Created [ENVIRONMENT_ASSESSMENT.md](file:///home/khemi/workspace/ai_sandbox/docs/ENVIRONMENT_ASSESSMENT.md): Documented hardware requirements, network diagrams, and a local Kind to production HPC gap analysis.
-2.  **Capacity Planning:**
-    *   Created [CAPACITY_PLANNING.md](file:///home/khemi/workspace/ai_sandbox/docs/CAPACITY_PLANNING.md): Cataloged workload profiles, partition architecture, and NodeSet replica limits.
-3.  **Project Progress:**
-    *   Updated [WORK_PACKAGES.md](file:///home/khemi/workspace/ai_sandbox/docs/WORK_PACKAGES.md): Marked WP3-1-1 and WP3-1-2 as completed (🟢 Done).
+1.  **Research Documentation:**
+    *   Updated `docs/interactive_tutorial_feasibility.md`: Added "👥 Use Case Scenarios" and "⚖️ Trade-off Analysis (Simple Terms)" sections.
 
 ### 💡 Why This Design?
-*   **Structured Foundation:** Defining concrete hardware bounds and workload resource footprints ensures that future scheduling configurations (partitions, QoS, fair-share rules) have a clear baseline.
-*   **Clear Scaling Limits:** Setting bounds on minimum and maximum replicas prevents unexpected cloud/HPC cost overruns.
+*   **User-Centric Perspective:** Moves beyond technical feasibility to consider the student experience, balancing the need for low-friction onboarding (Central Portal) with the requirement for full cluster access (Localized Sandbox).
+*   **Accessible Language:** Uses simple wording to ensure the trade-offs are understandable by stakeholders who may not be deeply technical.
+
+### 🛠️ Verification Steps
+1.  Verify `docs/interactive_tutorial_feasibility.md` renders correctly and contains the new sections.
+
+---
+
+## [Increment 19] - 2026-07-08: Telemetry and Observability Research Extension
+
+*   **Author:** Jules (Async)
+*   **Goal:** Extend the telemetry research to evaluate native Slurm REST API vs. Prometheus exporters and design a Kubernetes-native observability stack for the AI Sandbox.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Observability Research:**
+    *   Updated [docs/slurm_info_exchange_research.md](docs/slurm_info_exchange_research.md):
+        *   Added a researched comparison between the Slurm REST API and the Prometheus `slurm_exporter`.
+        *   Recommended a transition to the native Slurm OpenMetrics plugin (via `slurmrestd`) to reduce architectural complexity.
+        *   Designed a standard observability stack using Prometheus, Grafana, and Alertmanager with a focus on GPU utilization and node health.
+        *   Proposed a Portal integration strategy for student-facing metrics using Prometheus queries.
+        *   Added a consolidated reference list with 5+ citations.
+
+### 💡 Why This Design?
+*   **Minimalist Architecture:** Leveraging the Slurm REST API's native metrics capabilities avoids the need for maintaining a separate exporter daemon, aligning with the "Edit Source, Not Artifacts" and "Reduced Dependencies" principles.
+*   **Unified Security:** Sharing the same JWT-based authentication for both the portal and the metrics stack simplifies credential management within the cluster.
+*   **Student Empowerment:** Providing real-time resource usage and quota tracking directly in the portal improves transparency and helps students manage their compute budgets effectively.
+
+### 🛠️ Verification Steps
+1.  **Document Verification:**
+    *   Confirmed all new sections exist in `docs/slurm_info_exchange_research.md`.
+    *   Validated the Mermaid diagram syntax.
+    *   Verified that original research content was preserved.
+## [Increment 18] - 2026-07-06: Job Definition Catalog & Capacity Research
+
+*   **Author:** Jules (Async)
+*   **Goal:** Provide detailed functional and resource justifications for the profiled workloads to bridge the gap between platform capabilities and capacity planning numbers.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Capacity Planning Extension:**
+    *   Updated `docs/CAPACITY_PLANNING.md`:
+        *   Added "🔧 Job Definition Catalog" section defining 7 core job types (LLM Inference, Vector DB, Interactive Prototyping, Fine-Tuning, Distributed Training, Data Pipeline, RAG Stack).
+        *   Researched and documented concrete resource requirements (CPU, RAM, VRAM, Storage) for each job type, specifically detailing quantized model sizes for Llama 3.1, Phi-3, and Mistral.
+        *   Added a "Job Definition Ref" column to the "Workload Profile Catalog" table to cross-reference detailed definitions.
+
+### 💡 Why This Design?
+*   **Capability-Driven Planning:** Linking resource numbers to specific user actions (e.g., "fine-tuning a 7B model via QLoRA") provides better context for administrators than raw numbers alone.
+*   **Evidence-Based Limits:** Backing resource allocations with researched benchmarks (e.g., Ollama model tags and Qdrant sizing guides) ensures the platform is sized correctly for the intended academic workloads.
 
 ### 🛠️ Verification Steps
 1.  Verify documents render properly as markdown.
-2.  Confirm that target constraints map to the requirements of university students and typical Deep Learning tasks.
+2.  Ensure anchor links in the workload table correctly navigate to job definitions.
+3.  Run `./scripts/verify-isolation.sh` to ensure repository integrity.
 
-## [Increment 12] - 2026-07-06: Deploy slurm-bridge for Unified Pod Queueing
+---
+
+## [Increment 17] - 2026-07-06: Extended Environment Assessment & Slinky Justification
+
+*   **Author:** Jules (Async)
+*   **Goal:** Provide a researched justification for the Slinky architecture and map platform workload modes to specific Slinky/K8s components.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Environment Assessment Update:**
+    *   Updated [ENVIRONMENT_ASSESSMENT.md](./ENVIRONMENT_ASSESSMENT.md):
+        *   Added "🏗️ Why Slinky for a University AI Sandbox" section with researched justification across four pillars: University Sandbox Problem Space, Why Slurm, Why Kubernetes, and Why Slinky specifically.
+        *   Added "⚙️ Slinky Component Mapping — How Each Workload Type Runs" section describing the job lifecycle and component interaction for Batch, Interactive, and Central Service workloads.
+        *   Implemented a Mermaid sequence diagram illustrating the "LLM Inference Service Lifecycle".
+        *   Added "📚 Architecture Decision References" with 17 consolidated citations from SchedMD, AWS, PEARC, CNCF, and internal project docs.
+
+### 💡 Why This Design?
+*   **Evidence-Based Architecture:** By citing industry standards (TOP500, CNCF) and official documentation (SchedMD, AWS), we establish the AI Sandbox as a production-ready design aligned with university HPC challenges.
+*   **Operational Clarity:** Mapping Slurm concepts (partitions, GRES) to Kubernetes primitives (NodeSets, OCI images) helps bridge the knowledge gap for both traditional HPC admins and cloud-native developers.
+*   **Service-Oriented HPC:** Explicitly documenting the lifecycle of LLM inference as a Slurm-managed service prepares the platform for the high demand for shared AI models.
+
+### 🛠️ Verification Steps
+1.  Verify documents render properly as markdown.
+2.  Confirm Mermaid diagrams are syntactically correct.
+3.  Ensure all cross-references to internal docs (CAPACITY_PLANNING, INCREMENT_LOG) are correct.
+## [Increment 16] - 2026-07-06: Deploy slurm-bridge for Unified Pod Queueing
 
 *   **Author:** Antigravity (Interactive) & Khem
 *   **Goal:** Deploy the `slurm-bridge` to enable unified scheduling of Kubernetes pods via Slurm, ensuring interactive pods are queued and accounted for exactly like batch jobs.
@@ -45,96 +114,7 @@ This file tracks every discrete increment made during the Slinky migration. Its 
 1.  **Run the verification script:** `./scripts/verify-infrastructure.sh`
     *(Check Test 7 for successful interception or warning if node annotations prevent scheduling).*
 
-## [Increment 10] - 2026-06-28: Apptainer Integration & Traefik Bugfix
-
-*   **Author:** Antigravity (Interactive) & Khem
-*   **Goal:** Validate and integrate `apptainer-suid` with `proot` into the Slurm worker nodes to support rootless Apptainer execution within Kubernetes, and resolve a hidden Traefik file-watcher limit bug preventing proxy routing.
-
-### 📝 Key Changes & Files Modified
-
-1.  **Apptainer Worker Configuration:**
-    *   Updated `scripts/build-custom-images.sh`: Added `apptainer`, `apptainer-suid`, and `proot` installation steps to the `slurmd-custom` image.
-    *   Configured `apptainer.conf` to force the use of `proot` (`allow setuid = no`) to bypass Kubernetes unprivileged container restrictions on worker nodes.
-2.  **Traefik Routing Fix:**
-    *   Updated `scripts/start-slinky.sh`: Added a dynamic fix that increases the host `inotify.max_user_instances` limit to 8192 on all Kind nodes prior to portal deployment. This prevents Traefik from silently failing to watch the `dynamic-routes.yml` file due to "too many open files".
-3.  **Project Tracking:**
-    *   Updated `WORK_PACKAGES.md`: Marked WP3-1-6 (Apptainer batch validation) as completed (🟢).
-
-### 💡 Why This Design?
-*   **Rootless Apptainer in K8s:** Kubernetes strictly limits privileged operations. By injecting `proot` and disabling `setuid` in the Apptainer configuration, we achieve fully rootless container nesting without needing `--privileged` worker pods.
-*   **Host-Level Inotify Limits:** Traefik's dynamic file provider relies heavily on `inotify`. Kind inherits host OS limits, which are often too low (default 128). Automatically increasing this limit in the startup script ensures Traefik functions reliably across environments.
-
-### 🛠️ Verification Steps
-1.  **Check Apptainer execution:** 
-    Submit an interactive job from the portal and verify the generated `jupyterlab.err` shows it launching correctly.
-2.  **Verify Traefik Routing:**
-    Run `kubectl port-forward svc/portal -n slurm 8000:80` and ensure accessing `http://localhost:8000/...` correctly proxies into the JupyterLab container without a 404 error.
-
-
-## [Increment 9] - 2026-06-28: Deploy Go Portal with Traefik Sidecar in Kind Cluster
-
-*   **Author:** Jules (Async)
-*   **Goal:** Migrate the Go portal from host-running to a containerized deployment within the Kind cluster, using a Traefik sidecar for dynamic routing.
-
-### 📝 Key Changes & Files Modified
-
-1.  **Kubernetes Manifests:**
-    *   Created `portal-deployment.yaml`: Defines the `hpc-portal` Deployment and `portal` Service.
-    *   Implemented the Sidecar pattern: `portal` container for the Go app and `traefik` container for the proxy.
-    *   Configured shared `emptyDir` volume for dynamic Traefik route generation.
-    *   Mounted `slinky-storage-pvc` for job log and app manifest access.
-    *   Mounted `slurm-auth-jwt` secret for secure Slurm REST API communication.
-2.  **Automation Scripts:**
-    *   Updated `scripts/start-slinky.sh`: Added local Docker build, image loading into Kind, and manifest application steps to the core startup workflow.
-
-### 💡 Why This Design?
-*   **Local Development Parity:** Containerizing the portal ensures the development environment closely matches production.
-*   **Sidecar for Dynamic Routing:** Using Traefik as a sidecar allows the portal to dynamically manage routes for interactive jobs (like Jupyter) by writing simple YAML files to a shared ephemeral volume, avoiding complex ingress controller reconfigurations.
-*   **Security:** Leveraging Kubernetes Secrets for the JWT key ensures sensitive credentials are managed natively by the cluster.
-
-### 🛠️ Verification Steps
-1.  **Build the Portal:** `cd portal && go build ./...`
-2.  **Run Startup Script:** `./scripts/start-slinky.sh`
-3.  **Verify Deployment:** `kubectl get pods -n slurm -l app=hpc-portal`
-    *(Confirm both containers are ready).*
-4.  **Check Connectivity:**
-    *   `kubectl port-forward svc/portal -n slurm 8080:8080` (UI access).
-    *   `kubectl port-forward svc/portal -n slurm 8000:80` (Proxy access).
-
----
-
-## [Increment 10] - 2026-07-02: Curated OCI Images for Interactive Workloads
-
-*   **Author:** Jules (Async)
-*   **Goal:** Provide specialized OCI container images for JupyterLab, Code-server, and Bash workloads to replace Apptainer SIF files, ensuring compatibility with the cluster's dynamic user resolution and storage model.
-
-### 📝 Key Changes & Files Modified
-
-1.  **Image Dockerfiles:**
-    *   `images/jupyterlab/Dockerfile`: Based on `jupyter/scipy-notebook`, adds `libnss-extrausers` and a custom startup script.
-    *   `images/codeserver/Dockerfile`: Based on `codercom/code-server`, adds `libnss-extrausers`.
-    *   `images/bash/Dockerfile`: Minimal Ubuntu-based image with common CLI tools and `libnss-extrausers`.
-2.  **Automation & Integration:**
-    *   Created `scripts/build-oci-images.sh`: Builds all three interactive images and loads them into the Kind cluster.
-    *   Updated `scripts/start-slinky.sh`: Integrated the image building and loading process into the cluster startup workflow.
-3.  **Dynamic Configuration:**
-    *   Implemented `images/jupyterlab/start-jupyter.sh` to allow the portal to inject `$ALLOCATED_PORT` and `$BASE_URL` for Traefik-ready routing.
-
-### 💡 Why This Design?
-*   **Performance & Flexibility:** Native OCI images are faster to launch and easier to customize than Apptainer SIF images within a Kubernetes environment.
-*   **Unified Identity:** Including `libnss-extrausers` in all interactive images ensures they can resolve the same dynamic UIDs used by the Slurm daemons, maintaining strict storage isolation.
-*   **Portal Compatibility:** Exposing port and base URL configuration in the Jupyter image prepares the system for the upcoming dynamic proxy routing feature.
-
-### 🛠️ Verification Steps
-1.  **Build and Load Images:** `./scripts/build-oci-images.sh`
-2.  **Verify Cluster Integration:** Run `./scripts/start-slinky.sh` and ensure no `ImagePullBackOff` errors occur when interactive pods are launched.
-3.  **Manual Test Pod:**
-    ```bash
-    kubectl apply -f test-interactive-pod.yaml
-    kubectl exec -n slurm test-interactive-pod -- id user1
-    ```
-    *(Confirm UID 1001 is resolved and `/mnt/storage` is writable).*
-## [Increment 11] - 2026-07-05: Adopt slurm-client Library in Go Portal
+## [Increment 15] - 2026-07-05: Adopt slurm-client Library in Go Portal
 
 *   **Author:** Jules (Async)
 *   **Goal:** Replace manual HTTP calls to the Slurm REST API with the official `slurm-client` Go library to improve type safety and maintainability.
@@ -165,7 +145,60 @@ This file tracks every discrete increment made during the Slinky migration. Its 
 
 ---
 
-## [Increment 10] - 2026-06-30: Manifest Schema Migration (type + OCI image fields)
+## [Increment 14] - 2026-07-05: Environment Assessment & Capacity Planning Specs
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Document target environments, hardware matrices, network topologies, workload profile catalogs, partition designs, and autoscaling policies to define the foundation layer requirements.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Environment Assessment:**
+    *   Created [ENVIRONMENT_ASSESSMENT.md](file:///home/khemi/workspace/ai_sandbox/docs/ENVIRONMENT_ASSESSMENT.md): Documented hardware requirements, network diagrams, and a local Kind to production HPC gap analysis.
+2.  **Capacity Planning:**
+    *   Created [CAPACITY_PLANNING.md](file:///home/khemi/workspace/ai_sandbox/docs/CAPACITY_PLANNING.md): Cataloged workload profiles, partition architecture, and NodeSet replica limits.
+3.  **Project Progress:**
+    *   Updated [WORK_PACKAGES.md](file:///home/khemi/workspace/ai_sandbox/docs/WORK_PACKAGES.md): Marked WP3-1-1 and WP3-1-2 as completed (🟢 Done).
+
+### 💡 Why This Design?
+*   **Structured Foundation:** Defining concrete hardware bounds and workload resource footprints ensures that future scheduling configurations (partitions, QoS, fair-share rules) have a clear baseline.
+*   **Clear Scaling Limits:** Setting bounds on minimum and maximum replicas prevents unexpected cloud/HPC cost overruns.
+
+### 🛠️ Verification Steps
+1.  Verify documents render properly as markdown.
+2.  Confirm that target constraints map to the requirements of university students and typical Deep Learning tasks.
+
+## [Increment 13] - 2026-07-02: Curated OCI Images for Interactive Workloads
+
+*   **Author:** Jules (Async)
+*   **Goal:** Provide specialized OCI container images for JupyterLab, Code-server, and Bash workloads to replace Apptainer SIF files, ensuring compatibility with the cluster's dynamic user resolution and storage model.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Image Dockerfiles:**
+    *   `images/jupyterlab/Dockerfile`: Based on `jupyter/scipy-notebook`, adds `libnss-extrausers` and a custom startup script.
+    *   `images/codeserver/Dockerfile`: Based on `codercom/code-server`, adds `libnss-extrausers`.
+    *   `images/bash/Dockerfile`: Minimal Ubuntu-based image with common CLI tools and `libnss-extrausers`.
+2.  **Automation & Integration:**
+    *   Created `scripts/build-oci-images.sh`: Builds all three interactive images and loads them into the Kind cluster.
+    *   Updated `scripts/start-slinky.sh`: Integrated the image building and loading process into the cluster startup workflow.
+3.  **Dynamic Configuration:**
+    *   Implemented `images/jupyterlab/start-jupyter.sh` to allow the portal to inject `$ALLOCATED_PORT` and `$BASE_URL` for Traefik-ready routing.
+
+### 💡 Why This Design?
+*   **Performance & Flexibility:** Native OCI images are faster to launch and easier to customize than Apptainer SIF images within a Kubernetes environment.
+*   **Unified Identity:** Including `libnss-extrausers` in all interactive images ensures they can resolve the same dynamic UIDs used by the Slurm daemons, maintaining strict storage isolation.
+*   **Portal Compatibility:** Exposing port and base URL configuration in the Jupyter image prepares the system for the upcoming dynamic proxy routing feature.
+
+### 🛠️ Verification Steps
+1.  **Build and Load Images:** `./scripts/build-oci-images.sh`
+2.  **Verify Cluster Integration:** Run `./scripts/start-slinky.sh` and ensure no `ImagePullBackOff` errors occur when interactive pods are launched.
+3.  **Manual Test Pod:**
+    ```bash
+    kubectl apply -f test-interactive-pod.yaml
+    kubectl exec -n slurm test-interactive-pod -- id user1
+    ```
+    *(Confirm UID 1001 is resolved and `/mnt/storage` is writable).*
+## [Increment 12] - 2026-06-30: Manifest Schema Migration (type + OCI image fields)
 
 *   **Author:** Jules (Async)
 *   **Goal:** Migrate the app manifest schema to support both OCI container images (for interactive workloads) and SIF images (for batch workloads).
@@ -196,7 +229,63 @@ This file tracks every discrete increment made during the Slinky migration. Its 
 
 ---
 
-## [Increment 8] - 2026-06-24: Dynamic User Resolution via libnss-extrausers
+## [Increment 11] - 2026-06-28: Deploy Go Portal with Traefik Sidecar in Kind Cluster
+
+*   **Author:** Jules (Async)
+*   **Goal:** Migrate the Go portal from host-running to a containerized deployment within the Kind cluster, using a Traefik sidecar for dynamic routing.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Kubernetes Manifests:**
+    *   Created `portal-deployment.yaml`: Defines the `hpc-portal` Deployment and `portal` Service.
+    *   Implemented the Sidecar pattern: `portal` container for the Go app and `traefik` container for the proxy.
+    *   Configured shared `emptyDir` volume for dynamic Traefik route generation.
+    *   Mounted `slinky-storage-pvc` for job log and app manifest access.
+    *   Mounted `slurm-auth-jwt` secret for secure Slurm REST API communication.
+2.  **Automation Scripts:**
+    *   Updated `scripts/start-slinky.sh`: Added local Docker build, image loading into Kind, and manifest application steps to the core startup workflow.
+
+### 💡 Why This Design?
+*   **Local Development Parity:** Containerizing the portal ensures the development environment closely matches production.
+*   **Sidecar for Dynamic Routing:** Using Traefik as a sidecar allows the portal to dynamically manage routes for interactive jobs (like Jupyter) by writing simple YAML files to a shared ephemeral volume, avoiding complex ingress controller reconfigurations.
+*   **Security:** Leveraging Kubernetes Secrets for the JWT key ensures sensitive credentials are managed natively by the cluster.
+
+### 🛠️ Verification Steps
+1.  **Build the Portal:** `cd portal && go build ./...`
+2.  **Run Startup Script:** `./scripts/start-slinky.sh`
+3.  **Verify Deployment:** `kubectl get pods -n slurm -l app=hpc-portal`
+    *(Confirm both containers are ready).*
+4.  **Check Connectivity:**
+    *   `kubectl port-forward svc/portal -n slurm 8080:8080` (UI access).
+    *   `kubectl port-forward svc/portal -n slurm 8000:80` (Proxy access).
+
+## [Increment 10] - 2026-06-28: Apptainer Integration & Traefik Bugfix
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Validate and integrate `apptainer-suid` with `proot` into the Slurm worker nodes to support rootless Apptainer execution within Kubernetes, and resolve a hidden Traefik file-watcher limit bug preventing proxy routing.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Apptainer Worker Configuration:**
+    *   Updated `scripts/build-custom-images.sh`: Added `apptainer`, `apptainer-suid`, and `proot` installation steps to the `slurmd-custom` image.
+    *   Configured `apptainer.conf` to force the use of `proot` (`allow setuid = no`) to bypass Kubernetes unprivileged container restrictions on worker nodes.
+2.  **Traefik Routing Fix:**
+    *   Updated `scripts/start-slinky.sh`: Added a dynamic fix that increases the host `inotify.max_user_instances` limit to 8192 on all Kind nodes prior to portal deployment. This prevents Traefik from silently failing to watch the `dynamic-routes.yml` file due to "too many open files".
+3.  **Project Tracking:**
+    *   Updated `WORK_PACKAGES.md`: Marked WP3-1-6 (Apptainer batch validation) as completed (🟢).
+
+### 💡 Why This Design?
+*   **Rootless Apptainer in K8s:** Kubernetes strictly limits privileged operations. By injecting `proot` and disabling `setuid` in the Apptainer configuration, we achieve fully rootless container nesting without needing `--privileged` worker pods.
+*   **Host-Level Inotify Limits:** Traefik's dynamic file provider relies heavily on `inotify`. Kind inherits host OS limits, which are often too low (default 128). Automatically increasing this limit in the startup script ensures Traefik functions reliably across environments.
+
+### 🛠️ Verification Steps
+1.  **Check Apptainer execution:** 
+    Submit an interactive job from the portal and verify the generated `jupyterlab.err` shows it launching correctly.
+2.  **Verify Traefik Routing:**
+    Run `kubectl port-forward svc/portal -n slurm 8000:80` and ensure accessing `http://localhost:8000/...` correctly proxies into the JupyterLab container without a 404 error.
+
+
+## [Increment 9] - 2026-06-24: Dynamic User Resolution via libnss-extrausers
 
 *   **Author:** Antigravity (Interactive) & Khem
 *   **Goal:** Implement dynamic user resolution across Slurm pods using `libnss-extrausers` and a shared volume mount, enabling multi-user job submission and isolation without manual provisioning.
@@ -225,7 +314,76 @@ To execute the dynamic isolation test:
     *(Confirm both test users are registered, jobs run under UIDs 1001/1002, and directory cross-writes are blocked).*
 
 
-## [Increment 7] - 2026-06-21: Web Portal Enhancements
+## [Increment 8] - 2026-06-21: Storage Layout and Permissions Script
+
+*   **Author:** Jules (Async)
+*   **Goal:** Initialize the directory hierarchy and set up Unix permissions to isolate student projects under `/mnt/storage`.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Storage Initialization Script:**
+    *   Created [scripts/init-storage.sh](file:///app/scripts/init-storage.sh): A Bash script that ensures the existence of `/mnt/storage` subdirectories (`projects/project1`, `projects/project2`, `common`, `datasets`) and applies specific UID/GID and chmod permissions to ensure tenant isolation and shared access to common resources.
+
+### 💡 Why This Design?
+*   **Native Isolation:** Leveraging standard Linux filesystem permissions (UID/GID) provides a robust and low-overhead method for isolating multi-tenant workloads.
+*   **Consistency:** Standardizing the directory layout ensures that the web portal and Slurm compute nodes have a predictable environment for accessing user data and shared datasets.
+
+### 🛠️ Verification Steps
+To execute the storage initialization:
+1.  **Run the script:** `sudo bash scripts/init-storage.sh`
+2.  **Verify results:** `ls -lnR /mnt/storage`
+    *(Confirm that `project1` is 1001:1001/700, `project2` is 1002:1002/700, and `common`/`datasets` are 0:0/555).*
+
+---
+
+## [Increment 7] - 2026-06-21: Unix Permissions Isolation Verification Suite
+
+*   **Author:** Jules (Interactive)
+*   **Goal:** Implement a verification suite to ensure Kubernetes-native storage isolation via Unix permissions is working as intended.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Isolation Verification Suite:**
+    *   Created [scripts/verify-isolation.sh](scripts/verify-isolation.sh): A bash script that simulates multiple UIDs (1001, 1002) and asserts their access to project-specific and common directories.
+2.  **Test Environment Setup:**
+    *   Established the expected directory structure and permission model for testing:
+        *   `/mnt/storage/projects/project1` owned by UID 1001 (700).
+        *   `/mnt/storage/projects/project2` owned by UID 1002 (700).
+        *   `/mnt/storage/common` owned by root (755).
+
+### 💡 Why This Design?
+*   **Standardized Validation:** Provides a repeatable way to verify that the Unix-level isolation (which replaces LDAP/SSSD) correctly prevents unauthorized access between projects while allowing shared access to common resources.
+*   **Zero-Dependency Execution:** Uses standard `sudo` and `bash` commands, making it easy to run in various environments including local development and CI/CD pipelines.
+
+### 🛠️ Verification Steps
+To execute the isolation test suite:
+1.  **Run the Verification:** `./scripts/verify-isolation.sh`
+    *(Verify that it checks both users and all directory combinations, exiting with code 0).*
+
+---
+
+## [Increment 6] - 2026-06-21: Multi-User Concurrent Job & Isolation Verification Suite
+
+*   **Author:** Jules (Async) & Antigravity
+*   **Goal:** Implement a verification suite to test concurrent Slurm job submissions and project directory access isolation under multiple user identities.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Multi-User Verification Script:**
+    *   Created [scripts/verify-multi-user-jobs.sh](scripts/verify-multi-user-jobs.sh): A bash script that provisions four test users (`user1-4`), sets up test project directories, submits concurrent jobs to verify parallel execution, and asserts file access permissions for each user.
+
+### 💡 Why This Design?
+*   **End-to-End Multi-Tenancy Validation:** Simulates realistic student workflows (submitting multiple parallel jobs) while ensuring strict Unix directory isolation boundaries remain functional at the scheduler and compute nodes level.
+*   **Environment Adaptability:** Dynamically detects SlurmDBD accounting mode or standard mode, and properly cleans up test users and resources on completion.
+
+### 🛠️ Verification Steps
+To execute the multi-user test suite:
+1.  **Run the Verification:** `./scripts/verify-multi-user-jobs.sh`
+    *(Confirm that users are created, jobs run in parallel, all isolation permissions pass, and cleanup finishes successfully).*
+
+---
+
+## [Increment 5] - 2026-06-21: Web Portal Enhancements
 
 *   **Author:** Jules (Async)
 *   **Goal:** Enhance the Go/Echo web portal to natively query the Slurm REST API for job tracking and resource status, adding a user dashboard and resource availability views.
@@ -263,53 +421,6 @@ To execute the dynamic isolation test:
 
 ---
 
-## [Increment 6] - 2026-06-21: Multi-User Concurrent Job & Isolation Verification Suite
-
-*   **Author:** Jules (Async) & Antigravity
-*   **Goal:** Implement a verification suite to test concurrent Slurm job submissions and project directory access isolation under multiple user identities.
-
-### 📝 Key Changes & Files Modified
-
-1.  **Multi-User Verification Script:**
-    *   Created [scripts/verify-multi-user-jobs.sh](scripts/verify-multi-user-jobs.sh): A bash script that provisions four test users (`user1-4`), sets up test project directories, submits concurrent jobs to verify parallel execution, and asserts file access permissions for each user.
-
-### 💡 Why This Design?
-*   **End-to-End Multi-Tenancy Validation:** Simulates realistic student workflows (submitting multiple parallel jobs) while ensuring strict Unix directory isolation boundaries remain functional at the scheduler and compute nodes level.
-*   **Environment Adaptability:** Dynamically detects SlurmDBD accounting mode or standard mode, and properly cleans up test users and resources on completion.
-
-### 🛠️ Verification Steps
-To execute the multi-user test suite:
-1.  **Run the Verification:** `./scripts/verify-multi-user-jobs.sh`
-    *(Confirm that users are created, jobs run in parallel, all isolation permissions pass, and cleanup finishes successfully).*
-
----
-
-## [Increment 5] - 2026-06-21: Unix Permissions Isolation Verification Suite
-
-*   **Author:** Jules (Interactive)
-*   **Goal:** Implement a verification suite to ensure Kubernetes-native storage isolation via Unix permissions is working as intended.
-
-### 📝 Key Changes & Files Modified
-
-1.  **Isolation Verification Suite:**
-    *   Created [scripts/verify-isolation.sh](scripts/verify-isolation.sh): A bash script that simulates multiple UIDs (1001, 1002) and asserts their access to project-specific and common directories.
-2.  **Test Environment Setup:**
-    *   Established the expected directory structure and permission model for testing:
-        *   `/mnt/storage/projects/project1` owned by UID 1001 (700).
-        *   `/mnt/storage/projects/project2` owned by UID 1002 (700).
-        *   `/mnt/storage/common` owned by root (755).
-
-### 💡 Why This Design?
-*   **Standardized Validation:** Provides a repeatable way to verify that the Unix-level isolation (which replaces LDAP/SSSD) correctly prevents unauthorized access between projects while allowing shared access to common resources.
-*   **Zero-Dependency Execution:** Uses standard `sudo` and `bash` commands, making it easy to run in various environments including local development and CI/CD pipelines.
-
-### 🛠️ Verification Steps
-To execute the isolation test suite:
-1.  **Run the Verification:** `./scripts/verify-isolation.sh`
-    *(Verify that it checks both users and all directory combinations, exiting with code 0).*
-
----
-
 ## [Increment 4] - 2026-06-14: Kubelet Feature Gate Bypass, Custom IPv4 Network & Verification Suite Fixes
 
 *   **Author:** Antigravity (Interactive) & Khem
@@ -343,69 +454,7 @@ To execute the test suite:
 
 ---
 
-## [Increment 3] - 2026-06-13: Detailed Automation Docs & Central Branch Integration
-
-*   **Author:** Antigravity (Interactive) & Khem
-*   **Goal:** Document the 5-part verification suite under the automation workflow and push the complete codebase to the central `development` branch for Jules integration.
-
-### 📝 Key Changes & Files Modified
-
-1.  **Workflow Documentation:**
-    *   Updated [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/DEVELOPMENT_WORKFLOW.md): Listed and detailed the 5 core test cases (Clean Cluster Spawn, Standard Queueing, Parallel Node Execution, Persistent Shared Storage, and Disaster Recovery) under Task A (Stability Check).
-2.  **Central Branch Integration:**
-    *   Merged the `feature/k8s-native-isolation` branch into `development` and successfully pushed it to remote `origin/development`. This enables Jules to locate and run [scripts/verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh).
-
----
-
-## [Increment 5] - 2026-06-21: Storage Layout and Permissions Script
-
-*   **Author:** Jules (Async)
-*   **Goal:** Initialize the directory hierarchy and set up Unix permissions to isolate student projects under `/mnt/storage`.
-
-### 📝 Key Changes & Files Modified
-
-1.  **Storage Initialization Script:**
-    *   Created [scripts/init-storage.sh](file:///app/scripts/init-storage.sh): A Bash script that ensures the existence of `/mnt/storage` subdirectories (`projects/project1`, `projects/project2`, `common`, `datasets`) and applies specific UID/GID and chmod permissions to ensure tenant isolation and shared access to common resources.
-
-### 💡 Why This Design?
-*   **Native Isolation:** Leveraging standard Linux filesystem permissions (UID/GID) provides a robust and low-overhead method for isolating multi-tenant workloads.
-*   **Consistency:** Standardizing the directory layout ensures that the web portal and Slurm compute nodes have a predictable environment for accessing user data and shared datasets.
-
-### 🛠️ Verification Steps
-To execute the storage initialization:
-1.  **Run the script:** `sudo bash scripts/init-storage.sh`
-2.  **Verify results:** `ls -lnR /mnt/storage`
-    *(Confirm that `project1` is 1001:1001/700, `project2` is 1002:1002/700, and `common`/`datasets` are 0:0/555).*
-
----
-
-## [Increment 2] - 2026-06-13: Slinky Infrastructure Verification Suite & Automation Plan
-
-*   **Author:** Antigravity (Interactive) & Khem
-*   **Goal:** Establish a robust infrastructure continuity test suite and define the branching and automation strategy for Jules (GCP).
-
-### 📝 Key Changes & Files Modified
-
-1.  **Infrastructure Verification Suite:**
-    *   Created [scripts/verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh): Implemented a 5-part test suite (Clean Spawn, Standard Queueing, Parallel Node Execution, Persistent Storage Mounts, and Disaster Recovery / Crash Simulation) that dynamically bootstraps its own dependencies (`kind`, `kubectl`, and `helm`) if they are missing from the path.
-2.  **Workflow & Automation Design:**
-    *   Updated [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/DEVELOPMENT_WORKFLOW.md): Established the central `development` branch and defined standard prompt templates for recurring tasks (Stability Check, Code Quality, and Repo Cleanup) to be run asynchronously on GCP via `jules.google.com`.
-3.  **Cleanups:**
-    *   Removed temporary check scripts and kept the workspace clean.
-
-### 💡 Why This Design?
-*   **Decoupled Heavy Compute:** By using jules.google.com to execute `verify-infrastructure.sh` on GCP VMs, Khem's local machine is spared the overhead of booting Kubernetes clusters and running multi-node simulations.
-*   **Zero-Dependency Portability:** Dynamic bootstrapping of CLI tools ensures the script runs immediately on any fresh VM without needing Nix installation or tool configuration overhead.
-*   **Isolated Integration:** Merging features into `development` and letting Jules verify it ensures that any configuration errors or regression failures are caught in staging before ever touching `main`.
-
-### 🛠️ Verification Steps
-To execute the newly created test suite:
-1.  **Run the Verification:** `./scripts/verify-infrastructure.sh`
-    *(Wait for it to download any missing tools, execute all 5 test scenarios, and verify that it exits with code 0).*
-
----
-
-## [Increment 1] - 2026-06-13: Kubernetes-Native Storage Isolation
+## [Increment 3] - 2026-06-13: Kubernetes-Native Storage Isolation
 
 *   **Author:** Antigravity (Interactive) & Khem
 *   **Goal:** Replace complex LDAP/SSSD user directory synchronization with native Kubernetes Persistent Volume mounts mapped directly to host-level directories for isolation.
@@ -456,3 +505,44 @@ To spin up the cluster and verify this storage isolation setup:
     *Confirm that the project folders (`project1`, etc.) are visible.*
 
 ---
+
+## [Increment 2] - 2026-06-13: Slinky Infrastructure Verification Suite & Automation Plan
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Establish a robust infrastructure continuity test suite and define the branching and automation strategy for Jules (GCP).
+
+### 📝 Key Changes & Files Modified
+
+1.  **Infrastructure Verification Suite:**
+    *   Created [scripts/verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh): Implemented a 5-part test suite (Clean Spawn, Standard Queueing, Parallel Node Execution, Persistent Storage Mounts, and Disaster Recovery / Crash Simulation) that dynamically bootstraps its own dependencies (`kind`, `kubectl`, and `helm`) if they are missing from the path.
+2.  **Workflow & Automation Design:**
+    *   Updated [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/DEVELOPMENT_WORKFLOW.md): Established the central `development` branch and defined standard prompt templates for recurring tasks (Stability Check, Code Quality, and Repo Cleanup) to be run asynchronously on GCP via `jules.google.com`.
+3.  **Cleanups:**
+    *   Removed temporary check scripts and kept the workspace clean.
+
+### 💡 Why This Design?
+*   **Decoupled Heavy Compute:** By using jules.google.com to execute `verify-infrastructure.sh` on GCP VMs, Khem's local machine is spared the overhead of booting Kubernetes clusters and running multi-node simulations.
+*   **Zero-Dependency Portability:** Dynamic bootstrapping of CLI tools ensures the script runs immediately on any fresh VM without needing Nix installation or tool configuration overhead.
+*   **Isolated Integration:** Merging features into `development` and letting Jules verify it ensures that any configuration errors or regression failures are caught in staging before ever touching `main`.
+
+### 🛠️ Verification Steps
+To execute the newly created test suite:
+1.  **Run the Verification:** `./scripts/verify-infrastructure.sh`
+    *(Wait for it to download any missing tools, execute all 5 test scenarios, and verify that it exits with code 0).*
+
+---
+
+## [Increment 1] - 2026-06-13: Detailed Automation Docs & Central Branch Integration
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Document the 5-part verification suite under the automation workflow and push the complete codebase to the central `development` branch for Jules integration.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Workflow Documentation:**
+    *   Updated [DEVELOPMENT_WORKFLOW.md](file:///home/khemi/workspace/ai_sandbox/DEVELOPMENT_WORKFLOW.md): Listed and detailed the 5 core test cases (Clean Cluster Spawn, Standard Queueing, Parallel Node Execution, Persistent Shared Storage, and Disaster Recovery) under Task A (Stability Check).
+2.  **Central Branch Integration:**
+    *   Merged the `feature/k8s-native-isolation` branch into `development` and successfully pushed it to remote `origin/development`. This enables Jules to locate and run [scripts/verify-infrastructure.sh](file:///home/khemi/workspace/ai_sandbox/scripts/verify-infrastructure.sh).
+
+---
+

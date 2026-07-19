@@ -58,6 +58,10 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 			Name:      fmt.Sprintf("session-%s", sessionID),
 			Namespace: sm.namespace,
 			Labels:    labels,
+			Annotations: map[string]string{
+				"slinky.slurm.net/job-name":  fmt.Sprintf("jupyter-%s", sessionID),
+				"slinky.slurm.net/partition": "all",
+			},
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{

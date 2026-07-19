@@ -23,7 +23,7 @@ USER root
 RUN apt-get update && apt-get install -y libnss-extrausers && apt-get clean && rm -rf /var/lib/apt/lists/*
 RUN sed -i 's/passwd:\s*files/passwd:         files extrausers/g' /etc/nsswitch.conf
 RUN sed -i 's/group:\s*files/group:          files extrausers/g' /etc/nsswitch.conf
-USER nobody
+USER slurm
 EOF
 
 # 3. Build custom slurmd
