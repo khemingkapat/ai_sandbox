@@ -11,31 +11,28 @@ This document records the core technology stack and architectural decisions for 
 ## 1. Reference Architecture
 
 ```mermaid
-architecture-beta
-    group cluster(logos:kubernetes)[Physical HPC K8s Cluster]
+flowchart TD
+    browser["Student Browser"]
     
-    service browser(logos:chrome)[Student Browser]
-    service traefik(logos:traefik)[Traefik Ingress] in cluster
+    subgraph cluster ["Physical HPC K8s Cluster"]
+        traefik["Traefik Ingress"]
+        portal["Go Portal"]
+        slurmctld["Slinky / Slurm Controller"]
+        jupyter["Jupyter / Interactive Pods"]
+        batch["Batch Training Pods"]
+    end
     
-    service portal(logos:go)[Go Portal] in cluster
-    service slurmctld(logos:linux-tux)[Slinky / Slurm Controller] in cluster
-    
-    service jupyter(logos:jupyter)[Jupyter / Interactive Pods] in cluster
-    service batch(logos:docker)[Batch Training Pods] in cluster
-    
-    service nfs(logos:linux-tux)[Enterprise NFS Storage]
+    nfs["Enterprise NFS Storage"]
 
-    browser:R --> L:traefik
-    traefik:B --> T:portal
+    browser --> traefik
+    traefik --> portal
+    portal --> slurmctld
+    slurmctld --> jupyter
+    slurmctld --> batch
+    traefik --> jupyter
     
-    portal:R --> L:slurmctld
-    slurmctld:B --> T:jupyter
-    slurmctld:B --> T:batch
-    
-    traefik:B --> T:jupyter
-    
-    nfs:T --> B:jupyter
-    nfs:T --> B:batch
+    nfs --> jupyter
+    nfs --> batch
 ```
 
 ## 2. Core Stack Decisions
