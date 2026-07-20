@@ -103,7 +103,7 @@ Interactive workloads prioritize low latency, web-based IDE access, and dedicate
 ### 3. Central Services (LLM Inference & Vector DBs)
 These are "Service-Jobs" that provide persistent endpoints for other applications.
 *   **Lifecycle:** See diagram below.
-*   **Components:** `inference` partition (high priority), `vLLM` / `Ollama` / `Qdrant` OCI images.
+*   **Components:** `inference` partition (high priority), `vLLM` / `Qdrant` OCI images.
 *   **Scaling:** Typically fixed-size allocations to ensure 24/7 API availability for student projects.
 *   **Student Benefit:** Provides a "Shared LLM" experience; students call an API rather than managing their own model servers.
 
@@ -143,8 +143,7 @@ sequenceDiagram
 7.  **HPC Survey.** "Slurm Adoption Rates in the TOP500." [SchedMD Analysis](https://www.schedmd.com/).
 8.  **CNCF Survey 2024.** "State of Cloud Native in HPC and AI Workloads." [CNCF Reports](https://www.cncf.io/reports/).
 9.  **vLLM Team.** "Deployment Guide for vLLM on Kubernetes." [vLLM Docs](https://docs.vllm.ai/).
-10. **Ollama Project.** "Self-hosting Ollama as a Service." [Ollama Documentation](https://ollama.com/).
-11. **Increment Log.** "Increment 8: Dynamic User Resolution via libnss-extrausers." [Internal Document](./INCREMENT_LOG.md).
+10. **Increment Log.** "Increment 8: Dynamic User Resolution via libnss-extrausers." [Internal Document](./INCREMENT_LOG.md).
 12. **Capacity Planning.** "WP3-1-2: Partition Design & Resource Quotas." [Internal Document](./CAPACITY_PLANNING.md).
 13. **Migration Report.** "Current Architecture vs. Slinky." [Internal Document](./slinky_migration_report.md).
 14. **SchedMD.** "slurm-operator GitHub Repository." [Source Code](https://github.com/SlinkyProject/slurm-operator).
@@ -171,7 +170,7 @@ Overcommitting is like an airline overbooking a flight. It means promising more 
     *   *Result:* Across a baseline of 5 Intel Xeon E5-2698 v3 (32 cores / 256GB RAM) nodes (160 physical cores × 3 = 480 virtual cores), this comfortably supports ~100 concurrent students at 4 virtual cores each (400 virtual cores), leaving a healthy 20% buffer for OS overhead, control plane services, and background batch-cpu tasks.
 2.  **GPU Partitioning & Sharing (Time-slicing / vGPU):**
     *   *Behavior:* Standard model prototyping does not require a full 48GB GPU. Furthermore, we only have one dedicated GPU node.
-    *   *Strategy:* With a single node featuring 2x NVIDIA L40 (48GB each), one L40 can be devoted to a persistent LLM inference endpoint (vLLM/Ollama), while the other utilizes Kubernetes GPU time-slicing or NVIDIA vGPU to share access among multiple students for interactive notebooks or small batch jobs.
+    *   *Strategy:* With a single node featuring 2x NVIDIA L40 (48GB each), one L40 can be devoted to a persistent LLM inference endpoint (vLLM), while the other utilizes Kubernetes GPU time-slicing or NVIDIA vGPU to share access among multiple students for interactive notebooks or small batch jobs.
 3.  **Queue-Based Batch Scheduling:**
     *   *Behavior:* Heavy training runs (Deep Learning models) run at 100% capacity and cannot be overcommitted.
     *   *Strategy:* Slurm schedules these sequentially using fair-share queues on the shared GPU. If the L40 is busy, jobs queue up rather than crashing the system.
@@ -217,55 +216,16 @@ flowchart TD
 
 ---
 
-## 🆔 Production Identity Model Options & Trade-offs
+## 🆔 Production Identity Model Strategy
 
 A robust, enterprise-grade identity model is critical for a multi-tenant university environment. In production, we must map institutional student/faculty identities to Kubernetes namespaces and Slurm user accounts, enforcing strict isolation without manual administration.
 
-While local development employs `libnss-extrausers` as a lightweight static substitute for local UID/GID resolution, production must rely on a modern Single Sign-On (SSO) and OpenID Connect (OIDC) identity provider. The Go Portal acts as the OIDC client, validating identity tokens and asserting user identity to the cluster.
+While local development employs `libnss-extrausers` as a lightweight static substitute for local UID/GID resolution, production must rely on a modern Single Sign-On (SSO) and OpenID Connect (OIDC) identity provider.
 
-To assist the project lead in selecting the optimal solution, the three most suitable university-grade OIDC options are evaluated below with their respective trade-offs:
+**Decision:** We adopt a **Direct OIDC Client Delegation** model, explicitly rejecting deploying a local Identity Provider (like Keycloak or Dex) inside the Sandbox.
 
-### 🗳️ Identity Provider Comparison Matrix
-
-| Identity Provider | Protocol Support | Integration Complexity | Maintenance & Ops Overhead | University Alignment |
-| :--- | :--- | :--- | :--- | :--- |
-| **Keycloak** | Native OIDC, SAML 2.0, OAuth 2.0 | **Medium** (requires DB & configuration) | **Medium-High** (independent server lifecycle) | **High** (extremely flexible LDAP/Active Directory backend syncing) |
-| **Dex OIDC** | Native OIDC, acts as a connector/federation proxy | **Low** (lightweight, declarative K8s config) | **Low** (minimal stateless deployment) | **High** (bridges old university SAML/Shibboleth backends to OIDC) |
-| **Shibboleth (Native)** | SAML 2.0 (OIDC extension available) | **High** (requires complex XML config) | **High** (usually managed by central IT) | **Optimal** (standard across higher education institutions) |
-
----
-
-### Option A: Keycloak (Highly Customizable Standalone IdP)
-Keycloak is a feature-rich, open-source identity and access management solution that can be run directly inside our Kubernetes management nodes.
-
-*   **Pros:**
-    *   **Extensive User Management:** Provides self-service user registration, password recovery, MFA/2FA out of the box, and a rich admin UI.
-    *   **Active Directory / LDAP Syncing:** Natively federates and periodically syncs user accounts, groups, and roles directly from existing university LDAP directories.
-    *   **Token Customization:** Allows flexible mapping of custom LDAP attributes into JWT claims (such as adding `uidNumber` and `gidNumber` directly to the ID token for POSIX file isolation).
-*   **Cons:**
-    *   **Operational Footprint:** Requires running a dedicated database (e.g., PostgreSQL) and managing Keycloak server updates, backups, and high-availability configuration.
-    *   **Overkill for Simple Authentication:** If user management is already fully handled by central university services, Keycloak's extensive feature set introduces unnecessary complexity.
-
-### Option B: Dex (Lightweight Federation Proxy)
-Dex is a CNCF sandbox project designed specifically for Kubernetes. It functions as a lightweight federation wrapper that delegates authentication to upstream identity providers (LDAP, SAML, GitHub, Google) and issues clean OIDC tokens.
-
-*   **Pros:**
-    *   **Stateless and Cloud-Native:** Runs as a simple, stateless Kubernetes deployment with declarative YAML configuration.
-    *   **Excellent Federation:** Perfect for bridging university environments where the central ID department only provides LDAP or SAML. Dex acts as the translator, exposing a standard OIDC interface to the Go Portal.
-    *   **Zero Database Dependency:** Can store configuration and state entirely within standard Kubernetes Custom Resource Definitions (CRDs) or in-memory, minimizing administrative overhead.
-*   **Cons:**
-    *   **No Native User Management:** Dex does not have a user registration UI, self-service password reset, or native MFA. It relies entirely on the upstream provider to manage user credentials.
-    *   **No Admin UI:** All configurations must be modified via files or Kubernetes resources; there is no web control panel for managing sessions.
-
-### Option C: Native University Shibboleth (Direct SAML 2.0 Integration)
-Shibboleth is the default federated identity system used by almost all major research universities worldwide. Integrating the Go Portal directly with the central Shibboleth identity provider represents the most direct enterprise integration.
-
-*   **Pros:**
-    *   **Direct Institutional Alignment:** Students and researchers log in using their standard, trusted university credentials without any intermediate broker.
-    *   **Security Policy Compliance:** Inherits all university-wide security rules, such as mandatory single sign-on policies, hardware security keys, or existing MFA configurations.
-*   **Cons:**
-    *   **Integration tax:** Shibboleth is historically based on SAML 2.0, which relies on complex XML metadata exchange and is notoriously difficult to configure compared to simple OIDC client setups.
-    *   **Limited OIDC support:** While Shibboleth has added OIDC extensions, central IT departments are often hesitant to enable or customize them for individual sandbox environments, leading to integration delays.
+**Rationale:** The university infrastructure already provides a central **Authentik** deployment (a modern, open-source Identity Provider). Because Authentik natively supports standard OIDC (OpenID Connect), the Sandbox does not need to run its own complex authentication database, LDAP sync jobs, or federation proxies. 
+The Go Portal will simply act as a standard OIDC Client. When a student attempts to log in, the Portal will redirect them to the central university Authentik server, which handles password validation and Multi-Factor Authentication (MFA), and returns a secure JWT (JSON Web Token) containing the student's identity claims back to the Sandbox.
 
 ---
 
@@ -281,4 +241,4 @@ This gap analysis highlights key technical differences and migration steps neede
 | **Autoscaling** | Static worker pods defined in Helm values.yaml. | Dynamic scaling based on partition queue and load. | Integrate Slinky NodeSet controller with the **Kubernetes Cluster Autoscaler** to provision bare-metal worker nodes. |
 | **Network Isolation** | Single shared network without strict boundary rules. | Dynamic Kubernetes NetworkPolicies. | Define ingress/egress NetworkPolicies restricting container communication to control plane portal and internet only. |
 | **Container Runtime** | Docker Engine / `containerd` | `containerd` native runtime on bare-metal and management nodes. | **No Gap:** The environment is standardized on a strictly OCI-compliant container runtime (`containerd`), completely bypassing legacy Apptainer translation and VM encapsulation. Both environments run the same compiled OCI container images natively. |
-| **Monitoring & Observability** | No monitoring/telemetry configured in local development setup. | Production-grade observability stack with Prometheus, Grafana, and Alertmanager. | Deploy Prometheus Operator and configure it to scrape the Slinky/Slurm REST API `metrics/openmetrics` endpoint using standard ServiceMonitors. Implement Grafana dashboards for cluster-wide visualization and configure Alertmanager for critical alerts (e.g., `GpuOOMEvent`). This is thoroughly detailed in the [Increment 19 Observability Research](./slurm_info_exchange_research.md). |
+| **Monitoring & Observability** | No monitoring/telemetry configured in local development setup. | Lightweight Exporters for Central Scrape (DCGM, Node, Slurm OpenMetrics). | Deploy **NVIDIA DCGM Exporter**, **Prometheus Node Exporter**, and enable the native Slurm REST API `metrics/openmetrics` endpoint. **Do NOT deploy a local Prometheus database or Grafana.** Configure these endpoints to be securely scraped by the external Central Management Portal. |

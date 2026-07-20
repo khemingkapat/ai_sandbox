@@ -16,12 +16,12 @@ This section derives concrete resource requirements from the platform's function
 
 ### Job: LLM Inference Server
 
-> **Capability:** Local LLM inference (Ollama, vLLM)
+> **Capability:** Local LLM inference (vLLM)
 
 **What it does:** Serves small-to-mid models (1B–13B parameters) for application access or interactive chat. Students use this to test prompt engineering, evaluate model behavior, and provide backends for their applications.
 
 **Container Image:**
-- `vllm/vllm-openai:latest` (or `ollama/ollama:latest` for local developer environments) as per [vLLM Container Deployment Guide](https://docs.vllm.ai/en/latest/deployment/docker.html) and [Ollama Docker Hub](https://hub.docker.com/r/ollama/ollama).
+- `vllm/vllm-openai:latest` as per [vLLM Container Deployment Guide](https://docs.vllm.ai/en/latest/deployment/docker.html).
 
 **Resource Profile:**
 
@@ -34,27 +34,27 @@ This section derives concrete resource requirements from the platform's function
 | Network | Standard | API communication between student applications and the model server. |
 
 **Target Software & Models:**
-- **Tools:** Ollama, vLLM
-- **Tier 1 (1B-3B):** Llama 3.2 1B (1.3GB Q4, Ollama Tag `llama3.2:1b`), Phi-3 Mini 3.8B (2.2GB Q4, Ollama Tag `phi3:latest`)
-- **Tier 2 (7B-8B):** Llama 3.1 8B (4.7GB Q4_0, Ollama Tag `llama3.1:8b-instruct-q4_0` / 8.5GB Q8_0, Ollama Tag `llama3.1:8b-instruct-q8_0`), Mistral 7B (4.1GB Q4_0, Ollama Tag `mistral:7b-instruct-v0.3-q4_0` / 7.7GB Q8_0, Ollama Tag `mistral:7b-instruct-v0.2-q8_0`)
+- **Tools:** vLLM
+- **Tier 1 (1B-3B):** Llama 3.2 1B (1.3GB Q4), Phi-3 Mini 3.8B (2.2GB Q4)
+- **Tier 2 (7B-8B):** Llama 3.1 8B (4.7GB Q4_0 / 8.5GB Q8_0), Mistral 7B (4.1GB Q4_0 / 7.7GB Q8_0)
 - **Tier 3 (13B-14B):** Llama 2 13B (7.4GB Q4 / 14GB Q8), Phi-3 Medium 14B (7.9GB Q4)
 
 **References & Citations:**
-1. [Ollama Llama 3.1 Model Tags](https://ollama.com/library/llama3.1/tags) — Validates Llama 3.1 8B Q4_0 (4.7 GB) and Q8_0 (8.5 GB) model sizes.
-2. [Ollama Mistral Model Tags](https://ollama.com/library/mistral/tags) — Validates Mistral 7B Instruct v0.3 Q4_0 (4.1 GB) and v0.2 Q8_0 (7.7 GB) sizes.
-3. [Ollama Phi-3 Model Tags](https://ollama.com/library/phi3/tags) — Validates Phi-3 Mini Q4 (2.2 GB) and Q8_0 (4.3 GB) sizes.
+1. [HuggingFace Llama 3.1 Models](https://huggingface.co/meta-llama) — Validates Llama 3.1 8B quantized model sizes.
+2. [HuggingFace Mistral Models](https://huggingface.co/mistralai) — Validates Mistral 7B Instruct sizes.
+3. [HuggingFace Phi-3 Models](https://huggingface.co/microsoft) — Validates Phi-3 Mini sizes.
 4. [vLLM Engine Configuration Parameters](https://docs.vllm.ai/en/latest/configuration/engine_args/) — Specifies the GPU memory allocation and KV cache sizing calculations required for multi-tenant high-throughput serving.
 
 ---
 
 ### Job: Vector DB Service
 
-> **Capability:** Vector database hosting (Qdrant, Milvus)
+> **Capability:** Centralized Vector database hosting (Qdrant)
 
 **What it does:** Hosts an embedding database for similarity search and retrieval. Students use it to build search engines, recommendation systems, or RAG backends.
 
 **Container Image:**
-- `qdrant/qdrant:latest` as per [Qdrant Container Installation Guide](https://qdrant.tech/documentation/guides/installation/) (or `milvusdb/milvus:latest` if using Milvus).
+- `qdrant/qdrant:latest` as per [Qdrant Container Installation Guide](https://qdrant.tech/documentation/guides/installation/).
 
 **Resource Profile:**
 
@@ -67,7 +67,7 @@ This section derives concrete resource requirements from the platform's function
 | Network | Standard | Local cluster access for RAG applications. |
 
 **Target Software & Models:**
-- **Tools:** Qdrant, Milvus
+- **Tools:** Qdrant
 - **Vector Specs:** 1,000,000 vectors at 768 or 1536 dimensions.
 
 **Memory Sizing Calculation & Validation:**
@@ -199,12 +199,12 @@ Standard full-parameter training of a 7B parameter model using FP16 weights and 
 
 ### Job: Data Pipeline Job
 
-> **Capability:** Data preprocessing (Pandas, Spark)
+> **Capability:** Data preprocessing (Pandas, Polars, Single-Node Dask)
 
 **What it does:** Batch ETL tasks, feature engineering, and dataset cleaning. Prepares raw data for model consumption at scale.
 
 **Container Image:**
-- `daskdev/dask:latest` as per [Dask Docker Images](https://hub.docker.com/r/daskdev/dask) or custom images with Pandas/Dask/PySpark pre-installed.
+- `daskdev/dask:latest` as per [Dask Docker Images](https://hub.docker.com/r/daskdev/dask) or custom images with Pandas/Polars/Dask pre-installed.
 
 **Resource Profile:**
 
@@ -217,15 +217,14 @@ Standard full-parameter training of a 7B parameter model using FP16 weights and 
 | Network | High | Throughput to the shared cluster filesystem. |
 
 **Target Software & Models:**
-- **Tools:** Pandas, Apache Spark, Dask, Ray Data
+- **Tools:** Pandas, Polars, Dask (Single-Node)
 
 **Memory Validation:**
 - In Pandas, memory-bound dataset manipulation requires at least $5\times - 10\times$ the raw dataset size in RAM to support in-memory joins, string column expansions, and garbage collection overhead.
 - For typical student pilot datasets of $2 - 5$ GB, a **32 GB RAM** allotment represents the mathematically optimal threshold to prevent Out-Of-Memory (OOM) segmentations during complex transformations.
-- Spark and Dask tuning recommendations suggest 4 GB of RAM per allocated CPU core as the sweet spot for data shuffling, which perfectly maps to our 8 CPU / 32 GB configuration (4 GB/core).
+- Dask tuning recommendations suggest 4 GB of RAM per allocated CPU core as the sweet spot for data shuffling, which perfectly maps to our 8 CPU / 32 GB configuration (4 GB/core).
 
 **References & Citations:**
-1. [Apache Spark Tuning Guide - Sizing Recommendations](https://spark.apache.org/docs/latest/tuning.html) — Outlines the optimal CPU-to-Memory ratios (3-5 GB per core) to handle partition shuffles without garbage collection bottlenecks.
 2. [Dask Memory Management and Sizing](https://docs.dask.org/en/stable/how-to/manage-memory.html) — Best practices for scheduling memory footprints at $4\times - 5\times$ dataset volume.
 
 ---
@@ -268,10 +267,10 @@ Students run a diverse set of tasks ranging from basic notebook execution to int
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Interactive Prototyping** | Interactive | 4 Cores | 8 GB | None | 2 Hours | JupyterLab, VS Code, Bash | [Interactive Prototyping Session](#job-interactive-prototyping-session) |
 | **Small Model Training** | Interactive | 4 Cores | 16 GB | 1x NVIDIA L40 (8GB limit) | 2 Hours | PyTorch, JupyterLab | [Small Model Fine-Tuning](#job-small-model-fine-tuning) |
-| **LLM Inference Server** | Interactive | 4 Cores | 32 GB | 1x NVIDIA L40 | 12 Hours | Ollama, vLLM, Qdrant | [LLM Inference Server](#job-llm-inference-server) |
-| **Vector DB Setup** | Interactive | 2 Cores | 8 GB | None | 12 Hours | Qdrant, Milvus | [Vector DB Service](#job-vector-db-service) |
+| **LLM Inference Server** | Interactive | 4 Cores | 32 GB | 1x NVIDIA L40 | 12 Hours | vLLM, Qdrant | [LLM Inference Server](#job-llm-inference-server) |
+| **Vector DB Setup** | Central Service | 2 Cores | 8 GB | None | Persistent | Qdrant | [Vector DB Service](#job-vector-db-service) |
 | **Heavy Batch Training** | Batch | 16 Cores | 64 GB | 1x NVIDIA L40 (24GB limit) | 7 Days | `sbatch` (Python training script) | [Heavy Batch Training](#job-heavy-batch-training) |
-| **Data Preprocessing** | Batch | 8 Cores | 32 GB | None | 24 Hours | `sbatch` (Pandas, Spark) | [Data Pipeline Job](#job-data-pipeline-job) |
+| **Data Preprocessing** | Batch | 8 Cores | 32 GB | None | 24 Hours | `sbatch` (Pandas, Dask, Polars) | [Data Pipeline Job](#job-data-pipeline-job) |
 
 ---
 
@@ -377,7 +376,7 @@ To support many students on limited hardware, the limits below represent **virtu
     *   **Max Concurrent Jobs:** 3
     *   **Max CPU Cores (Total):** 8 Virtual Cores *(maps to ~2.6 physical cores under 3:1 overcommit)*
     *   **Max Memory (Total):** 32 GB Virtual RAM *(maps to ~16 GB physical RAM under 2:1 overcommit)*
-    *   **Max GPUs (Total):** 1 Virtual MIG Slice / vGPU *(e.g., a `1g.10gb` slice; students do not get a full physical GPU)*
+    *   **Max GPUs (Total):** 1 Time-Sliced vGPU *(e.g., an 8GB slice; students do not get a full physical GPU)*
     *   **Shared Storage Quota:** 50 GB per user (enforced via PVC/Filesystem quotas)
 *   **Project Group (Collaborative Research / Batch):**
     *   **Max Concurrent Jobs:** 10

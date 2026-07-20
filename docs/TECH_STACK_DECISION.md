@@ -89,7 +89,7 @@ flowchart TD
   3. PEARC Proceedings, *The Shift to Cloud-Native Container Orchestration in Academic HPC Environments*, 2023. [PEARC Library](https://pearc.org/)
 
 ### 4.2: LLM Inference Runtime
-**Status:** Open — pending decision
+**Status:** Decided
 **Context:** The AI Sandbox provides a persistent shared inference endpoint (configured in the `inference` partition) and individual user inference runtimes to serve small-to-mid size LLMs (e.g., Llama 3.1 8B, Phi-3 14B) on NVIDIA L40 GPUs. We need to evaluate the most appropriate runtime engine.
 **Options:**
 
@@ -101,14 +101,15 @@ flowchart TD
 | **API Compatibility** | **OpenAI-Compatible:** Native OpenAI API out-of-the-box, making it seamless for standard AI framework integrations. | **Proprietary & OpenAI:** Proprietary API endpoints, with basic OpenAI-compatibility wrapper available on port 11434. |
 | **Resource Footprint** | **Heavy:** Claims pre-allocated chunk of VRAM (default 90%) for KV cache, making sharing a single GPU challenging. | **Dynamic:** Allocates and frees GPU memory dynamically based on active usage, allowing high density of small models. |
 
-**Recommendation:** We recommend **vLLM** as the primary engine for the central shared LLM Inference Server (deployed on GPU #1 in the `inference` partition) to maximize multi-tenant throughput, concurrency, and OpenAI API compatibility. We recommend **Ollama** as an optional tool inside interactive Jupyter images for students who want to spin up private, zero-config, localized model servers on the shared prototyping GPU (GPU #2).
+**Decision:** We standardize strictly on **vLLM** for all inference workloads (both the central shared inference endpoint and individual student environments). Ollama is rejected.
+**Rationale:** Standardizing on vLLM provides extreme throughput via continuous batching and PagedAttention, which is critical for multi-tenant environments. Maintaining a single engine across the entire stack drastically reduces the operational burden, ensures consistent OpenAI API compatibility everywhere, and avoids the instability and unpredictability seen with Ollama under load.
 **References:**
   1. Woosuk Kwon et al., *Efficient Memory Management for Large Language Model Serving with PagedAttention*, SOSP 2023. [ACM Digital Library](https://dl.acm.org/doi/10.1145/3600006.3613162)
   2. vLLM Project Team, *vLLM Benchmarks & Architecture Documentation*, 2024. [vLLM Docs](https://docs.vllm.ai/)
   3. Ollama Project, *Self-Hosting and API Reference*, 2024. [Ollama GitHub](https://github.com/ollama/ollama)
 
 ### 4.3: Vector Database
-**Status:** Open — pending decision
+**Status:** Decided
 **Context:** Students build Retrieval-Augmented Generation (RAG) applications requiring a high-performance vector database capable of indexing and querying ~1M vectors (768 or 1536 dimensions) on the CPU/GPU nodes.
 **Options:**
 
@@ -120,14 +121,15 @@ flowchart TD
 | **Ecosystem & Community** | **Strong:** Excellent Python client, native integrations with LangChain and LlamaIndex, outstanding developer documentation. | **Very Strong:** Large enterprise community, but documentation is heavily focused on complex, large-scale deployments. |
 | **Storage / Indexing Architecture** | **In-Memory & On-Disk:** Highly flexible payload storage, with optional memory-mapping of index vectors on disk (using mmap) to trade speed for memory limits. | **Highly Distributed / Segmented:** Stores indexed data strictly across segregated query/index segments, requiring complex volume orchestration. |
 
-**Recommendation:** We recommend **Qdrant** for the AI Sandbox. Its single-binary Rust architecture drastically reduces idle resource footprint (fitting comfortably in the 8GB memory budget of the [Vector DB Setup](#job-vector-db-service) profile) and simplifies Kubernetes operations by avoiding external coordination dependencies (like etcd and MinIO) required by Milvus.
+**Decision:** We select **Qdrant** deployed as a centralized, always-on service rather than individual student instances.
+**Rationale:** Qdrant's single-binary Rust architecture vastly simplifies Kubernetes operations compared to Milvus. By deploying it as a dedicated central service with sufficient continuous memory allocation, we avoid the heavy IOPS penalty of `mmap`-ing database indices over the standard student NFS mounts, allowing vectors to remain performant in memory while serving all student RAG applications simultaneously.
 **References:**
   1. Qdrant Team, *Sizing Guide & Memory Estimation Formulas*, 2024. [Qdrant Docs](https://qdrant.tech/documentation/guides/sizing/)
   2. Milvus Project, *System Sizing and Deployment Guide*, 2024. [Milvus Docs](https://milvus.io/docs/system_configuration.md)
   3. Vector DB Comparison, *Benchmarking Qdrant vs. Milvus Latency and Recall*, 2023. [VectorDB Benchmarks](https://vector-db-benchmark.qdrant.tech/)
 
 ### 4.4: ML Training & Fine-Tuning Stack
-**Status:** Open — pending decision
+**Status:** Decided
 **Context:** Designing the software stack for single-GPU parameter-efficient training (PEFT/QLoRA) of 7B/8B models on the shared NVIDIA L40 GPU partition.
 **Options:**
 
@@ -138,14 +140,15 @@ flowchart TD
 | **Dependency Version Stability** | **High:** Fully validated and tested weekly by NVIDIA for hardware-level compatibility. | **Moderate:** Relies on community-supported packages; potential library-mismatch risks. | **Low:** Maintenance heavy; high risk of "dependency hell" during updates of PEFT/Transformers. |
 | **Student UX & Acceleration** | **Excellent:** Works immediately on L40 GPUs; saves students compiling deep learning extensions. | **Fair:** Students face compiler errors when installing libraries like `bitsandbytes` or `flash-attn`. | **Good:** Tailored exactly to course needs; but requires continuous maintenance of build configurations. |
 
-**Recommendation:** We recommend utilizing **Option A: Custom image built on top of NVIDIA NGC PyTorch (nvcr.io/nvidia/pytorch)** as the standard base. This stack should incorporate Hugging Face `transformers`, `peft` (for LoRA/QLoRA), `accelerate` (for single-GPU memory layout optimization), and `bitsandbytes` (for 4-bit precision quantization). The NGC base ensures deep CUDA-level optimizations for the L40 GPU out of the box, saving students hours of compilation time and eliminating dependency mismatches.
+**Decision:** We select **Option A: Custom image built on top of NVIDIA NGC PyTorch (`nvcr.io/nvidia/pytorch`)**, paired mandatorily with a **Kubernetes DaemonSet Image Pre-Puller**.
+**Rationale:** The NGC base ensures deep CUDA-level optimizations for the L40 GPU out of the box, saving students from complex compilation errors when using `peft` and `flash-attn`. To mitigate the massive (15GB+) image size and prevent 20-minute startup delays for students, we will deploy a Kubernetes DaemonSet that automatically pulls and caches this massive image onto the local disk of all worker nodes. Because the DaemonSet ensures the image is constantly active on all nodes, Kubernetes garbage collection will not delete it, yielding guaranteed sub-5-second startup times for student pods regardless of which node they are scheduled on.
 **References:**
   1. NVIDIA Corporation, *NGC Container Catalog - PyTorch Release Notes*, 2024. [NVIDIA NGC](https://catalog.ngc.nvidia.com/orgs/nvidia/containers/pytorch)
   2. Tim Dettmers et al., *QLoRA: Efficient Finetuning of Quantized LLMs*, NeurIPS 2023. [arXiv:2305.14314](https://arxiv.org/abs/2305.14314)
   3. Hugging Face, *PEFT: Parameter-Efficient Fine-Tuning Documentation*, 2024. [Hugging Face PEFT](https://huggingface.co/docs/peft/)
 
 ### 4.5: Data Pipeline Framework
-**Status:** Open — pending decision
+**Status:** Decided
 **Context:** Selecting a framework for student-scale data preprocessing (ETL, cleaning, and tokenization) spanning from gigabytes up to 100GB+ datasets on the CPU nodes.
 **Options:**
 
@@ -156,14 +159,15 @@ flowchart TD
 | **Memory Efficiency** | **Poor (Pandas) / Great (Polars):** Pandas loads entire dataset into RAM; Polars optimizes memory via streaming. | **Excellent:** Processes data in-memory partitions, streaming larger-than-RAM files automatically. | **Excellent:** Optimized for pipelined ML loading, directly feeding training loops. | **Good:** In-memory RDD caching, but suffers from JVM heap memory overhead. |
 | **Scalability** | **Single Node Only:** Limited to a single node's physical CPU and RAM limits. | **Multi-Node:** Scalable to large multi-node clusters using Dask schedulers. | **Multi-Node:** Native scaling for deep learning pipelines. | **Enterprise Scale:** Highly robust, but massive overkill for student sandbox datasets. |
 
-**Recommendation:** We recommend **Dask (paired with Polars/Pandas)** as the standard platform pipeline framework. It provides a familiar Python-centric API that fits academic curriculums seamlessly, while offering out-of-the-box scaling capabilities (via `dask-jobqueue` inside Slurm batch jobs or `dask-kubernetes` in pods) without the massive JVM deployment overhead of Apache Spark.
+**Decision:** We select **Dask and Polars** running strictly in **Single-Node** mode. We will not pursue complex distributed cluster frameworks (like Apache Spark or multi-node Dask via `jobqueue`).
+**Rationale:** Massive multi-node datasets (>100GB) are rare in the curriculum context. By bundling single-node Dask and Polars into the standard interactive Jupyter images, students can efficiently process moderately large datasets locally within their pod's memory limits without requiring the massive infrastructure overhead of a distributed compute layer.
 **References:**
   1. Matthew Rocklin, *Dask: Parallel Computation with Common Python APIs*, SciPy 2015. [SciPy Proceedings](https://proc.scipy.org/)
   2. Polars Development Group, *Polars: Lightning-fast DataFrame Library*, 2024. [Polars Docs](https://docs.pola.rs/)
   3. Ray Team, *Ray Data: Scalable Dataset Preprocessing for Machine Learning*, 2024. [Ray Docs](https://docs.ray.io/en/latest/data/data.html)
 
 ### 4.6: RAG Orchestration Framework
-**Status:** Open — pending decision
+**Status:** Decided
 **Context:** Students need an orchestration framework to connect vector databases, data sources, prompt templates, and LLMs into Retrieval-Augmented Generation (RAG) applications.
 **Options:**
 
@@ -174,7 +178,8 @@ flowchart TD
 | **Community & Ecosystem** | **Massive:** Largest ecosystem, extensive third-party plugins, but suffers from frequent breaking changes and api drift. | **Large & Fast Growing:** Outstanding focus on RAG, robust community, and highly stable APIs for data connections. |
 | **Documentation & Student UX** | **Dense:** Vast but sometimes fragmented, making it easy for students to get lost in outdated or overly complex tutorials. | **Outstanding:** Clean, cohesive documentation specifically curated for indexing and retrieval concepts. |
 
-**Recommendation:** We recommend **LlamaIndex** as the default framework for standard RAG courses and the [Reference Deployment: RAG Application Stack](#reference-deployment-rag-application-stack) due to its high-level, data-centric abstractions which allow students to focus on core AI concepts (chunking strategies, retrieval metrics) rather than debugging verbose orchestration boilerplate. However, **LangChain** should remain fully supported in interactive images for courses targeting advanced multi-agent and custom state-machine workflows.
+**Decision:** We select **LlamaIndex** as the primary framework for all RAG curriculum and reference deployments. LangChain is rejected for core RAG workflows.
+**Rationale:** LangChain is fundamentally an agent and workflow orchestration tool, not a dedicated RAG implementation. Attempting to force students to use LangChain for basic RAG introduces unnecessary boilerplate and complexity. LlamaIndex is deeply specialized for data ingestion, chunking, and retrieval, making it the far superior choice for teaching RAG concepts cleanly.
 **References:**
   1. Harrison Chase, *LangChain: Building Applications with LLMs through Composition*, 2023. [LangChain GitHub](https://github.com/langchain-ai/langchain)
   2. Jerry Liu, *LlamaIndex: Data Framework for LLM Applications*, 2023. [LlamaIndex Docs](https://docs.llamaindex.ai/)
@@ -200,25 +205,26 @@ flowchart TD
   3. NVIDIA Corporation, *NVIDIA Virtual GPU (vGPU) Software Licensing Guide*, 2024. [NVIDIA Licensing Docs](https://docs.nvidia.com/grid/index.html)
 
 ### 4.8: Monitoring & Observability
-**Status:** Open — pending decision
+**Status:** Decided
 **Context:** Deciding on the monitoring stack to collect, alert on, and visualize cluster and user workload metrics across the Slinky Kubernetes pods, Slurm queues, and GPU nodes.
 **Options:**
 
-| Evaluation Criterion | Option A: Native Slurm OpenMetrics + Prometheus Operator + DCGM Exporter | Option B: External Community `slurm_exporter` + Prometheus/Grafana | Option C: Pure Direct Slurm REST API Polling in Go Portal |
+| Evaluation Criterion | Option A: Native Slurm OpenMetrics + Prometheus Operator + DCGM Exporter + Node Exporter | Option B: External Community `slurm_exporter` + Prometheus/Grafana | Option C: Pure Direct Slurm REST API Polling in Go Portal |
 | :--- | :--- | :--- | :--- |
-| **Deployment & Ops Overhead** | **Low:** Built directly into Slinky's core architecture; utilizes native Slurm 24.11+ OpenMetrics endpoints and standard DCGM Exporter daemonset. | **Medium:** Requires deploying and maintaining an external translation container (e.g., vpenso) parsing CLI commands. | **High:** Requires writing custom polling, caching, and database storage logic directly inside the Go Portal. |
+| **Deployment & Ops Overhead** | **Low:** Built directly into Slinky's core architecture; utilizes native Slurm 24.11+ OpenMetrics endpoints, DCGM Exporter, and Node Exporter daemonsets. | **Medium:** Requires deploying and maintaining an external translation container (e.g., vpenso) parsing CLI commands. | **High:** Requires writing custom polling, caching, and database storage logic directly inside the Go Portal. |
 | **Historical & Trend Analysis** | **Outstanding:** Prometheus serves as a centralized time-series database, enabling multi-month resource tracking (e.g., student GPU-hours). | **Outstanding:** Full Prometheus/Grafana standard storage integrations. | **Poor:** Portal database must be continuously scaled to handle granular time-series telemetry. |
 | **Alerting Support** | **Native:** Employs Prometheus Alertmanager to immediately route alerts (GpuOOM, NodeDown) via Webhooks or Slack. | **Native:** Leverages Prometheus Alertmanager. | **Manual:** Requires implementing a custom notification and threshold evaluation engine inside Go. |
 | **GPU Telemetry Precision** | **In-Depth:** NVIDIA DCGM Exporter captures granular GPU temperatures, SM utilization, and memory usage per Pod. | **None:** Lacks direct physical GPU health and metrics integration without secondary exporters. | **Basic:** Can retrieve basic allocated GRES counts, but lacks physical GPU core/memory utilization. |
 
-**Recommendation:** We recommend **Option A: Native Slurm OpenMetrics + Prometheus Operator + NVIDIA DCGM Exporter**, directly aligning with the research findings in `docs/slurm_info_exchange_research.md`. The Go Portal will securely query the Prometheus HTTP API to render responsive, real-time student-facing resource usage dashboards, while Alertmanager handles system-level operational monitoring.
+**Decision:** We adopt a hybrid of **Option A**, utilizing **Native Slurm OpenMetrics, NVIDIA DCGM Exporter, and Prometheus Node Exporter** strictly for metric exposure, but we **reject** deploying the heavy Prometheus Operator/Grafana stack locally.
+**Rationale:** The AI Sandbox is part of a larger ecosystem and is not responsible for long-term telemetry storage or visualization. Running a local Prometheus time-series database would needlessly consume massive amounts of student RAM. Instead, the Sandbox will run the lightweight Exporters (DCGM for GPUs, Node Exporter for CPU/RAM/Disk, and Slurm OpenMetrics for queues) to expose the raw telemetry. This allows the external Central Management Portal's Prometheus server to scrape the full hardware and scheduling state remotely.
 **References:**
   1. SchedMD Corporation, *Slurm REST API & OpenMetrics Telemetry Specifications*, 2024. [SchedMD Docs](https://slurm.schedmd.com/rest_api.html)
   2. NVIDIA Corporation, *NVIDIA DCGM Exporter for Kubernetes Observability*, 2024. [NVIDIA DCGM GitHub](https://github.com/NVIDIA/gpu-monitoring-tools)
   3. Prometheus Operator Team, *ServiceMonitor & PrometheusRule Custom Resource Definition Guides*, 2024. [Prometheus Operator Docs](https://prometheus-operator.dev/)
 
 ### 4.9: Container Image Strategy
-**Status:** Open — pending decision
+**Status:** Decided
 **Context:** Selecting the optimal strategy to package and deliver various software environments (JupyterLab, PyTorch, RAG tools) to student pods upon job submission.
 **Options:**
 
@@ -229,7 +235,8 @@ flowchart TD
 | **Student Customization** | **Low:** Custom packages require building a new image or dynamically installing packages in ephemeral directories. | **High:** Students can dynamically create and edit their own Conda/pip environments on persistent shared NFS directories. | **None:** Locked to standard upstream image parameters with minimal room for curriculum specialization. |
 | **Storage / Registry Overhead** | **Medium:** Requires hosting a local/secure container registry within the university cluster network. | **Low:** Single large image cached on nodes; individual environments stored as file-level directories on NFS. | **None:** Zero local registry storage needed; pulled directly from global hub mirrors. |
 
-**Recommendation:** We recommend **Option A: Pre-baked OCI Image per Job Type** (e.g., `interactive-jupyter:latest`, `training-pytorch:latest`) managed through automated Git-driven CI/CD pipelines. This ensures rapid, predictable pod startups and guarantees identical environment execution across all students, completely avoiding the runtime scaling bottlenecks and filesystem thrashing typical of Conda-on-NFS deployments.
+**Decision:** We select **Option A: Pre-baked OCI Image per Job Type** mimicking the Google Colab model.
+**Rationale:** A Colab-style pre-baked image guarantees sub-5-second startup times by avoiding massive network pulls or network-attached metadata reads. We explicitly reject Conda environments (Option B) on the shared NFS storage, as the hundreds of thousands of tiny files associated with Conda environments would severely bottleneck NFS metadata operations and cause cluster-wide latency during peak startup times (e.g., start of class). For obscure or custom packages, students will utilize ephemeral `!pip install` commands within their notebooks.
 **References:**
   1. Slinky SchedMD, *Interactive Workload Image Deployment Best Practices*, 2025. [Slinky Docs](https://slinky.ai/)
   2. Kubernetes Documentation, *Container Image Pre-pulling and Scavenging Configurations*, 2024. [K8s Docs](https://kubernetes.io/docs/concepts/containers/images/)
