@@ -89,24 +89,25 @@ flowchart TD
   3. PEARC Proceedings, *The Shift to Cloud-Native Container Orchestration in Academic HPC Environments*, 2023. [PEARC Library](https://pearc.org/)
 
 ### 4.2: LLM Inference Runtime
-**Status:** Decided
-**Context:** The AI Sandbox provides a persistent shared inference endpoint (configured in the `inference` partition) and individual user inference runtimes to serve small-to-mid size LLMs (e.g., Llama 3.1 8B, Phi-3 14B) on NVIDIA L40 GPUs. We need to evaluate the most appropriate runtime engine.
+**Status:** Open — pending supervisor review
+**Context:** The AI Sandbox provides a persistent shared inference endpoint (configured in the `inference` partition) and individual user inference runtimes to serve small-to-mid size LLMs (e.g., Llama 3.1 8B, Phi-3 14B) on NVIDIA L40 GPUs. We need to evaluate the most appropriate runtime engine, particularly maximizing concurrency for the central shared endpoint.
 **Options:**
 
-| Evaluation Criterion | Option A: vLLM | Option B: Ollama |
-| :--- | :--- | :--- |
-| **Throughput & Concurrency** | **Extreme (High):** Achieved via continuous batching and PagedAttention, maximizing token generation under heavy concurrent student queries. | **Moderate:** Excellent for single-user/low-concurrency; struggles to scale throughput under concurrent parallel requests. |
-| **Setup & UX Complexity** | **High:** Requires python environments, custom startup scripts, configuration of engine args, and manual port routing. | **Extremely Low:** Single binary, simple CLI (`ollama run`), and automatic model downloading with zero-config local API server. |
-| **Memory Optimization** | **Advanced:** Dynamically manages KV Cache using PagedAttention, avoiding fragmentation and memory waste on L40 GPUs. | **Basic:** Relies on standard llama.cpp execution, which lacks high-concurrency PagedAttention optimizations. |
-| **API Compatibility** | **OpenAI-Compatible:** Native OpenAI API out-of-the-box, making it seamless for standard AI framework integrations. | **Proprietary & OpenAI:** Proprietary API endpoints, with basic OpenAI-compatibility wrapper available on port 11434. |
-| **Resource Footprint** | **Heavy:** Claims pre-allocated chunk of VRAM (default 90%) for KV cache, making sharing a single GPU challenging. | **Dynamic:** Allocates and frees GPU memory dynamically based on active usage, allowing high density of small models. |
+| Evaluation Criterion | Option A: vLLM | Option B: Ollama | Option C: NVIDIA Triton (TensorRT-LLM) |
+| :--- | :--- | :--- | :--- |
+| **Throughput & Concurrency** | **Very High:** Achieved via continuous batching and PagedAttention. Excellent for mixed concurrent workloads. | **Moderate:** Excellent for single-user prototyping; struggles to scale throughput under heavy parallel requests. | **Absolute Maximum:** Squeezes maximum hardware utilization via pre-compiled TensorRT engines. Outperforms vLLM at massive concurrency scales on L40 GPUs. |
+| **Setup & UX Complexity** | **Moderate:** Requires python environments, configuration of engine args, and manual port routing. | **Extremely Low:** Single binary, simple CLI (`ollama run`), and automatic model downloading with zero config. | **Extremely High:** Models cannot be run instantly; they must be Ahead-of-Time (AOT) compiled into TRT engines specific to the L40 architecture before serving. |
+| **Memory Optimization** | **Advanced:** Dynamically manages KV Cache using PagedAttention, avoiding fragmentation. | **Basic:** Relies on standard llama.cpp execution, lacking high-concurrency memory optimizations. | **Enterprise:** Highly optimized inflight batching and paged KV cache, strictly optimized for the specific compiled model. |
+| **API Compatibility** | **OpenAI-Compatible:** Native OpenAI API out-of-the-box, making it seamless for standard RAG integrations. | **Proprietary & OpenAI:** Proprietary API endpoints, with basic OpenAI-compatibility wrapper. | **Complex:** Requires Triton client libraries or an additional proxy wrapper layer to perfectly emulate the OpenAI API. |
+| **Resource Footprint** | **Heavy:** Claims pre-allocated chunk of VRAM (default 90%) for KV cache. | **Dynamic:** Allocates and frees GPU memory dynamically based on active usage. | **Heavy & Rigid:** Engine and KV cache memory constraints are rigidly defined during the compilation phase. |
 
-**Decision:** We standardize strictly on **vLLM** for all inference workloads (both the central shared inference endpoint and individual student environments). Ollama is rejected.
-**Rationale:** Standardizing on vLLM provides extreme throughput via continuous batching and PagedAttention, which is critical for multi-tenant environments. Maintaining a single engine across the entire stack drastically reduces the operational burden, ensures consistent OpenAI API compatibility everywhere, and avoids the instability and unpredictability seen with Ollama under load.
+**Recommendation:** We propose a **Dual-Engine Strategy** based on the workload origin:
+*   **Central Inference API (GPU #1):** If the university demands absolute maximum concurrent throughput, use **Option C (NVIDIA Triton + TensorRT-LLM)**. The administration team will incur the penalty of Ahead-Of-Time (AOT) engine compilation, but gain massive scalability for the shared endpoints.
+*   **Student Custom Inference (GPU #2):** For students testing their own custom fine-tuned models in interactive pods, **Option A (vLLM)** is mandatory. Triton requires students to write complex scripts to compile TensorRT engines specific to the L40 hardware, which is completely unfeasible for a learning environment. vLLM allows students to dynamically point to a HuggingFace directory and start serving their model in under 10 seconds.
 **References:**
-  1. Woosuk Kwon et al., *Efficient Memory Management for Large Language Model Serving with PagedAttention*, SOSP 2023. [ACM Digital Library](https://dl.acm.org/doi/10.1145/3600006.3613162)
-  2. vLLM Project Team, *vLLM Benchmarks & Architecture Documentation*, 2024. [vLLM Docs](https://docs.vllm.ai/)
-  3. Ollama Project, *Self-Hosting and API Reference*, 2024. [Ollama GitHub](https://github.com/ollama/ollama)
+  1. NVIDIA Corporation, *TensorRT-LLM Architecture and Triton Inference Server*, 2024. [NVIDIA Docs](https://developer.nvidia.com/tensorrt-llm)
+  2. Woosuk Kwon et al., *Efficient Memory Management for Large Language Model Serving with PagedAttention*, SOSP 2023. [ACM Digital Library](https://dl.acm.org/doi/10.1145/3600006.3613162)
+  3. vLLM Project Team, *vLLM Benchmarks & Architecture Documentation*, 2024. [vLLM Docs](https://docs.vllm.ai/)
 
 ### 4.3: Vector Database
 **Status:** Decided
