@@ -232,8 +232,17 @@ fi
 # =====================================================
 log_step "6. Multi-User Storage Isolation"
 
+echo "🔍 Dynamically discovering worker pod names..."
+WORKER_PODS=($(kubectl get pods -n slurm -l app.kubernetes.io/name=slurmd -o jsonpath='{.items[*].metadata.name}'))
+if [ ${#WORKER_PODS[@]} -eq 0 ]; then
+  echo "❌ ERROR: No slurmd worker pods found!"
+  exit 1
+fi
+echo "Found worker pods: ${WORKER_PODS[*]}"
+FIRST_WORKER_POD="${WORKER_PODS[0]}"
+
 echo "👤 Ensuring test users exist..."
-for pod in slurm-worker-slinky-0 slurm-worker-slinky-1; do
+for pod in "${WORKER_PODS[@]}"; do
   kubectl exec -n slurm -c slurmd "${pod}" -- id -u user1 &>/dev/null || \
     kubectl exec -n slurm -c slurmd "${pod}" -- useradd -u 1001 -m -s /bin/bash user1
   kubectl exec -n slurm -c slurmd "${pod}" -- id -u user2 &>/dev/null || \
@@ -241,17 +250,17 @@ for pod in slurm-worker-slinky-0 slurm-worker-slinky-1; do
 done
 
 echo "📂 Creating isolated project directories..."
-kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- mkdir -p /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
-kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- chown 1001:1001 /mnt/storage/projects/project_user1
-kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- chown 1002:1002 /mnt/storage/projects/project_user2
-kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- chmod 770 /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
+kubectl exec -n slurm -c slurmd "${FIRST_WORKER_POD}" -- mkdir -p /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
+kubectl exec -n slurm -c slurmd "${FIRST_WORKER_POD}" -- chown 1001:1001 /mnt/storage/projects/project_user1
+kubectl exec -n slurm -c slurmd "${FIRST_WORKER_POD}" -- chown 1002:1002 /mnt/storage/projects/project_user2
+kubectl exec -n slurm -c slurmd "${FIRST_WORKER_POD}" -- chmod 770 /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
 
 echo "📝 Submitting authorized job (user1 writing to project_user1)..."
-kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- su -s /bin/bash user1 -c \
+kubectl exec -n slurm -c slurmd "${FIRST_WORKER_POD}" -- su -s /bin/bash user1 -c \
   "sbatch --wait --wrap=\"echo 'user1_write_ok' > /mnt/storage/projects/project_user1/test.txt\""
 
 echo "🔍 Verifying authorized job output..."
-if kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- cat /mnt/storage/projects/project_user1/test.txt | grep -q "user1_write_ok"; then
+if kubectl exec -n slurm -c slurmd "${FIRST_WORKER_POD}" -- cat /mnt/storage/projects/project_user1/test.txt | grep -q "user1_write_ok"; then
   echo "✅ Authorized write succeeded!"
 else
   echo "❌ ERROR: Authorized write failed!"
@@ -259,7 +268,7 @@ else
 fi
 
 echo "📝 Submitting unauthorized job (user1 writing to project_user2)..."
-if kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- su -s /bin/bash user1 -c \
+if kubectl exec -n slurm -c slurmd "${FIRST_WORKER_POD}" -- su -s /bin/bash user1 -c \
   "sbatch --wait --wrap=\"echo 'user1_intrusion' > /mnt/storage/projects/project_user2/test.txt\"" 2>/dev/null; then
   echo "❌ ERROR: Unauthorized job succeeded when it should have been blocked!"
   exit 1
@@ -268,7 +277,7 @@ else
 fi
 
 echo "🧹 Cleaning up test users and directories..."
-kubectl exec -n slurm -c slurmd slurm-worker-slinky-0 -- rm -rf /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
+kubectl exec -n slurm -c slurmd "${FIRST_WORKER_POD}" -- rm -rf /mnt/storage/projects/project_user1 /mnt/storage/projects/project_user2
 echo "✅ Test 6 Passed: Multi-user storage isolation verified!"
 
 # =====================================================
@@ -302,10 +311,10 @@ echo "⏳ Waiting for slurm-bridge to register the job..."
 sleep 10
 
 echo "🔍 Verifying job is visible in the queue..."
-QUEUE_OUTPUT=\$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- squeue || true)
-echo "\${QUEUE_OUTPUT}"
+QUEUE_OUTPUT=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- squeue || true)
+echo "${QUEUE_OUTPUT}"
 
-if echo "\${QUEUE_OUTPUT}" | grep -q "test-bridge"; then
+if echo "${QUEUE_OUTPUT}" | grep -q "test-bridge"; then
   echo "✅ Test 7 Passed: Pod was successfully scheduled by slurm-bridge and registered as a Slurm job!"
 else
   echo "⚠️ WARNING: Pod was not found in squeue. Slurm-bridge scheduling might be incomplete due to missing Slurm node annotations on Kind nodes."
