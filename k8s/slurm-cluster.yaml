@@ -1,0 +1,100 @@
+apiVersion: slurm.slinky.net/v1alpha1
+kind: SlurmCluster
+metadata:
+  name: slurm
+  namespace: slurm
+spec:
+  clusterName: slurm
+  controller:
+    persistence:
+      enabled: true
+      existingClaim: slurm-state-pvc
+    slurmctld:
+      image:
+        repository: slurmctld-custom
+        tag: latest
+      volumeMounts:
+        - name: extrausers-vol
+          mountPath: /var/lib/extrausers
+          subPath: common/etc
+        - name: slurm-state-vol
+          mountPath: /var/spool/slurmctld
+    podSpec:
+      volumes:
+        - name: extrausers-vol
+          persistentVolumeClaim:
+            claimName: slinky-storage-pvc
+        - name: slurm-state-vol
+          persistentVolumeClaim:
+            claimName: slurm-state-pvc
+  restapi:
+    replicas: 1
+    slurmrestd:
+      image:
+        repository: slurmrestd-custom
+        tag: latest
+      volumeMounts:
+        - name: extrausers-vol
+          mountPath: /var/lib/extrausers
+          subPath: common/etc
+    podSpec:
+      volumes:
+        - name: extrausers-vol
+          persistentVolumeClaim:
+            claimName: slinky-storage-pvc
+  nodeSets:
+    - name: slurmd-cpu
+      scalingMode: StatefulSet
+      replicas: 2
+      slurmd:
+        image:
+          repository: slurmd-custom
+          tag: latest
+        volumeMounts:
+          - name: slinky-storage
+            mountPath: /mnt/storage
+          - name: extrausers-vol
+            mountPath: /var/lib/extrausers
+            subPath: common/etc
+            readOnly: true
+      podSpec:
+        volumes:
+          - name: slinky-storage
+            persistentVolumeClaim:
+              claimName: slinky-storage-pvc
+          - name: extrausers-vol
+            persistentVolumeClaim:
+              claimName: slinky-storage-pvc
+    - name: slurmd-gpu
+      scalingMode: StatefulSet
+      replicas: 1
+      slurmd:
+        image:
+          repository: slurmd-custom
+          tag: latest
+        volumeMounts:
+          - name: slinky-storage
+            mountPath: /mnt/storage
+          - name: extrausers-vol
+            mountPath: /var/lib/extrausers
+            subPath: common/etc
+            readOnly: true
+      podSpec:
+        volumes:
+          - name: slinky-storage
+            persistentVolumeClaim:
+              claimName: slinky-storage-pvc
+          - name: extrausers-vol
+            persistentVolumeClaim:
+              claimName: slinky-storage-pvc
+  partitions:
+    all:
+      enabled: true
+      nodesets:
+        - slurmd-cpu
+        - slurmd-gpu
+      configMap:
+        State: UP
+        Default: "YES"
+        MaxTime: UNLIMITED
+        OverSubscribe: "YES"

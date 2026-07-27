@@ -2,6 +2,30 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 21] - 2026-07-12: Core slurm-operator and NodeSet Deployment
+
+*   **Author:** Jules (Async)
+*   **Goal:** Separate the Slurm system state from student storage by provisioning slurm-state-pv/pvc, and define the SlurmCluster custom resource with slurmd-cpu and slurmd-gpu NodeSets to support local partition routing tests.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Storage Orchestration Layout:**
+    *   Updated `k8s/pv-pvc.yaml`: Appended `slurm-state-pv` (5Gi hostPath mapped to `/mnt/slurm-state`) and the matching `slurm-state-pvc` (5Gi manual storage claim) to explicitly isolate Slurm state saving from student storage (`slinky-storage-pvc`).
+2.  **Slinky SlurmCluster Definition:**
+    *   Created `k8s/slurm-cluster.yaml`: Defined `SlurmCluster` custom resource under the `slurm` namespace with two mock NodeSets (`slurmd-cpu` and `slurmd-gpu`) to support local partition routing tests. Mounts `slurm-state-pvc` to the `slurmctld` pod specification for its state persistence.
+
+### 💡 Why This Design?
+*   **Storage Isolation:** Separating the Slurm controller system state (`slurm-state-pvc`) from the student storage (`slinky-storage-pvc`) prevents user quota exhaustion or workspace instability from crashing the cluster scheduler or controller.
+*   **Routing Fidelity:** Provisioning two distinct NodeSets (`slurmd-cpu` and `slurmd-gpu`) under `nodeSets` in `SlurmCluster` allows testing of partition routing policies locally.
+
+### 🛠️ Verification Steps
+1.  **YAML Syntax Validation:**
+    *   Verified `k8s/slurm-cluster.yaml` and `k8s/pv-pvc.yaml` parse successfully using standard Python YAML libraries.
+2.  **Restricted File Audit:**
+    *   Audited files modified and confirmed that `k8s/values.yaml`, `k8s/slurm-bridge-values.yaml`, and `k8s/kind-config.yaml` remain unmodified.
+
+---
+
 ## [Increment 20] - 2026-07-10: Tutorial Placement Research - Use Cases & Trade-offs
 
 *   **Author:** Jules (Async)
