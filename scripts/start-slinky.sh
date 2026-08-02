@@ -12,14 +12,13 @@ kubectl apply -f k8s/pv-pvc.yaml
 echo "🛠️ Building and loading custom Slurm images..."
 ./scripts/build-custom-images.sh
 
-echo "⏳ Waiting for slurm-operator-controller-manager to be available..."
-kubectl wait -n slinky --for=condition=available deployment/slurm-operator-controller-manager --timeout=300s
+echo "⏳ Waiting for slurm-operator to be available..."
+kubectl wait -n slinky --for=condition=available deployment/slurm-operator --timeout=300s
 
-echo "📦 Applying declarative SlurmCluster CRD..."
-kubectl apply -f k8s/slurm-cluster.yaml
+helm install slurm oci://ghcr.io/slinkyproject/charts/slurm --namespace slurm --create-namespace -f k8s/values.yaml
 
 echo "⏳ Waiting for slurmctld to be ready (needed for token generation)..."
-kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=slurmctld -n slurm --timeout=300s
+kubectl wait --for=condition=ready pod/slurm-controller-0 -n slurm --timeout=300s
 
 echo "🔐 Generating SLURM_JWT token for slurm-bridge..."
 BRIDGE_TOKEN=$(kubectl exec -n slurm slurm-controller-0 -c slurmctld -- scontrol token lifespan=unlimited | cut -d= -f2 | tr -d '\r')
