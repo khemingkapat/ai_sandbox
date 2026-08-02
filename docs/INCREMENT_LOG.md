@@ -23,6 +23,31 @@ This file tracks every discrete increment made during the Slinky migration. Its 
     *   Verified `k8s/slurm-cluster.yaml` and `k8s/pv-pvc.yaml` parse successfully using standard Python YAML libraries.
 2.  **Restricted File Audit:**
     *   Audited files modified and confirmed that `k8s/values.yaml`, `k8s/slurm-bridge-values.yaml`, and `k8s/kind-config.yaml` remain unmodified.
+## [Increment 21] - 2026-07-11: Update Slinky Deployment and Verification Scripts
+
+*   **Author:** Jules (Async)
+*   **Goal:** Transition Slinky deployment to a fully declarative model using the new `SlurmCluster` CRD, and update the verification suite to dynamically target NodeSet worker pods.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Deployment Orchestration:**
+    *   Updated `scripts/start-slinky.sh`:
+        *   Removed legacy `helm install slurm` command.
+        *   Added explicit wait for `slurm-operator-controller-manager` deployment to be available before applying the CRD.
+        *   Applied declarative `k8s/slurm-cluster.yaml` manifest.
+        *   Updated wait condition for slurmctld to use operator-managed label selectors (`-l app.kubernetes.io/name=slurmctld`).
+2.  **Infrastructure Verification:**
+    *   Updated `scripts/verify-infrastructure.sh`:
+        *   Modified Test 6 (Multi-User Storage Isolation) to dynamically query NodeSet slurmd worker pod names via `kubectl` rather than using hardcoded `slurm-worker-slinky-0` or `slurm-worker-slinky-1` names.
+        *   Fixed syntax issues in Test 7.
+
+### 💡 Why This Design?
+*   **Declarative Standard:** By using `kubectl apply -f k8s/slurm-cluster.yaml` instead of Helm, we align with the production Kubernetes-native resource orchestration paradigm.
+*   **Robust Worker Discovery:** Querying pod names dynamically via labels makes the verification script resilient to changes in cluster topology, naming schemas, or node scaling.
+
+### 🛠️ Verification Steps
+1.  Check shell scripts for valid syntax using `bash -n`.
+2.  Verify correct CRD application and label selector updates in scripts.
 
 ---
 
