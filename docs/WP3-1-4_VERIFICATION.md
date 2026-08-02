@@ -21,9 +21,9 @@ Without this, everything downstream (QoS policies in WP3-1-5, container images i
 
 ## 2. What Has Been Done
 
-### 2.1 Declarative SlurmCluster CRD ([slurm-cluster.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/slurm-cluster.yaml))
+### 2.1 Slurm Deployment via Helm ([k8s/values.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/values.yaml))
 
-Replaced the old `helm install slurm` approach with a declarative `SlurmCluster` custom resource. This manifest defines:
+Reverted the broken `SlurmCluster` CRD attempt and went back to using the official Slinky Helm chart to correctly provision granular CRDs (`Controller`, `NodeSet`, `RestAPI`). This defines:
 
 | Component | Detail |
 |---|---|
@@ -52,8 +52,8 @@ The startup script now follows this sequence:
 1. Install `cert-manager`, `slurm-operator-crds`, `slurm-operator`
 2. Create `slurm` namespace + apply PV/PVCs
 3. Build custom Slurm images → load into Kind
-4. Wait for `slurm-operator-controller-manager` to be ready
-5. Apply `slurm-cluster.yaml` (declarative CRD)
+4. Wait for `slurm-operator` to be ready
+5. Install Slinky `slurm` helm chart using `k8s/values.yaml`
 6. Wait for `slurmctld` → generate JWT → store as K8s Secret
 7. Install `slurm-bridge` Helm chart
 8. Label/annotate `kind-worker3` as a bridge-managed external node
@@ -103,23 +103,23 @@ kubectl wait --for=condition=Ready nodes --all --timeout=60s
 
 ```bash
 # Check operator is running
-kubectl get deployment -n slinky slurm-operator-controller-manager
+kubectl get deployment -n slinky slurm-operator
 
-# Check the SlurmCluster resource was accepted
-kubectl get slurmclusters -n slurm
+# Check the Slurm Helm release was accepted
+helm list -n slurm
 
 # Check all Slurm pods are running
 kubectl get pods -n slurm -o wide
 ```
 
 **Acceptance Criteria:**
-- [ ] `slurm-operator-controller-manager` deployment shows `1/1 READY`
-- [ ] `kubectl get slurmclusters` returns the `slurm` cluster with no error conditions
+- [ ] `kubectl get deployments -n slinky` shows `slurm-operator` as `1/1 READY`
+- [ ] `helm list -n slurm` returns the `slurm` release as deployed
 - [ ] The following pods exist and are `Running`:
   - `slurm-controller-0` (the `slurmctld`)
   - `slurm-restapi-*` (1 replica)
-  - `slurm-slurmd-cpu-0`, `slurm-slurmd-cpu-1` (2 CPU workers)
-  - `slurm-slurmd-gpu-0` (1 GPU-label worker, running on CPU)
+  - `slurm-worker-slurmd-cpu-0`, `slurm-worker-slurmd-cpu-1` (2 CPU workers)
+  - `slurm-worker-slurmd-gpu-0` (1 GPU-label worker, running on CPU)
 
 ---
 
@@ -200,11 +200,11 @@ kubectl exec -n slurm -c slurmctld slurm-controller-0 -- scontrol show job "$JOB
 ```bash
 # Submit to CPU nodes only
 CPU_JOB=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- \
-  sbatch --parsable --nodelist=slurm-slurmd-cpu-0 --wrap="hostname" -N 1)
+  sbatch --parsable --nodelist=slurmd-cpu-0 --wrap="hostname" -N 1)
 
 # Submit to GPU node only
 GPU_JOB=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- \
-  sbatch --parsable --nodelist=slurm-slurmd-gpu-0 --wrap="hostname" -N 1)
+  sbatch --parsable --nodelist=slurmd-gpu-0 --wrap="hostname" -N 1)
 
 echo "CPU job: $CPU_JOB, GPU job: $GPU_JOB"
 
