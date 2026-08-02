@@ -27,3 +27,33 @@ spec:
     requests:
       storage: 20Gi
   volumeName: slinky-storage-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: slurm-state-pv
+  namespace: slurm
+  labels:
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /mnt/slurm-state
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: slurm-state-pvc
+  namespace: slurm
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  volumeName: slurm-state-pv
