@@ -1,0 +1,11 @@
+---
+slurmd:
+  volumeMounts:
+    - name: dcgm-job-mapping
+      mountPath: '{{ include "slurm.vendor.nvidia.dcgm.jobMappingDir" $ }}'
+podSpec:
+  volumes:
+    - name: dcgm-job-mapping
+      hostPath:
+        type: DirectoryOrCreate
+        path: '{{ include "slurm.vendor.nvidia.dcgm.jobMappingDir" $ }}'

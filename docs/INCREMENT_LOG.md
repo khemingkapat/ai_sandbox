@@ -2,6 +2,32 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 22] - 2026-07-14: WP3-1-5 Scheduling Policies and Resource Fencing
+
+*   **Author:** Jules (Async)
+*   **Goal:** Configure scheduling policies including fair-share algorithm, accounting backend with MariaDB StatefulSet and slurmdbd Deployment, and the four student partitions with strict resource fencing limits.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Slurm Database Backend Deployment:**
+    *   Created `helm/slurm/templates/mariadb-statefulset.yaml`: Defined MariaDB StatefulSet, Service, and secret definitions, dynamically integrated with the accounting storage configuration.
+    *   Created `helm/slurm/templates/slurmdbd-deployment.yaml`: Defined slurmdbd Deployment, Service, and ConfigMap definitions to communicate with MariaDB and slurmctld.
+2.  **Slurm Fair-Share and Partition Configuration:**
+    *   Created `helm/slurm/config/slurm.conf`: Configured `PriorityType=priority/multifactor`, `PriorityWeightFairshare=10000`, `AccountingStorageType=accounting_storage/slurmdbd`, and defined the four partitions (`interactive`, `batch-cpu`, `batch-gpu`, `inference`) with `PreemptMode=OFF` and resource fencing (`MaxTRESPerJob`) matching exact Capacity Planning constraints.
+    *   Modified `helm/slurm/values.yaml`: Enabled the `accounting` block, configured fair-share under `controller.extraConf`, and defined the four partitions with respective PriorityTiers and `MaxTRESPerJob` constraints.
+3.  **Documentation Tracking:**
+    *   Updated `docs/WORK_PACKAGES.md`: Marked WP3-1-5 as completed (🟢 Done) and added comprehensive references to Capacity Planning and the Increment Log.
+
+### 💡 Why This Design?
+*   **Fair Sharing:** Native Multifactor Fair-Share scheduling ensures equitable resource distribution among students.
+*   **Volatile Memory Protection:** Disabling preemption across partitions prevents sudden termination of active student notebooks (avoiding state loss in Jupyter/VS Code), while strict resource fencing limits (`MaxTRESPerJob`) guarantee constant interactive GPU headroom.
+*   **Operator Coexistence:** Seamlessly packages MariaDB and slurmdbd into Slinky's Helm templates to ensure clean manifest compilation and linter validation out of the box.
+
+### 🛠️ Verification Steps
+1.  **Syntactic Validation:**
+    *   Ran `helm lint helm/slurm` to verify chart syntax (0 failures).
+    *   Ran `helm template helm/slurm` to successfully render all manifests.
+
 ## [Increment 21] - 2026-07-12: Core slurm-operator and NodeSet Deployment
 
 *   **Author:** Jules (Async)

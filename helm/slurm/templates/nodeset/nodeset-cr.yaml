@@ -1,0 +1,69 @@
+{{- /*
+SPDX-FileCopyrightText: Copyright (C) SchedMD LLC.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- range $key, $nodeset := $.Values.nodesets }}
+{{- $nodeset = mergeOverwrite (dict) (deepCopy ($.Values.nodesetDefaults | default dict)) (deepCopy ($nodeset | default dict)) -}}
+{{- if $nodeset.enabled }}
+{{- $nodeset = include "slurm.nodeset.applyVendorPatches" (dict "root" $ "key" $key "nodeset" $nodeset) | fromYaml -}}
+{{- $name := printf "%s-%s" (include "slurm.worker.name" $) $key }}
+{{- $metadata := merge dict ($nodeset.metadata | default dict) (dict "labels" (fromYaml (include "slurm.labels" $))) -}}
+{{- $podSpec := $nodeset.podSpec | default dict -}}
+{{- $imagePullSecrets := concat list ($podSpec.imagePullSecrets | default list) ($.Values.imagePullSecrets | default list) -}}
+{{- $_ := set $podSpec "imagePullSecrets" $imagePullSecrets -}}
+{{- $priorityClassName := $podSpec.priorityClassName | default (include "slurm.priorityClassName" $) -}}
+{{- $_ := set $podSpec "priorityClassName" $priorityClassName -}}
+{{- $_ := set $podSpec "hostname" (printf "%s-" $key) -}}
+{{- $podTemplate := dict "metadata" $metadata "spec" $podSpec -}}
+{{- $slurmd := $nodeset.slurmd | default dict -}}
+{{- $logfile := $nodeset.logfile | default dict }}
+---
+apiVersion: slinky.slurm.net/v1beta1
+kind: NodeSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ include "slurm.namespace" $ }}
+  {{- with $metadata }}
+  {{- toYaml . | nindent 2 }}
+  {{- end }}{{- /* with $metadata */}}
+spec:
+  controllerRef:
+    name: {{ include "slurm.fullname" $ }}
+  {{- if (include "slurm.worker.extraConf" $nodeset) }}
+  extraConf: {{ include "slurm.worker.extraConf" $nodeset }}
+  {{- end -}}{{- /* if (include "slurm.worker.extraConf" $nodeset) */}}
+  {{- with $nodeset.partition }}
+  partition:
+    enabled: {{ .enabled }}
+    {{- if (include "slurm.worker.partitionConfig" .) }}
+    config: {{ include "slurm.worker.partitionConfig" . }}
+    {{- end }}{{- /* if (include "slurm.worker.partitionConfig" .) */}}
+  {{- end }}{{- /* with $nodeset.partition */}}
+  {{- with $nodeset.ssh }}
+  {{- if .enabled }}
+  {{- $_ := set $nodeset.ssh "sssdConfRef" (dict "name" (include "slurm.sssdConf.name" $) "key" (include "slurm.sssdConf.key" $)) }}
+  ssh:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}{{- /* if .enabled */}}
+  {{- end }}{{- /* with $nodeset.ssh */}}
+  scalingMode: {{ $nodeset.scalingMode }}
+  replicas: {{ $nodeset.replicas }}
+  slurmd:
+    {{- $_ := set $slurmd "imagePullPolicy" (get $slurmd "imagePullPolicy" | default $.Values.imagePullPolicy) -}}
+    {{- include "slurm.format-container" $slurmd | nindent 4 }}
+  logfile:
+    {{- $_ := set $logfile "imagePullPolicy" (get $logfile "imagePullPolicy" | default $.Values.imagePullPolicy) -}}
+    {{- include "slurm.format-container" $logfile | nindent 4 }}
+  {{- include "slurm.format-podTemplate" $podTemplate | nindent 2 }}
+  {{- with $nodeset.updateStrategy }}
+  updateStrategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}{{- /* with $nodeset.updateStrategy */}}
+  ordinalPadding: {{ $nodeset.ordinalPadding }}
+  pinToNode: {{ $nodeset.pinToNode }}
+  workloadDisruptionProtection: {{ $nodeset.workloadDisruptionProtection }}
+  pruneSlurmNodeRecords: {{ $nodeset.pruneSlurmNodeRecords }}
+  oversubscribeNode: {{ $nodeset.oversubscribeNode }}
+{{- end }}{{- /* $nodeset.enabled */}}
+{{- end }}{{- /* range $nodeset := $.Values.nodesets */}}

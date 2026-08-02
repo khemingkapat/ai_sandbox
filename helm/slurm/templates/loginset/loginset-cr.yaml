@@ -1,0 +1,59 @@
+{{- /*
+SPDX-FileCopyrightText: Copyright (C) SchedMD LLC.
+SPDX-License-Identifier: Apache-2.0
+*/}}
+
+{{- range $key, $loginset := $.Values.loginsets }}
+{{- $loginset = mergeOverwrite (dict) (deepCopy ($.Values.loginsetDefaults | default dict)) (deepCopy ($loginset | default dict)) -}}
+{{- if $loginset.enabled }}
+{{- $name := printf "%s-%s" (include "slurm.login.name" $) $key }}
+{{- $metadata := merge dict ($loginset | dig "metadata" dict) (dict "labels" (fromYaml (include "slurm.labels" $))) -}}
+{{- $podSpec := $loginset | dig "podSpec" dict -}}
+{{- $imagePullSecrets := concat list ($podSpec | dig "imagePullSecrets" list) ($.Values.imagePullSecrets | default list) -}}
+{{- $_ := set $podSpec "imagePullSecrets" $imagePullSecrets -}}
+{{- $priorityClassName := $podSpec | dig "priorityClassName" "" | default (include "slurm.priorityClassName" $) -}}
+{{- $_ := set $podSpec "priorityClassName" $priorityClassName -}}
+{{- $podTemplate := dict "metadata" $metadata "spec" $podSpec -}}
+{{- $login := $loginset | dig "login" dict -}}
+{{- $initconf := $loginset | dig "initconf" dict }}
+---
+apiVersion: slinky.slurm.net/v1beta1
+kind: LoginSet
+metadata:
+  name: {{ $name }}
+  namespace: {{ include "slurm.namespace" $ }}
+{{- with $metadata }}
+  {{- toYaml . | nindent 2 }}
+{{- end }}{{- /* with $metadata */}}
+spec:
+  controllerRef:
+    name: {{ include "slurm.fullname" $ }}
+  {{- with $loginset.extraSshdConfig }}
+  extraSshdConfig: |
+    {{- . | nindent 4 }}
+  {{- end }}{{- /* with $loginset.extraSshdConfig */}}
+  sssdConfRef:
+    name: {{ include "slurm.sssdConf.name" $ }}
+    key: {{ include "slurm.sssdConf.key" $ }}
+  {{- with $loginset.rootSshAuthorizedKeys }}
+  rootSshAuthorizedKeys: |
+    {{- . | nindent 4 }}
+  {{- end }}{{- /* with $loginset.rootSshAuthorizedKeys */}}
+  replicas: {{ $loginset.replicas }}
+  {{- with $loginset.strategy }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}{{- /* with $loginset.strategy */}}
+  login:
+    {{- $_ := set $login "imagePullPolicy" ($login | dig "imagePullPolicy" "" | default $.Values.imagePullPolicy) -}}
+    {{- include "slurm.format-container" $login | nindent 4 }}
+  {{- include "slurm.format-podTemplate" $podTemplate | nindent 2 }}
+  initconf:
+    {{- $_ := set $initconf "imagePullPolicy" ($initconf | dig "imagePullPolicy" "" | default $.Values.imagePullPolicy) -}}
+    {{- include "slurm.format-container" $initconf | nindent 4 }}
+  {{- with $loginset | dig "service" dict }}
+  service:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}{{- /* with $loginset | dig "service" dict */}}
+{{- end }}{{- /* $loginset.enabled */}}
+{{- end }}{{- /* range $loginset := $.Values.loginsets */}}
