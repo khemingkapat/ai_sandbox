@@ -4,7 +4,7 @@ description: "A simple Python script running natively. This application is priva
 icon: "🐍"
 type: "batch"
 image_file: "python.sif"
-exec_command: "python3 $WORKSPACE/hello.py"
+exec_command: "srun $WORKSPACE/hello.py"
 slurm_args:
   nodes: "1"
   ntasks: "2"
