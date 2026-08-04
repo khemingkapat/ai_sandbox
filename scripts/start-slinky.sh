@@ -5,8 +5,9 @@ echo "📦 Installing Slinky components..."
 helm install cert-manager oci://quay.io/jetstack/charts/cert-manager --namespace cert-manager --create-namespace --set crds.enabled=true
 helm install slurm-operator-crds oci://ghcr.io/slinkyproject/charts/slurm-operator-crds --namespace slinky --create-namespace
 helm install slurm-operator oci://ghcr.io/slinkyproject/charts/slurm-operator --namespace slinky --wait
-# Create slurm namespace and apply PV/PVC configuration
+# Create slurm and workload namespaces and apply PV/PVC configuration
 kubectl create namespace slurm --dry-run=client -o yaml | kubectl apply -f -
+kubectl create namespace workload --dry-run=client -o yaml | kubectl apply -f -
 kubectl apply -f k8s/pv-pvc.yaml
 
 echo "🛠️ Building and loading custom Slurm images..."
