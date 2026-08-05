@@ -224,9 +224,9 @@ flowchart TD
   2. NVIDIA Corporation, *NVIDIA DCGM Exporter for Kubernetes Observability*, 2024. [NVIDIA DCGM GitHub](https://github.com/NVIDIA/gpu-monitoring-tools)
   3. Prometheus Operator Team, *ServiceMonitor & PrometheusRule Custom Resource Definition Guides*, 2024. [Prometheus Operator Docs](https://prometheus-operator.dev/)
 
-### 4.9: Container Image Strategy
+### 4.9: Container Image Strategy (Interactive vs. Batch)
 **Status:** Decided
-**Context:** Selecting the optimal strategy to package and deliver various software environments (JupyterLab, PyTorch, RAG tools) to student pods upon job submission.
+**Context:** Selecting the optimal strategy to package and deliver isolated software environments (JupyterLab, PyTorch, RAG tools) for both dynamically spawned interactive sessions and long-running batch Slinky workers.
 **Options:**
 
 | Evaluation Criterion | Option A: Pre-baked OCI Image per Job Type | Option B: Single Base Image + Runtime Conda Environments | Option C: Direct Upstream NGC/DockerHub Images |
@@ -236,8 +236,17 @@ flowchart TD
 | **Student Customization** | **Low:** Custom packages require building a new image or dynamically installing packages in ephemeral directories. | **High:** Students can dynamically create and edit their own Conda/pip environments on persistent shared NFS directories. | **None:** Locked to standard upstream image parameters with minimal room for curriculum specialization. |
 | **Storage / Registry Overhead** | **Medium:** Requires hosting a local/secure container registry within the university cluster network. | **Low:** Single large image cached on nodes; individual environments stored as file-level directories on NFS. | **None:** Zero local registry storage needed; pulled directly from global hub mirrors. |
 
-**Decision:** We select **Option A: Pre-baked OCI Image per Job Type** mimicking the Google Colab model.
-**Rationale:** A Colab-style pre-baked image guarantees sub-5-second startup times by avoiding massive network pulls or network-attached metadata reads. We explicitly reject Conda environments (Option B) on the shared NFS storage, as the hundreds of thousands of tiny files associated with Conda environments would severely bottleneck NFS metadata operations and cause cluster-wide latency during peak startup times (e.g., start of class). For obscure or custom packages, students will utilize ephemeral `!pip install` commands within their notebooks.
+**Decision:** We mandate a **Bifurcated Image Strategy**:
+1. **Interactive Sessions:** Pre-baked OCI Images (Option A) managed natively by Kubernetes.
+2. **Batch Jobs (Slinky workers):** Apptainer (`.sif`) files executed inside the long-running Slinky `slurmd` worker Pods.
+
+**Rationale:** 
+For **Interactive Sessions**, Colab-style pre-baked OCI images guarantee sub-5-second startup times by avoiding massive network pulls. We explicitly reject Conda environments (Option B) on the shared NFS storage, as the hundreds of thousands of tiny files would severely bottleneck NFS metadata operations. For obscure or custom packages, students will utilize ephemeral `!pip install` commands within their notebooks.
+For **Batch Jobs**, standard OCI images cannot be dynamically swapped because the Slinky `slurmd` worker Pod is already a long-running, persistent container. We explicitly reject traditional HPC alternatives for the following reasons:
+* **Python `venv` / Conda on NFS:** Suffer from extreme metadata IOPS bottlenecks on shared storage and critically fail to package system-level C-libraries (e.g., specific glibc versions or CUDA drivers) required by complex ML workloads.
+* **`module load` (Lmod):** While standard in bare-metal HPC, it provides zero namespace isolation, couples software tightly to the host OS, and is an architectural anti-pattern when executing inside Kubernetes Pods.
+
+To achieve true OS-level encapsulation without destroying the NFS metadata server, we mandate **Apptainer `.sif` files**. To resolve the resulting container-in-container execution issue, the Slinky `slurmd` NodeSet Pods must be deployed with elevated privileges (`securityContext: { privileged: true }`).
 **References:**
   1. Slinky SchedMD, *Interactive Workload Image Deployment Best Practices*, 2025. [Slinky Docs](https://slinky.ai/)
   2. Kubernetes Documentation, *Container Image Pre-pulling and Scavenging Configurations*, 2024. [K8s Docs](https://kubernetes.io/docs/concepts/containers/images/)
