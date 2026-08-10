@@ -327,6 +327,29 @@ grep -n "app.kubernetes.io/name=slurmd" scripts/verify-infrastructure.sh
 - [ ] Zero matches for `slurm-worker-slinky` (old hardcoded names are gone)
 - [ ] At least 2 matches for `app.kubernetes.io/name=slurmd` (dynamic label selector is in use)
 
+### Test 9: Privileged Apptainer Container-in-Container Execution
+
+**Purpose:** Verify that the static `slurmd` worker pods are running with `privileged: true` and can successfully mount and execute an Apptainer `.sif` file inside the K8s pod.
+
+```bash
+# Verify the GPU worker pod has privileged mode enabled
+kubectl get pod slurm-worker-slurmd-gpu-0 -n slurm -o jsonpath='{.spec.containers[0].securityContext.privileged}'
+# Expected: true
+
+# Submit a test batch job that calls apptainer
+APPTAINER_JOB=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- \
+  sbatch --parsable --nodelist=slurmd-gpu-0 --wrap="apptainer exec docker://alpine cat /etc/os-release" -N 1)
+
+# Wait for completion
+sleep 15
+kubectl exec -n slurm -c slurmctld slurm-controller-0 -- scontrol show job "$APPTAINER_JOB"
+```
+
+**Acceptance Criteria:**
+- [ ] The `jsonpath` query confirms `privileged: true` is set on the `slurmd` container.
+- [ ] The `sbatch` job runs successfully and reaches `COMPLETED` state.
+- [ ] The job's output file (`slurm-<jobid>.out`) contains the Alpine Linux OS release text, proving that Apptainer successfully pulled and executed an image from inside the Kubernetes pod.
+
 ---
 
 ## 4. Remaining WP3-1-4 Work
