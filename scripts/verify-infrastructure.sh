@@ -323,6 +323,55 @@ fi
 echo "🧹 Cleaning up test pod..."
 kubectl delete pod test-bridge-job -n workload --grace-period=0 --force || true
 
+# =====================================================
+# TEST 9: Privileged Apptainer Execution
+# =====================================================
+log_step "9. Privileged Apptainer Execution"
+
+echo "🔍 Verifying GPU worker pod has privileged mode enabled..."
+PRIVILEGED=$(kubectl get pod slurm-worker-slurmd-gpu-0 -n slurm -o jsonpath='{.spec.containers[0].securityContext.privileged}')
+if [ "$PRIVILEGED" != "true" ]; then
+  echo "❌ ERROR: slurm-worker-slurmd-gpu-0 is not running in privileged mode!"
+  exit 1
+fi
+echo "✅ Privileged mode verified."
+
+echo "📝 Submitting test batch job with Apptainer..."
+APPTAINER_JOB=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- \
+  sbatch --parsable --chdir=/mnt/storage --nodelist=slurmd-gpu-0 --wrap="apptainer exec docker://alpine cat /etc/os-release" -N 1)
+echo "Job ID: ${APPTAINER_JOB}"
+
+echo "⏳ Waiting for Apptainer job to complete..."
+timeout=30
+while [ $timeout -gt 0 ]; do
+  STATE=$(kubectl exec -n slurm -c slurmctld slurm-controller-0 -- scontrol show job "${APPTAINER_JOB}" | grep 'JobState=' | sed -e 's/.*JobState=\([^ ]*\).*/\1/' | xargs)
+  if [[ "${STATE}" == "COMPLETED" ]]; then
+    break
+  elif [[ "${STATE}" == "FAILED" || "${STATE}" == "CANCELLED" || "${STATE}" == "NODE_FAIL" ]]; then
+    break
+  fi
+  sleep 2
+  timeout=$((timeout-2))
+done
+
+if [ "$STATE" != "COMPLETED" ]; then
+  echo "❌ ERROR: Apptainer job failed to complete. State: $STATE"
+  kubectl exec -n slurm -c slurmctld slurm-controller-0 -- cat "/mnt/storage/slurm-${APPTAINER_JOB}.out" 2>/dev/null || true
+  exit 1
+fi
+
+echo "🔍 Verifying Apptainer job output..."
+if kubectl exec -n slurm -c slurmctld slurm-controller-0 -- cat "/mnt/storage/slurm-${APPTAINER_JOB}.out" | grep -qi "alpine"; then
+  echo "✅ Test 9 Passed: Apptainer successfully pulled and executed Alpine image!"
+else
+  echo "❌ ERROR: Apptainer job output did not contain 'alpine'."
+  kubectl exec -n slurm -c slurmctld slurm-controller-0 -- cat "/mnt/storage/slurm-${APPTAINER_JOB}.out" 2>/dev/null || true
+  exit 1
+fi
+
+# Cleanup Apptainer job output
+kubectl exec -n slurm -c slurmctld slurm-controller-0 -- rm -f "/mnt/storage/slurm-${APPTAINER_JOB}.out" "/mnt/storage/slurm-${APPTAINER_JOB}.err" || true
+
 echo ""
 echo "====================================================="
 echo "🎉 SUCCESS: All infrastructure tests passed!"
