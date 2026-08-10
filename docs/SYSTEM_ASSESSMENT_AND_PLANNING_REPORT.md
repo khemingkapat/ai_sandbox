@@ -205,16 +205,15 @@ This section documents each major technology choice, the alternatives that were 
 
 Traditional university HPC clusters use Apptainer (formerly Singularity) to run containers as `.sif` files on bare-metal. In our Slinky architecture, Apptainer creates a nested container problem (a container running inside a Kubernetes pod), which causes performance and security issues. This decision locks in a single, unified container standard.
 
-| Evaluation Criterion | Option A: Native OCI (Docker) via Slinky slurm-bridge | Option B: Dual-Path (OCI for interactive, Apptainer for batch) | Option C: Pure Apptainer |
+| Evaluation Criterion | Option A: Dual-Path (Privileged Apptainer) | Option B: Dual-Path (Rootless/Sysbox) | Option C: Native OCI-Only via slurm-bridge |
 | :--- | :--- | :--- | :--- |
-| **Consistency** | **Single standard:** All jobs use the same OCI image format. | **Split standard:** Two separate image formats and build pipelines. | **Single standard:** All Apptainer, but requires nested containers inside K8s pods. |
-| **Portal Complexity** | **Low:** Portal only needs to handle one container type. | **High:** Portal must detect and route two different job types to two different runtimes. | **High:** Requires complex rootless namespace mapping and SUID workarounds inside K8s. |
-| **Student Experience** | **Excellent:** Students use standard Dockerfiles, the same as industry practice. | **Mixed:** Batch students must learn a separate Apptainer `.def` file format. | **Poor:** Students must learn Apptainer format; container nesting causes instability. |
-| **Performance** | **Best:** Direct bare-metal container execution via containerd, no translation layer. | **Mixed:** OCI is fast; Apptainer adds overhead for batch jobs. | **Lowest:** Nested container execution degrades performance. |
+| **GPU Integration** | **Flawless:** `privileged: true` allows seamless NVIDIA GPU passthrough for batch jobs. | **Broken:** Unprivileged namespaces conflict heavily with proprietary NVIDIA drivers. | **N/A:** Destroys native Slurm batch capabilities entirely. |
+| **Kubernetes Node Security** | **Poor:** `slurmd` pods have full root access to the underlying worker node. | **Excellent:** Execution contained in user-space. | **Excellent:** Standard K8s OCI boundaries. |
+| **Student Experience** | **Excellent:** Apptainer `.sif` files run exactly as they do on standard university HPC clusters. | **Poor:** Job failures due to rootless container restrictions. | **Mixed:** Eliminates `.sif` files, forcing all jobs through Kubernetes. |
 
-**Decision:** All job types (interactive and batch) will run as native OCI containers managed by Slinky's `slurm-bridge`. Apptainer is retired from all execution paths.
+**Decision:** We adopt **Option A: Dual-Path Execution (Privileged Apptainer)**. Interactive web-based workloads will run as native OCI containers managed dynamically by `slurm-bridge`. Batch workloads will be submitted as raw bash scripts to the static `slurmd` worker pods and execute using Apptainer `.sif` files. To make container-in-container execution work with full NVIDIA GPU passthrough, the `slurmd` worker pods will be explicitly configured with `securityContext: { privileged: true }`.
 
-**Justification:** A single OCI standard eliminates container-in-container nesting, removes security workarounds, and means the Go Portal only needs to handle one image format. Students use the same Dockerfiles they would use in industry, which is better preparation for real-world engineering work.
+**Justification:** While architecturally "impure" and insecure from a strict Kubernetes perspective, using `privileged: true` is the functional industry standard for passing NVIDIA GPUs into nested Apptainer batch jobs. We accept this security tradeoff to ensure robust, bare-metal-speed GPU integration for student AI jobs.
 
 **References:**
 1. SchedMD Slinky Project, *Native OCI Container Support via slurm-bridge*, 2025. [SchedMD Slinky](https://slinky.ai/)

@@ -77,12 +77,12 @@ flowchart TD
 **Status:** Decided
 **Context:** Transitioning from traditional HPC-centric Apptainer (Singularity) workloads to modern, cloud-native containerized execution in the Slinky-based AI Sandbox. Historically, university clusters have relied on Apptainer to run user-provided `.sif` files on bare-metal. However, in our hybrid Slurm-on-Kubernetes (Slinky) setup, using Apptainer creates complex nesting (containers running inside Kubernetes pods). This introduces substantial performance and security challenges (such as rootless namespace mapping, SUID permission requirements, or complex `proot` workarounds). Furthermore, maintaining two distinct pipelines (OCI images for interactive sessions like Jupyter, and Apptainer files for batch training) doubles the codebase and logic complexity in the Go Portal.
 **Options Considered:**
-  1. **Dual-Path Execution:** Running interactive workloads via native OCI containers (Kubernetes Pods) and batch workloads via Apptainer `.sif` files executing on bare-metal nodes.
-  2. **Pure Apptainer Strategy:** Standardizing all interactive and batch workloads on Apptainer, running them within customized outer pods.
-  3. **Native OCI-Only Execution via Slinky `slurm-bridge`:** Standardizing all interactive and batch workloads strictly on native OCI images managed directly by Kubernetes and scheduled via Slurm (Selected).
-**Decision:** All job types (both interactive and batch) will run as native OCI containers managed by Slinky's `slurm-bridge`. Apptainer is completely retired from the core execution paths.
-**Rationale:** Choosing a unified OCI-only approach completely eliminates container-in-container nesting, security workarounds, and the double maintenance burden of dual execution paths in our custom Go Portal. Utilizing Slinky's native `slurm-bridge` allows us to leverage Kubernetes' standard OCI registry caching, security boundaries, and storage attachments directly while preserving Slurm's fair-share scheduler.
-**Consequences:** Students will use standard Dockerfiles (to be built into OCI images via local registries or CI/CD pipelines) instead of Apptainer Definition Files. Any existing Apptainer `.sif` images must undergo a one-time conversion to Docker/OCI format before running on the platform.
+  1. **Dual-Path Execution (Privileged Apptainer):** Running interactive workloads via native OCI containers (Kubernetes Pods) and batch workloads via Apptainer `.sif` files executing inside the static K8s `slurmd` pods (requiring `privileged: true`).
+  2. **Dual-Path Execution (Rootless/Sysbox Apptainer):** Attempting to run the Apptainer `.sif` files using unprivileged user namespaces or specialized runtimes like Sysbox to preserve K8s node security.
+  3. **Native OCI-Only Execution:** Standardizing all workloads on native OCI images via `slurm-bridge`, abandoning Apptainer completely.
+**Decision:** We will adopt **Option 1: Dual-Path Execution (Privileged Apptainer)**. Interactive web-based workloads will run as native OCI containers managed dynamically by `slurm-bridge`. Batch workloads will be submitted as raw bash scripts to the static `slurmd` worker pods and execute using Apptainer `.sif` files. To make container-in-container execution work with full NVIDIA GPU passthrough, the `slurmd` worker pods will be explicitly configured with `securityContext: { privileged: true }`.
+**Rationale:** While Option 2 (Rootless/Sysbox) is architecturally safer, the complexity of passing proprietary NVIDIA drivers and `/dev/nvidia*` devices through unprivileged Linux namespaces makes it operationally unfeasible for this Sandbox. We explicitly accept the security tradeoff of `privileged: true` to ensure robust, bare-metal-speed GPU integration for student AI batch jobs. Option 3 (OCI-only) breaks native Slurm batch capabilities.
+**Consequences:** The Go Portal will maintain a two-pronged submission logic. Security policies (like OPA Gatekeeper) must have an explicit exception for the `slurmd` pods to allow privileged execution. We rely on strict K8s RBAC and volume permissions to contain blast radius.
 **References:**
   1. SchedMD Slinky Project, *Native OCI Container Support via slurm-bridge*, 2025. [SchedMD Slinky](https://slinky.ai/)
   2. Apptainer Documentation, *Nesting Containers and Rootless Execution Challenges*, 2024. [Apptainer Docs](https://apptainer.org/docs/user/main/index.html)
@@ -224,9 +224,9 @@ flowchart TD
   2. NVIDIA Corporation, *NVIDIA DCGM Exporter for Kubernetes Observability*, 2024. [NVIDIA DCGM GitHub](https://github.com/NVIDIA/gpu-monitoring-tools)
   3. Prometheus Operator Team, *ServiceMonitor & PrometheusRule Custom Resource Definition Guides*, 2024. [Prometheus Operator Docs](https://prometheus-operator.dev/)
 
-### 4.9: Container Image Strategy
+### 4.9: Container Image Strategy (Interactive vs. Batch)
 **Status:** Decided
-**Context:** Selecting the optimal strategy to package and deliver various software environments (JupyterLab, PyTorch, RAG tools) to student pods upon job submission.
+**Context:** Selecting the optimal strategy to package and deliver isolated software environments (JupyterLab, PyTorch, RAG tools) for both dynamically spawned interactive sessions and long-running batch Slinky workers.
 **Options:**
 
 | Evaluation Criterion | Option A: Pre-baked OCI Image per Job Type | Option B: Single Base Image + Runtime Conda Environments | Option C: Direct Upstream NGC/DockerHub Images |
@@ -236,8 +236,17 @@ flowchart TD
 | **Student Customization** | **Low:** Custom packages require building a new image or dynamically installing packages in ephemeral directories. | **High:** Students can dynamically create and edit their own Conda/pip environments on persistent shared NFS directories. | **None:** Locked to standard upstream image parameters with minimal room for curriculum specialization. |
 | **Storage / Registry Overhead** | **Medium:** Requires hosting a local/secure container registry within the university cluster network. | **Low:** Single large image cached on nodes; individual environments stored as file-level directories on NFS. | **None:** Zero local registry storage needed; pulled directly from global hub mirrors. |
 
-**Decision:** We select **Option A: Pre-baked OCI Image per Job Type** mimicking the Google Colab model.
-**Rationale:** A Colab-style pre-baked image guarantees sub-5-second startup times by avoiding massive network pulls or network-attached metadata reads. We explicitly reject Conda environments (Option B) on the shared NFS storage, as the hundreds of thousands of tiny files associated with Conda environments would severely bottleneck NFS metadata operations and cause cluster-wide latency during peak startup times (e.g., start of class). For obscure or custom packages, students will utilize ephemeral `!pip install` commands within their notebooks.
+**Decision:** We mandate a **Bifurcated Image Strategy**:
+1. **Interactive Sessions:** Pre-baked OCI Images (Option A) managed natively by Kubernetes.
+2. **Batch Jobs (Slinky workers):** Apptainer (`.sif`) files executed inside the long-running Slinky `slurmd` worker Pods.
+
+**Rationale:** 
+For **Interactive Sessions**, Colab-style pre-baked OCI images guarantee sub-5-second startup times by avoiding massive network pulls. We explicitly reject Conda environments (Option B) on the shared NFS storage, as the hundreds of thousands of tiny files would severely bottleneck NFS metadata operations. For obscure or custom packages, students will utilize ephemeral `!pip install` commands within their notebooks.
+For **Batch Jobs**, standard OCI images cannot be dynamically swapped because the Slinky `slurmd` worker Pod is already a long-running, persistent container. We explicitly reject traditional HPC alternatives for the following reasons:
+* **Python `venv` / Conda on NFS:** Suffer from extreme metadata IOPS bottlenecks on shared storage and critically fail to package system-level C-libraries (e.g., specific glibc versions or CUDA drivers) required by complex ML workloads.
+* **`module load` (Lmod):** While standard in bare-metal HPC, it provides zero namespace isolation, couples software tightly to the host OS, and is an architectural anti-pattern when executing inside Kubernetes Pods.
+
+To achieve true OS-level encapsulation without destroying the NFS metadata server, we mandate **Apptainer `.sif` files**. To resolve the resulting container-in-container execution issue, the Slinky `slurmd` NodeSet Pods must be deployed with elevated privileges (`securityContext: { privileged: true }`).
 **References:**
   1. Slinky SchedMD, *Interactive Workload Image Deployment Best Practices*, 2025. [Slinky Docs](https://slinky.ai/)
   2. Kubernetes Documentation, *Container Image Pre-pulling and Scavenging Configurations*, 2024. [K8s Docs](https://kubernetes.io/docs/concepts/containers/images/)

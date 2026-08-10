@@ -543,7 +543,14 @@
           {{ range $key, $value := .SlurmArgs }}
           <div class="config-group">
             <label>{{ $key }}</label>
+            {{ if eq $key "constraint" }}
+            <select name="slurm_{{ $key }}" style="background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 10px; font-family: var(--mono); font-size: 12px; border-radius: 2px;">
+              <option value="slurmd-cpu" {{ if eq $value "slurmd-cpu" }}selected{{ end }}>CPU Node</option>
+              <option value="slurmd-gpu" {{ if eq $value "slurmd-gpu" }}selected{{ end }}>GPU Node</option>
+            </select>
+            {{ else }}
             <input type="text" name="slurm_{{ $key }}" value="{{ $value }}">
+            {{ end }}
           </div>
           {{ end }}
         </div>
@@ -824,9 +831,9 @@
     const form = new FormData();
     form.append('app_id', appId);
 
-    const inputs = document.querySelectorAll(`#config-${appId} input`);
-    inputs.forEach(input => {
-      form.append(input.name, input.value); // Appends all slurm_* fields!
+    const fields = document.querySelectorAll(`#config-${appId} input, #config-${appId} select`);
+    fields.forEach(field => {
+      form.append(field.name, field.value);
     });
 
     try {
