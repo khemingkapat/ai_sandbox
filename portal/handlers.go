@@ -258,7 +258,7 @@ export BASE_URL="/%[1]s/jupyter/$SLURM_JOB_ID"
 	// Conditionally run in Apptainer or directly on the host
 	if targetApp.ImageFile != "" {
 		sb.WriteString(fmt.Sprintf(`
-apptainer exec --bind %[1]s:%[1]s \
+srun apptainer exec --bind %[1]s:%[1]s \
     --bind /mnt/storage/common:/mnt/storage/common:ro \
     %[2]s/%[3]s \
     bash -c "%[4]s"
@@ -311,6 +311,9 @@ curl -s -X POST http://portal:8080/api/internal/release-port \
 	}
 	if val, ok := finalSlurmArgs["partition"]; ok {
 		jobDesc.Partition = ptr.To(val)
+	}
+	if val, ok := finalSlurmArgs["constraint"]; ok {
+		jobDesc.Constraints = ptr.To(val)
 	}
 
 	submitReq := api.V0042JobSubmitReq{
