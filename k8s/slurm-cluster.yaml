@@ -88,7 +88,7 @@ spec:
             persistentVolumeClaim:
               claimName: slinky-storage-pvc
   partitions:
-    all:
+    interactive:
       enabled: true
       nodesets:
         - slurmd-cpu
@@ -96,5 +96,36 @@ spec:
       configMap:
         State: UP
         Default: "YES"
-        MaxTime: UNLIMITED
+        MaxTime: "02:00:00"
         OverSubscribe: "YES"
+        PreemptMode: "OFF"
+        QoS: "interactive_qos"
+    batch-cpu:
+      enabled: true
+      nodesets:
+        - slurmd-cpu
+      configMap:
+        State: UP
+        MaxTime: "1-00:00:00"
+        OverSubscribe: "YES"
+        PreemptMode: "OFF"
+        QoS: "batch_cpu_qos"
+    batch-gpu:
+      enabled: true
+      nodesets:
+        - slurmd-cpu
+        - slurmd-gpu
+      configMap:
+        State: UP
+        MaxTime: "7-00:00:00"
+        OverSubscribe: "YES"
+        PreemptMode: "OFF"
+    inference:
+      enabled: true
+      nodesets:
+        - slurmd-gpu
+      configMap:
+        State: UP
+        MaxTime: "12:00:00"
+        OverSubscribe: "YES"
+        PreemptMode: "OFF"

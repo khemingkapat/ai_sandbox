@@ -98,7 +98,9 @@ controller:
     resources:
       requests:
         storage: 4Gi
-  extraConf: null
+  extraConf: |
+    PriorityWeightFairShare=10000
+    AccountingStorageEnforce=limits,qos
   extraConfMap: {}
   metadata: {}
   podSpec:
@@ -157,7 +159,7 @@ restapi:
     metadata: {}
     spec: {}
 accounting:
-  enabled: false
+  enabled: true
   external: false
   externalConfig:
     host: slurmdbd.example.com
@@ -296,7 +298,7 @@ nodesets:
     metadata: *id007
     podSpec: *id008
 partitions:
-  all:
+  interactive:
     enabled: true
     nodesets:
     - slurmd-cpu
@@ -305,8 +307,44 @@ partitions:
     configMap:
       State: UP
       Default: 'YES'
-      MaxTime: UNLIMITED
+      MaxTime: '02:00:00'
       OverSubscribe: 'YES'
+      PreemptMode: 'OFF'
+      QoS: interactive_qos
+  batch-cpu:
+    enabled: true
+    nodesets:
+    - slurmd-cpu
+    config: null
+    configMap:
+      State: UP
+      MaxTime: '1-00:00:00'
+      OverSubscribe: 'YES'
+      PreemptMode: 'OFF'
+      QoS: batch_cpu_qos
+  batch-gpu:
+    enabled: true
+    nodesets:
+    - slurmd-cpu
+    - slurmd-gpu
+    config: null
+    configMap:
+      State: UP
+      MaxTime: '7-00:00:00'
+      OverSubscribe: 'YES'
+      PreemptMode: 'OFF'
+      QoS: batch_gpu_qos
+  inference:
+    enabled: true
+    nodesets:
+    - slurmd-gpu
+    config: null
+    configMap:
+      State: UP
+      MaxTime: '12:00:00'
+      OverSubscribe: 'YES'
+      PreemptMode: 'OFF'
+      QoS: inference_qos
 vendor:
   nvidia:
     dcgm:
