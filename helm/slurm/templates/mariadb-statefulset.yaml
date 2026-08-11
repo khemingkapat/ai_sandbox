@@ -1,0 +1,64 @@
+{{- if .Values.accounting.enabled }}
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.accounting.storageConfig.passwordKeyRef.name }}
+  namespace: {{ include "slurm.namespace" . }}
+type: Opaque
+data:
+  {{ .Values.accounting.storageConfig.passwordKeyRef.key }}: {{ "slurmpassword" | b64enc | quote }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ .Values.accounting.storageConfig.host }}
+  namespace: {{ include "slurm.namespace" . }}
+spec:
+  serviceName: {{ .Values.accounting.storageConfig.host }}
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ .Values.accounting.storageConfig.host }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.accounting.storageConfig.host }}
+    spec:
+      containers:
+      - name: mariadb
+        image: mariadb:10.11
+        ports:
+        - containerPort: {{ .Values.accounting.storageConfig.port }}
+          name: mysql
+        env:
+        - name: MYSQL_ROOT_PASSWORD
+          value: "rootpassword"
+        - name: MYSQL_DATABASE
+          value: {{ .Values.accounting.storageConfig.database | quote }}
+        - name: MYSQL_USER
+          value: {{ .Values.accounting.storageConfig.username | quote }}
+        - name: MYSQL_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ .Values.accounting.storageConfig.passwordKeyRef.name }}
+              key: {{ .Values.accounting.storageConfig.passwordKeyRef.key }}
+        volumeMounts:
+        - name: mariadb-data
+          mountPath: /var/lib/mysql
+      volumes:
+      - name: mariadb-data
+        emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.accounting.storageConfig.host }}
+  namespace: {{ include "slurm.namespace" . }}
+spec:
+  ports:
+  - port: {{ .Values.accounting.storageConfig.port }}
+    targetPort: {{ .Values.accounting.storageConfig.port }}
+    name: mysql
+  selector:
+    app: {{ .Values.accounting.storageConfig.host }}
+{{- end }}

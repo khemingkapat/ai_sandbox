@@ -16,10 +16,18 @@ echo "🛠️ Building and loading custom Slurm images..."
 echo "⏳ Waiting for slurm-operator to be available..."
 kubectl wait -n slinky --for=condition=available deployment/slurm-operator --timeout=300s
 
+echo "🗄️ Deploying MariaDB for Slurm accounting..."
+kubectl apply -f k8s/mariadb.yaml
+echo "⏳ Waiting for MariaDB to be ready..."
+kubectl wait --for=condition=ready pod -l app.kubernetes.io/name=mariadb -n slurm --timeout=120s
+
 helm install slurm oci://ghcr.io/slinkyproject/charts/slurm --namespace slurm --create-namespace -f k8s/values.yaml
 
 echo "⏳ Waiting for slurmctld to be ready (needed for token generation)..."
 kubectl wait --for=condition=ready pod/slurm-controller-0 -n slurm --timeout=300s
+
+echo "📊 Configuring accounting QoS and TRES limits..."
+./scripts/setup-accounting.sh
 
 echo "🔐 Generating SLURM_JWT token for slurm-bridge..."
 BRIDGE_TOKEN=$(kubectl exec -n slurm slurm-controller-0 -c slurmctld -- scontrol token lifespan=unlimited | cut -d= -f2 | tr -d '\r')
@@ -30,7 +38,7 @@ helm install slurm-bridge oci://ghcr.io/slinkyproject/charts/slurm-bridge --name
 
 echo "🏷️  Registering dedicated compute node (kind-worker3) with Slurm..."
 kubectl label node kind-worker3 scheduler.slinky.slurm.net/slurm-bridge-external-node=true --overwrite
-kubectl annotate node kind-worker3 scheduler.slinky.slurm.net/external-node-partitions=all --overwrite
+kubectl annotate node kind-worker3 scheduler.slinky.slurm.net/external-node-partitions=interactive,batch-cpu,batch-gpu,inference --overwrite
 
 echo "🔧 Fixing inotify limits for Traefik file watcher..."
 for node in $(kind get nodes); do

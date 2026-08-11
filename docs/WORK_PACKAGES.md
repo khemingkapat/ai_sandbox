@@ -15,7 +15,7 @@
 | 2 | Capacity Planning & Workload Profiling | 🏗️ Foundation | 🟢 Done |
 | 3 | Tech Stack Selection & Architecture Decision | 🏗️ Foundation | 🟢 Done |
 | 4 | Slinky Deployment & Orchestrator Integration | 🏗️ Foundation | 🟡 Partial |
-| 5 | Slurm Policy & Resource Configuration | 🧩 Services | 🔴 Not started |
+| 5 | Slurm Policy & Resource Configuration | 🧩 Services | 🟢 Done |
 | 6 | Container Environment & Image Pipeline | 🧩 Services | 🟡 Partial |
 | 7 | Shared Storage, Datasets & Model Repository | 🧩 Services | 🟡 Partial |
 | 8 | Network & Security Baseline | 🧩 Services | 🟡 Partial |
@@ -68,12 +68,13 @@ Deploy the full Slinky stack — slurm-operator, slurm-bridge, controller, worke
 
 ## Phase 2: Central Services 🧩
 
-### WP3-1-5: Slurm Policy & Resource Configuration
+### WP3-1-5: Slurm Policy & Resource Configuration 🟢
 Configure scheduling policies — partitions, QoS, fair-share, preemption.
-- Partition definitions (interactive, batch-cpu, batch-gpu, inference)
-- QoS levels (student, power-user, admin)
-- Fair-share and priority rules
-- Resource limit enforcement
+- **Spec / Reference:** See [Capacity Planning](./CAPACITY_PLANNING.md) and [Increment Log](./INCREMENT_LOG.md) for WP3-1-5.
+- ✅ Partition definitions (interactive, batch-cpu, batch-gpu, inference) configured via `values.yaml` and `slurm.conf` with `PreemptMode=OFF` and capacity planning limits.
+- ✅ Native Fair-Share scheduling enabled (`PriorityType=priority/multifactor` and `PriorityWeightFairshare=10000`).
+- ✅ Dropped explicit QoS tiers (power-user, admin) in favor of resource fencing limits (`MaxTRESPerJob`).
+- ✅ MariaDB StatefulSet and `slurmdbd` deployment manifests integrated into Helm.
 
 ### WP3-1-6: Container Environment & Image Pipeline
 Build curated OCI images for interactive workloads, validate Apptainer for batch, and migrate manifest schema.
