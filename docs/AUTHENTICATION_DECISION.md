@@ -24,7 +24,22 @@ While flat files are perfect for a sandbox or small team, they become a severe b
 3. **No Automatic Provisioning:** Just adding a user to a text file doesn't create their home directory or set ownership. An administrator still has to run `mkdir` and `chown` for every user.
 4. **Security & Auditing:** Flat files lack granular access control. Passwords (even disabled ones in the `shadow` file) and group memberships are not easily audited or integrated with standard enterprise security tools.
 
-## 3. Future State: Slurm + OIDC (The "Userless" Approach)
+## 3. The New Challenge: Slurm Accounting (`sacctmgr`)
+
+With the recent introduction of Slurm Accounting (`slurmdbd` + MariaDB) and strict resource enforcement (`AccountingStorageEnforce=limits,qos`), we now have a **two-tier identity problem**.
+
+It is no longer enough for a user to simply exist at the OS level (via flat files or OIDC). For a user to successfully submit a job, their identity must be synchronized across two distinct systems:
+1. **OS-Level Identity:** Linux needs to know who the user is (UID/GID) for file permissions and execution.
+2. **Slurm-Level Identity:** Slurm needs to know who the user is in its MariaDB database to track usage and enforce QoS (Quality of Service) limits.
+
+### What This Means for Provisioning
+Whenever a new user or project is onboarded, an administrator (or automated system) must now execute Slurm accounting commands inside the cluster:
+- `sacctmgr add account <project_name>`
+- `sacctmgr add user <username> account=<project_name> qos=<allowed_qos>`
+
+**The Gap:** If a user is authorized at the OS or OIDC level but missing from `sacctmgr` (or vice-versa), Slurm will reject their jobs with an "Invalid account" error. Whether we stick to flat files or move to OIDC, we *must* build an orchestration layer (like an Identity Management API) that automatically handles `sacctmgr` provisioning in sync with identity creation.
+
+## 4. Future State: Slurm + OIDC (The "Userless" Approach)
 
 For future production scale, we have decided to pursue **Approach 3: Slurm + OIDC (OpenID Connect)**. 
 
