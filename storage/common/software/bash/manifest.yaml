@@ -1,0 +1,12 @@
+id: "bash"
+name: "Interactive Shell"
+description: "Lightweight web terminal running directly in the browser via ttyd."
+icon: "🖥️"
+type: "interactive"
+image: "interactive-bash:latest"
+exec_command: "ttyd -p $ALLOCATED_PORT -b $BASE_URL -W -w $WORKSPACE /bin/bash"
+slurm_args:
+  nodes: "1"
+  ntasks: "1"
+  cpus-per-task: "1"
+  mem: "1G"
