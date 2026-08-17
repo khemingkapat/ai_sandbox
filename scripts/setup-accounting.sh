@@ -17,25 +17,25 @@ $CTRL_EXEC sacctmgr add account default_acct Description="Default account" Organ
 
 echo "  → Creating QoS: interactive_qos (cpu=4, mem=16G)"
 $CTRL_EXEC sacctmgr add qos interactive_qos \
-  MaxTRESPerJob=cpu=4,mem=16384 \
+  MaxTRESPerJob=cpu=4,mem=16G \
   Priority=200 \
   -i 2>/dev/null || true
 
 echo "  → Creating QoS: batch_cpu_qos (cpu=16, mem=64G)"
 $CTRL_EXEC sacctmgr add qos batch_cpu_qos \
-  MaxTRESPerJob=cpu=16,mem=65536 \
+  MaxTRESPerJob=cpu=16,mem=64G \
   Priority=100 \
   -i 2>/dev/null || true
 
 echo "  → Creating QoS: batch_gpu_qos (cpu=16, mem=64G)"
 $CTRL_EXEC sacctmgr add qos batch_gpu_qos \
-  MaxTRESPerJob=cpu=16,mem=65536 \
+  MaxTRESPerJob=cpu=16,mem=64G \
   Priority=100 \
   -i 2>/dev/null || true
 
 echo "  → Creating QoS: inference_qos (mem=32G)"
 $CTRL_EXEC sacctmgr add qos inference_qos \
-  MaxTRESPerJob=mem=32768 \
+  MaxTRESPerJob=mem=32G \
   Priority=300 \
   -i 2>/dev/null || true
 
@@ -46,12 +46,15 @@ $CTRL_EXEC scontrol update PartitionName=batch-cpu QoS=batch_cpu_qos
 $CTRL_EXEC scontrol update PartitionName=batch-gpu QoS=batch_gpu_qos
 $CTRL_EXEC scontrol update PartitionName=inference QoS=inference_qos
 
-# Add root and slurm users to accounting (needed for sbatch inside slurmctld container)
+# Add root and slurm users to accounting (needed for sbatch and slurm-bridge REST API)
 echo "  → Adding root and slurm users to accounting..."
-$CTRL_EXEC sacctmgr add user root account=default_acct -i 2>/dev/null || true
-$CTRL_EXEC sacctmgr add user slurm account=default_acct -i 2>/dev/null || true
-$CTRL_EXEC sacctmgr modify user root set qos=normal,interactive_qos,batch_cpu_qos,batch_gpu_qos,inference_qos -i 2>/dev/null || true
-$CTRL_EXEC sacctmgr modify user slurm set qos=normal,interactive_qos,batch_cpu_qos,batch_gpu_qos,inference_qos -i 2>/dev/null || true
+$CTRL_EXEC sacctmgr add user root account=default_acct adminlevel=Admin -i 2>/dev/null || true
+$CTRL_EXEC sacctmgr add user slurm account=default_acct adminlevel=Admin -i 2>/dev/null || true
+$CTRL_EXEC sacctmgr modify user root set adminlevel=Admin qos=normal,interactive_qos,batch_cpu_qos,batch_gpu_qos,inference_qos -i 2>/dev/null || true
+$CTRL_EXEC sacctmgr modify user slurm set adminlevel=Admin qos=normal,interactive_qos,batch_cpu_qos,batch_gpu_qos,inference_qos -i 2>/dev/null || true
+
+# Refresh slurm-bridge controllers to pick up accounting permissions
+kubectl rollout restart deployment/slurm-bridge-controllers deployment/slurm-bridge-scheduler -n slurm 2>/dev/null || true
 
 echo "✅ Accounting QoS and TRES limits configured!"
 
