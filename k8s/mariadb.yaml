@@ -31,6 +31,10 @@ spec:
       labels:
         app.kubernetes.io/name: mariadb
     spec:
+      tolerations:
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Exists"
+        effect: "NoExecute"
       containers:
       - name: mariadb
         image: mariadb:10.11

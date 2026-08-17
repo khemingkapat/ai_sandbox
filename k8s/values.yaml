@@ -69,7 +69,8 @@ controller:
     image:
       repository: slurmctld-custom
       tag: latest
-    args: []
+    args:
+    - -i
     resources: {}
     volumeMounts:
     - name: extrausers-vol
@@ -109,7 +110,10 @@ controller:
     nodeSelector:
       kubernetes.io/os: linux
     affinity: {}
-    tolerations: []
+    tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
     volumes:
     - name: extrausers-vol
       persistentVolumeClaim:
@@ -150,7 +154,10 @@ restapi:
     nodeSelector:
       kubernetes.io/os: linux
     affinity: {}
-    tolerations: []
+    tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
     volumes:
     - name: extrausers-vol
       persistentVolumeClaim:
@@ -187,7 +194,10 @@ accounting:
     nodeSelector:
       kubernetes.io/os: linux
     affinity: {}
-    tolerations: []
+    tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
   service:
     metadata: {}
     spec: {}
@@ -275,7 +285,10 @@ nodesets:
       nodeSelector:
         kubernetes.io/os: linux
       affinity: {}
-      tolerations: []
+      tolerations:
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Exists"
+        effect: "NoExecute"
       volumes:
       - name: slinky-storage
         persistentVolumeClaim:
@@ -312,7 +325,8 @@ partitions:
       MaxTime: '02:00:00'
       OverSubscribe: 'YES'
       PreemptMode: 'OFF'
-      QoS: interactive_qos
+      PriorityTier: '2'
+      MaxTRESPerJob: 'cpu=4,mem=16G'
   batch-cpu:
     enabled: true
     nodesets:
@@ -323,7 +337,8 @@ partitions:
       MaxTime: '1-00:00:00'
       OverSubscribe: 'YES'
       PreemptMode: 'OFF'
-      QoS: batch_cpu_qos
+      PriorityTier: '1'
+      MaxTRESPerJob: 'cpu=16,mem=64G'
   batch-gpu:
     enabled: true
     nodesets:
@@ -335,7 +350,8 @@ partitions:
       MaxTime: '7-00:00:00'
       OverSubscribe: 'YES'
       PreemptMode: 'OFF'
-      QoS: batch_gpu_qos
+      PriorityTier: '1'
+      MaxTRESPerJob: 'cpu=16,mem=64G'
   inference:
     enabled: true
     nodesets:
@@ -346,7 +362,8 @@ partitions:
       MaxTime: '12:00:00'
       OverSubscribe: 'YES'
       PreemptMode: 'OFF'
-      QoS: inference_qos
+      PriorityTier: '3'
+      MaxTRESPerJob: 'cpu=4,mem=32G'
 vendor:
   nvidia:
     dcgm:

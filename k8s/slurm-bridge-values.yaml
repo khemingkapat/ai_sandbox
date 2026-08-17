@@ -1,8 +1,22 @@
 admission:
   managedNamespaces:
     - workload
+  tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
+controllers:
+  tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
+scheduler:
+  tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
 sharedConfig:
   slurmRestApi: http://slurm-restapi.slurm:6820
   slurmJwtSecret: slurm-bridge-token
 schedulerConfig:
-  partition: all
+  partition: interactive

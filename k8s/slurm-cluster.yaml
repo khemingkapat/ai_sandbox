@@ -99,6 +99,8 @@ spec:
         MaxTime: "02:00:00"
         OverSubscribe: "YES"
         PreemptMode: "OFF"
+        PriorityTier: "2"
+        MaxTRESPerJob: "cpu=4,mem=16G"
         QoS: "interactive_qos"
     batch-cpu:
       enabled: true
@@ -109,6 +111,8 @@ spec:
         MaxTime: "1-00:00:00"
         OverSubscribe: "YES"
         PreemptMode: "OFF"
+        PriorityTier: "1"
+        MaxTRESPerJob: "cpu=16,mem=64G"
         QoS: "batch_cpu_qos"
     batch-gpu:
       enabled: true
@@ -120,6 +124,8 @@ spec:
         MaxTime: "7-00:00:00"
         OverSubscribe: "YES"
         PreemptMode: "OFF"
+        PriorityTier: "1"
+        MaxTRESPerJob: "cpu=16,mem=64G"
     inference:
       enabled: true
       nodesets:
@@ -129,3 +135,5 @@ spec:
         MaxTime: "12:00:00"
         OverSubscribe: "YES"
         PreemptMode: "OFF"
+        PriorityTier: "3"
+        MaxTRESPerJob: "cpu=4,mem=32G"

@@ -14,6 +14,10 @@ spec:
         app: hpc-portal
     spec:
       serviceAccountName: portal-sa
+      tolerations:
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Exists"
+        effect: "NoExecute"
       containers:
       - name: portal
         image: hpc-portal:local
