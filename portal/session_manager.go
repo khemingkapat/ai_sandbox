@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -20,10 +22,12 @@ type SessionManager struct {
 	client *kubernetes.Clientset
 	// namespace is the Kubernetes namespace where session resources are created.
 	namespace string
+	// traefikDir is the directory where dynamic Traefik YAML configuration files are written.
+	traefikDir string
 }
 
 // NewSessionManager initializes a new SessionManager using the in-cluster configuration.
-func NewSessionManager(namespace string) (*SessionManager, error) {
+func NewSessionManager(namespace, traefikDir string) (*SessionManager, error) {
 	config, err := rest.InClusterConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get in-cluster config: %w", err)
@@ -33,8 +37,9 @@ func NewSessionManager(namespace string) (*SessionManager, error) {
 		return nil, fmt.Errorf("failed to create clientset: %w", err)
 	}
 	return &SessionManager{
-		client:    clientset,
-		namespace: namespace,
+		client:     clientset,
+		namespace:  namespace,
+		traefikDir: traefikDir,
 	}, nil
 }
 
@@ -42,6 +47,7 @@ func NewSessionManager(namespace string) (*SessionManager, error) {
 func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManifest, slurmArgs map[string]string, username, project, sessionID string) (string, error) {
 	labels := map[string]string{
 		"app":        "interactive-session",
+		"app-id":     manifest.ID,
 		"session-id": sessionID,
 		"user":       username,
 		"project":    project,
@@ -56,6 +62,8 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 		slurmArgs = manifest.SlurmArgs
 	}
 
+	basePath := fmt.Sprintf("/%s/%s/%s", username, manifest.ID, sessionID)
+
 	// 1. Create Pod
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -63,7 +71,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 			Namespace: sm.namespace,
 			Labels:    labels,
 			Annotations: map[string]string{
-				"slurmjob.slinky.slurm.net/job-name":  fmt.Sprintf("jupyter-%s", sessionID),
+				"slurmjob.slinky.slurm.net/job-name":  fmt.Sprintf("%s-%s", manifest.ID, sessionID),
 				"slurmjob.slinky.slurm.net/partition": "interactive",
 				"slurmjob.slinky.slurm.net/account":   project,
 				"slurmjob.slinky.slurm.net/user-id":   username,
@@ -80,7 +88,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 						{Name: "USER", Value: username},
 						{Name: "HOME", Value: workspace},
 						{Name: "ALLOCATED_PORT", Value: "8888"},
-						{Name: "BASE_URL", Value: fmt.Sprintf("/%s/jupyter/%s", username, sessionID)},
+						{Name: "BASE_URL", Value: "/"},
 					},
 					Ports: []corev1.ContainerPort{
 						{ContainerPort: 8888},
@@ -167,7 +175,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 						HTTP: &netv1.HTTPIngressRuleValue{
 							Paths: []netv1.HTTPIngressPath{
 								{
-									Path:     fmt.Sprintf("/%s/jupyter/%s", username, sessionID),
+									Path:     basePath,
 									PathType: &pathType,
 									Backend: netv1.IngressBackend{
 										Service: &netv1.IngressServiceBackend{
@@ -190,32 +198,61 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 		return "", fmt.Errorf("failed to create ingress: %w", err)
 	}
 
-	return fmt.Sprintf("/%s/jupyter/%s", username, sessionID), nil
+	// 4. Create Dynamic Traefik Route with StripPrefix
+	if sm.traefikDir != "" {
+		traefikCfg := fmt.Sprintf("http:\n  routers:\n    session-%[1]s:\n      entryPoints:\n        - web\n      rule: \"PathPrefix(\x60%[2]s\x60)\"\n      priority: 100\n      middlewares:\n        - strip-%[1]s\n      service: svc-%[1]s\n  middlewares:\n    strip-%[1]s:\n      stripPrefix:\n        prefixes:\n          - \"%[2]s/\"\n          - \"%[2]s\"\n  services:\n    svc-%[1]s:\n      loadBalancer:\n        servers:\n          - url: \"http://svc-%[1]s.%[3]s.svc.cluster.local:8888\"\n", sessionID, basePath, sm.namespace)
+
+		cfgPath := filepath.Join(sm.traefikDir, fmt.Sprintf("session-%s.yaml", sessionID))
+		if err := os.WriteFile(cfgPath, []byte(traefikCfg), 0644); err != nil {
+			fmt.Printf("Warning: failed to write traefik session route: %v\n", err)
+		}
+	}
+
+	return basePath + "/", nil
+}
+
+// GetSessionInfo retrieves the current phase and proxy path of the Pod associated with an interactive session.
+func (sm *SessionManager) GetSessionInfo(ctx context.Context, sessionID string) (string, string, error) {
+	pod, err := sm.client.CoreV1().Pods(sm.namespace).Get(ctx, fmt.Sprintf("session-%s", sessionID), metav1.GetOptions{})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to get pod: %w", err)
+	}
+
+	username := pod.Labels["user"]
+	appID := pod.Labels["app-id"]
+	if appID == "" {
+		appID = "jupyterlab"
+	}
+	proxyPath := fmt.Sprintf("/%s/%s/%s/", username, appID, sessionID)
+
+	state := "UNKNOWN"
+	switch pod.Status.Phase {
+	case corev1.PodPending:
+		state = "PENDING"
+	case corev1.PodRunning:
+		state = "RUNNING"
+	case corev1.PodSucceeded:
+		state = "COMPLETED"
+	case corev1.PodFailed:
+		state = "FAILED"
+	}
+	return state, proxyPath, nil
 }
 
 // GetSessionStatus retrieves the current phase of the Pod associated with an interactive session.
 func (sm *SessionManager) GetSessionStatus(ctx context.Context, sessionID string) (string, error) {
-	pod, err := sm.client.CoreV1().Pods(sm.namespace).Get(ctx, fmt.Sprintf("session-%s", sessionID), metav1.GetOptions{})
-	if err != nil {
-		return "", fmt.Errorf("failed to get pod: %w", err)
-	}
-	switch pod.Status.Phase {
-	case corev1.PodPending:
-		return "PENDING", nil
-	case corev1.PodRunning:
-		return "RUNNING", nil
-	case corev1.PodSucceeded:
-		return "COMPLETED", nil
-	case corev1.PodFailed:
-		return "FAILED", nil
-	default:
-		return "UNKNOWN", nil
-	}
+	status, _, err := sm.GetSessionInfo(ctx, sessionID)
+	return status, err
 }
 
 // DeleteSession removes all Kubernetes resources associated with an interactive session.
 func (sm *SessionManager) DeleteSession(ctx context.Context, sessionID string) error {
 	var errs []string
+
+	if sm.traefikDir != "" {
+		cfgPath := filepath.Join(sm.traefikDir, fmt.Sprintf("session-%s.yaml", sessionID))
+		_ = os.Remove(cfgPath)
+	}
 
 	err := sm.client.NetworkingV1().Ingresses(sm.namespace).Delete(ctx, fmt.Sprintf("ing-%s", sessionID), metav1.DeleteOptions{})
 	if err != nil {

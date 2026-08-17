@@ -37,7 +37,7 @@ func main() {
 
 	portManager = NewPortManager(dbPath, 30000, 31000, traefikDir)
 
-	sm, err := NewSessionManager("workload")
+	sm, err := NewSessionManager("workload", traefikDir)
 	if err == nil {
 		sessionManager = sm
 	} else {
@@ -81,7 +81,7 @@ func main() {
 	ui.GET("/api/jobs", apiUserJobs)
 	ui.GET("/api/cluster/status", apiClusterStatus)
 
-	// Proxy Jupyter session requests to the internal Traefik proxy on port 80
+	// Proxy interactive session requests to the internal Traefik proxy on port 80
 	url1, err := url.Parse("http://localhost:80")
 	if err != nil {
 		e.Logger.Fatal(err)
@@ -89,7 +89,7 @@ func main() {
 	proxyTarget := middleware.ProxyTarget{
 		URL: url1,
 	}
-	e.Group("/:user/jupyter").Use(middleware.Proxy(middleware.NewRoundRobinBalancer([]*middleware.ProxyTarget{&proxyTarget})))
+	e.Group("/:user/:app").Use(middleware.Proxy(middleware.NewRoundRobinBalancer([]*middleware.ProxyTarget{&proxyTarget})))
 
 	e.Logger.Fatal(e.Start(":8080"))
 }
