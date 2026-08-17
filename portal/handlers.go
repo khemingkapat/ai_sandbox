@@ -191,15 +191,6 @@ func submitJob(c echo.Context) error {
 		workspace = "/root"
 	}
 
-	if targetApp.Type == "interactive" && sessionManager != nil {
-		sessionID := fmt.Sprintf("%d", time.Now().UnixMilli())
-		proxyURL, err := sessionManager.CreateSession(context.Background(), targetApp, username, project, sessionID)
-		if err != nil {
-			return c.String(http.StatusInternalServerError, "Failed to create interactive session: "+err.Error())
-		}
-		return c.JSON(http.StatusOK, map[string]interface{}{"job_id": sessionID, "proxy_url": proxyURL})
-	}
-
 	// 1. Prepare Slurm arguments (Override defaults with Form data)
 	finalSlurmArgs := make(map[string]string)
 	for k, v := range targetApp.SlurmArgs {
@@ -212,6 +203,15 @@ func submitJob(c echo.Context) error {
 			argName := strings.TrimPrefix(key, "slurm_")
 			finalSlurmArgs[argName] = values[0]
 		}
+	}
+
+	if targetApp.Type == "interactive" && sessionManager != nil {
+		sessionID := fmt.Sprintf("%d", time.Now().UnixMilli())
+		proxyURL, err := sessionManager.CreateSession(context.Background(), targetApp, finalSlurmArgs, username, project, sessionID)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, "Failed to create interactive session: "+err.Error())
+		}
+		return c.JSON(http.StatusOK, map[string]interface{}{"job_id": sessionID, "proxy_url": proxyURL})
 	}
 
 	// 2. Build the #SBATCH header block
@@ -344,7 +344,7 @@ func jobStatus(c echo.Context) error {
 	if sessionManager != nil {
 		status, err := sessionManager.GetSessionStatus(context.Background(), jobIDStr)
 		if err == nil && status != "UNKNOWN" {
-			proxyURL := fmt.Sprintf("http://localhost:8000/%s/jupyter/%s", userToken.Claims.(jwt.MapClaims)["sun"].(string), jobIDStr)
+			proxyURL := fmt.Sprintf("http://localhost:8080/%s/jupyter/%s", userToken.Claims.(jwt.MapClaims)["sun"].(string), jobIDStr)
 			return c.JSON(http.StatusOK, map[string]interface{}{
 				"job_id":    jobIDStr,
 				"state":     status,
@@ -376,7 +376,7 @@ func jobStatus(c echo.Context) error {
 		if err == nil {
 			lease, _ := portManager.GetLeaseByJob(jID)
 			if lease != nil {
-				url := fmt.Sprintf("http://localhost:8000/%s/jupyter/%d", lease.Username, lease.JobID)
+				url := fmt.Sprintf("http://localhost:8080/%s/jupyter/%d", lease.Username, lease.JobID)
 				proxyURL = &url
 			}
 		}

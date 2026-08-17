@@ -39,7 +39,7 @@ func NewSessionManager(namespace string) (*SessionManager, error) {
 }
 
 // CreateSession provisions a new interactive session (Pod, Service, and Ingress).
-func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManifest, username, project, sessionID string) (string, error) {
+func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManifest, slurmArgs map[string]string, username, project, sessionID string) (string, error) {
 	labels := map[string]string{
 		"app":        "interactive-session",
 		"session-id": sessionID,
@@ -52,6 +52,10 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 		workspace = "/root"
 	}
 
+	if slurmArgs == nil {
+		slurmArgs = manifest.SlurmArgs
+	}
+
 	// 1. Create Pod
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -59,8 +63,10 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 			Namespace: sm.namespace,
 			Labels:    labels,
 			Annotations: map[string]string{
-				"slinky.slurm.net/job-name":  fmt.Sprintf("jupyter-%s", sessionID),
-				"slinky.slurm.net/partition": "all",
+				"slurmjob.slinky.slurm.net/job-name":  fmt.Sprintf("jupyter-%s", sessionID),
+				"slurmjob.slinky.slurm.net/partition": "interactive",
+				"slurmjob.slinky.slurm.net/account":   project,
+				"slurmjob.slinky.slurm.net/user-id":   username,
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -102,13 +108,13 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 		},
 	}
 
-	if cpus, ok := manifest.SlurmArgs["cpus-per-task"]; ok {
+	if cpus, ok := slurmArgs["cpus-per-task"]; ok {
 		if q, err := resource.ParseQuantity(cpus); err == nil {
 			pod.Spec.Containers[0].Resources.Requests[corev1.ResourceCPU] = q
 			pod.Spec.Containers[0].Resources.Limits[corev1.ResourceCPU] = q
 		}
 	}
-	if mem, ok := manifest.SlurmArgs["mem"]; ok {
+	if mem, ok := slurmArgs["mem"]; ok {
 		if q, err := resource.ParseQuantity(mem); err == nil {
 			pod.Spec.Containers[0].Resources.Requests[corev1.ResourceMemory] = q
 			pod.Spec.Containers[0].Resources.Limits[corev1.ResourceMemory] = q
