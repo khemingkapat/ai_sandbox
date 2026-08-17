@@ -2,6 +2,72 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 25] - 2026-08-17: Slurm-Bridge Pod Attribution & Portal Interactive Routing
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Enable strict multi-tenant Slurm job accounting and partition routing for Kubernetes interactive pods spawned from the HPC portal, and fix Traefik proxy port mappings.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Slurm-Bridge Pod Annotations:**
+    *   Updated `portal/session_manager.go`: Injected `slurmjob.slinky.slurm.net/job-name`, `slurmjob.slinky.slurm.net/partition` (`interactive`), `slurmjob.slinky.slurm.net/account` (`project`), and `slurmjob.slinky.slurm.net/user-id` (`username`) into interactive pod metadata.
+    *   Updated `portal/handlers.go`: Propagated dynamic form parameters and custom Slurm resource arguments to `SessionManager.CreateSession()`.
+2.  **Reverse Proxy Endpoint Alignment:**
+    *   Updated `portal/handlers.go`: Corrected session status URLs to use host-accessible port `8080` for JupyterLab proxy endpoints.
+
+### 💡 Why This Design?
+*   **Unified Attribution:** Using standard `slurmjob.slinky.slurm.net/*` annotations ensures that `slurm-bridge` intercepting pods in the `workload` namespace registers them directly against the user's Slurm account and QOS policies rather than generic root accounts.
+
+### 🛠️ Verification Steps
+1.  **Launch Interactive Session:** Logged into portal as `user1`, launched JupyterLab on partition `interactive`.
+2.  **Verify Slurm Queue:** Verified via `squeue` that the pod appears as an active Slurm job with account `project1` and user `user1`.
+
+---
+
+## [Increment 24] - 2026-08-17: QoS Memory Limit Unit Fix & Demo User Provisioning
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Fix silent sacctmgr memory unit parsing errors during QoS creation and provide automated provisioning for demo student users.
+
+### 📝 Key Changes & Files Modified
+
+1.  **QoS Definition Fix:**
+    *   Updated `scripts/setup-accounting.sh`: Changed unitless integer values (e.g., `16384`) to standard gigabyte notation (`16G`, `64G`, `32G`) across all QoS entries (`interactive_qos`, `batch_cpu_qos`, `batch_gpu_qos`, `inference_qos`).
+    *   Added Admin role grants and `slurm-bridge` deployment rollout restart to ensure permissions refresh cleanly.
+2.  **Demo User Provisioning Automation:**
+    *   Created `scripts/seed-demo-users.sh`: Automated registration of student accounts (`project1`, `project2`, `project3`), users (`user1`–`user4`), QoS grants, and Linux extrausers entries.
+    *   Updated `storage/common/etc/group`: Synchronized group mappings for student UIDs.
+
+### 💡 Why This Design?
+*   **Syntax Reliability:** Slurm's `sacctmgr` treats un-suffixed integer values for memory as megabytes in some contexts or rejects them outright; standardizing on explicit unit identifiers (`G`) guarantees correct limit enforcement.
+*   **Reproducible Staging:** Having a single idempotent script (`seed-demo-users.sh`) ensures rapid setup of consistent multi-tenant test states.
+
+### 🛠️ Verification Steps
+1.  **Verify QoS Limits:** Ran `sacctmgr show qos format=Name,Priority,MaxTRESPerJob%-40` and confirmed `interactive_qos` shows `cpu=4,mem=16G`.
+2.  **Negative Fencing Test:** Submitted an 8-CPU job to `interactive` partition; confirmed Slurm placed it in `PENDING` state with `(QOSMaxCpuPerJobLimit)`.
+
+---
+
+## [Increment 23] - 2026-08-17: Slurm Managed-Node Tolerations & Partition Policy Hardening
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Ensure cluster infrastructure services are tolerant of Slinky managed-node taints and solidify partition resource fencing in CRD and Helm values.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Toleration for Dedicated Compute Nodes:**
+    *   Updated `k8s/mariadb.yaml`, `k8s/portal-deployment.yaml`, `k8s/slurm-bridge-values.yaml`, and `k8s/values.yaml`: Added `slinky.slurm.net/managed-node:NoExecute` tolerations across all controller, REST API, MariaDB, Portal, and Slurm-Bridge components.
+2.  **Partition Fencing Declarations:**
+    *   Updated `k8s/slurm-cluster.yaml` and `k8s/values.yaml`: Standardized `PriorityTier` and `MaxTRESPerJob` constraints for `interactive`, `batch-cpu`, `batch-gpu`, and `inference` partitions.
+
+### 💡 Why This Design?
+*   **Node Stability:** Compute nodes labeled/tainted as Slinky managed nodes will evict pods lacking tolerations; adding explicit tolerations to core infrastructure prevents cluster service disruption during node labeling.
+
+### 🛠️ Verification Steps
+1.  **Cluster Health:** Ran `kubectl get pods -n slurm` and verified MariaDB, controller, and portal pods remain Ready on tainted worker nodes.
+
+---
+
 ## [Increment 22] - 2026-07-14: WP3-1-5 Scheduling Policies and Resource Fencing
 
 *   **Author:** Jules (Async)
