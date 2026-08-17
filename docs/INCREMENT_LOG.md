@@ -2,6 +2,33 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 26] - 2026-08-17: Interactive Workbenches (VS Code Server & TTYD) Ingress & Launch Verification
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Enable interactive browser-based VS Code Server and TTYD web terminal workbenches with dynamic Traefik prefix-stripping reverse proxy routing.
+
+### 📝 Key Changes & Files Modified
+
+1.  **OCI Container Images & Entrypoint Scripts:**
+    *   `images/codeserver/Dockerfile` & `images/codeserver/start-codeserver.sh`: Containerized `code-server` with dynamic extrausers UID resolution, binding to internal port `8888` at workspace `/mnt/storage/projects/<project>`.
+    *   `images/bash/Dockerfile` & `images/bash/start-bash.sh`: Containerized `ttyd` interactive terminal with dynamic user resolution, web-ready terminal emulation, and root path compatibility.
+2.  **App Manifests:**
+    *   `storage/common/software/codeserver/manifest.yaml`: Registered `codeserver` interactive workbench application in common software catalog.
+    *   `storage/common/software/bash/manifest.yaml`: Registered `bash` interactive shell application in common software catalog.
+3.  **Dynamic Ingress & StripPrefix Routing:**
+    *   `portal/session_manager.go`: Dynamically generates Traefik router specifications in `/etc/traefik/dynamic/session-<session_id>.yaml` configured with `stripPrefix` middleware to cleanly forward subpath requests (`/:user/:app/:session_id/`) to root `/` on workload pods.
+    *   `portal/main.go`: Configured Echo reverse proxy wildcard group `/:user/:app` forwarding to Traefik on port `80` with full WebSocket tunneling support.
+    *   `portal/handlers.go`: Normalized session proxy paths to include trailing slashes to prevent relative redirect path corruption.
+
+### 💡 Why This Design?
+*   **Subpath Isolation:** Interactive applications such as `code-server` and `ttyd` serve relative assets (`./_static/...`) and expect requests at their root context `/`. Dynamic Traefik prefix stripping allows multiple concurrent user sessions to share single-port ingress on `:8080` without path collision or container reconfiguration.
+
+### 🛠️ Verification Steps
+1.  **Launch Verification:** Successfully launched both **VS Code Server** and **Interactive Shell (TTYD)** from the web portal dashboard, verified active registration in Slurm (`squeue`), and confirmed browser UI accessibility through Traefik proxy.
+2.  **Scope Boundary / Pending:** We have verified that the VS Code server and TTY interactive shell can be launched and reached via the web portal. Detailed validation for multi-tenant access control boundaries, filesystem isolation under active processes, and network security policies remains pending for subsequent test phases.
+
+---
+
 ## [Increment 25] - 2026-08-17: Slurm-Bridge Pod Attribution & Portal Interactive Routing
 
 *   **Author:** Antigravity (Interactive) & Khem
