@@ -15,9 +15,14 @@ RUN sed -i 's/passwd:\s*files/passwd:         files extrausers/g' /etc/nsswitch.
 # Ensure mount point for extrausers exists
 RUN mkdir -p /var/lib/extrausers
 
+# Copy custom entrypoint script
+COPY start-codeserver.sh /usr/local/bin/start-codeserver.sh
+RUN chmod +x /usr/local/bin/start-codeserver.sh
+
 # Fix permissions for dynamic users
 RUN chmod -R 777 /home/coder
 
-EXPOSE 8080
+EXPOSE 8888
 
-ENTRYPOINT ["/usr/bin/entrypoint.sh", "--bind-addr", "0.0.0.0:8080", "."]
+ENTRYPOINT ["/usr/local/bin/start-codeserver.sh"]
+

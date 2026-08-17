@@ -15,6 +15,7 @@ RUN apt-get update && \
     less \
     nano \
     sudo \
+    ttyd \
     unzip \
     vim \
     wget && \
@@ -28,4 +29,9 @@ RUN sed -i 's/passwd:\s*files/passwd:         files extrausers/g' /etc/nsswitch.
 # Ensure mount point for extrausers exists
 RUN mkdir -p /var/lib/extrausers
 
-CMD ["/bin/bash"]
+COPY start-bash.sh /usr/local/bin/start-bash.sh
+RUN chmod +x /usr/local/bin/start-bash.sh
+
+EXPOSE 8888
+
+ENTRYPOINT ["/usr/local/bin/start-bash.sh"]
