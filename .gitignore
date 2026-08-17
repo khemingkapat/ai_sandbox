@@ -40,3 +40,5 @@ portal/portal
 /storage/projects/**/.jupyter/
 /storage/projects/**/.npm/
 /storage/projects/**/.local/
+/storage/projects/**/.cache/
+/storage/projects/**/.config/
