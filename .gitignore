@@ -19,6 +19,7 @@ jobs/
 # Projects: Keep project1 as the example, ignore other projects completely
 /storage/projects/*
 !/storage/projects/project1/
+/storage/projects/project1/.bash_history
 
 # Exclude temporary, log, and user-specific files in project1 (the example project)
 /storage/projects/project1/logs/
