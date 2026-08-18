@@ -1,0 +1,8 @@
+Bootstrap: docker
+From: python:3.10-slim
+
+%post
+    apt-get update && apt-get install -y curl procps iproute2 && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+%help
+    Security & Isolation Probe application to audit container boundaries, disk isolation, and permissions.

@@ -1,0 +1,11 @@
+id: "security_probe_project1"
+name: "Security & Isolation Probe"
+description: "Audits hardware isolation, host disk masking, cross-tenant file permissions, and Apptainer execution boundaries."
+icon: "🛡️"
+type: "batch"
+image_file: "security_probe.sif"
+exec_command: "bash $WORKSPACE/run_probe.sh"
+slurm_args:
+  nodes: "1"
+  ntasks: "1"
+  constraint: "slurmd-cpu"
