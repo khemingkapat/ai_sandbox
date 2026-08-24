@@ -13,12 +13,6 @@ layout {
         }
     }
 
-    tab name="agy" {
-        pane command="agy" {
-            args "-c"
-        }
-    }
-
     tab name="agyd" {
         pane command="agy" {
             args "-c" "--dangerously-skip-permissions"

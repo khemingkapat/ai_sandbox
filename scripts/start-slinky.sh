@@ -45,11 +45,28 @@ for node in $(kind get nodes); do
   docker exec $node sysctl -w fs.inotify.max_user_instances=8192 fs.inotify.max_user_watches=524288
 done
 
+echo "📦 Deploying in-cluster OCI registry..."
+mkdir -p storage/registry
+kubectl apply -f k8s/registry.yaml
+echo "⏳ Waiting for local OCI registry to be ready..."
+kubectl wait --for=condition=ready pod -l app=registry -n slurm --timeout=120s
+
+echo "🔧 Configuring node containerd registry endpoints..."
+for node in $(kind get nodes); do
+  docker exec $node mkdir -p /etc/containerd/certs.d/localhost:5000
+  cat <<'EOF' | docker exec -i $node tee /etc/containerd/certs.d/localhost:5000/hosts.toml > /dev/null
+server = "http://kind-control-plane:5000"
+
+[host."http://kind-control-plane:5000"]
+  capabilities = ["pull", "resolve"]
+EOF
+done
+
 echo "🏗️ Building and deploying HPC Portal..."
 docker build -t hpc-portal:local -f portal/Dockerfile.portal portal/
 kind load docker-image hpc-portal:local
 
-echo "🛠️ Building and loading interactive OCI images..."
+echo "🛠️ Building and pushing interactive OCI images..."
 ./scripts/build-oci-images.sh
 
 kubectl apply -f k8s/portal-rbac.yaml

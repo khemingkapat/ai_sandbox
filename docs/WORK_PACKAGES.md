@@ -16,7 +16,7 @@
 | 3 | Tech Stack Selection & Architecture Decision | 🏗️ Foundation | 🟢 Done |
 | 4 | Slinky Deployment & Orchestrator Integration | 🏗️ Foundation | 🟡 Partial |
 | 5 | Slurm Policy & Resource Configuration | 🧩 Services | 🟢 Done |
-| 6 | Container Environment & Image Pipeline | 🧩 Services | 🟡 Partial |
+| 6 | Container Environment & Image Pipeline | 🧩 Services | 🟢 Done |
 | 7 | Shared Storage, Datasets & Model Repository | 🧩 Services | 🟡 Partial |
 | 8 | Network & Security Baseline | 🧩 Services | 🟡 Partial |
 | 9 | LLM Inference Server Deployment | 🧩 Services | 🔴 Not started |
@@ -76,14 +76,15 @@ Configure scheduling policies — partitions, QoS, fair-share, preemption.
 - ✅ Dropped explicit QoS tiers (power-user, admin) in favor of resource fencing limits (`MaxTRESPerJob`).
 - ✅ MariaDB StatefulSet and `slurmdbd` deployment manifests integrated into Helm.
 
-### WP3-1-6: Container Environment & Image Pipeline
+### WP3-1-6: Container Environment & Image Pipeline 🟢
 Build curated OCI images for interactive workloads, validate Apptainer for batch, and migrate manifest schema.
-- 🔴 **Manifest schema migration** — add `type` (interactive|batch) and `image` (OCI ref) fields; keep `image_file` (SIF) for batch only. Update `AppManifest` struct in portal.
-- 🔴 **OCI images for interactive workloads** — Dockerfiles for JupyterLab, code-server, bash TUI. Push to local registry.
-- 🟢 **Apptainer batch validation** ⚠️ EXPERIMENTAL — validate `apptainer exec user.sif` works inside slurmd pods under Slinky. Test GPU passthrough, shared filesystem binding, rootless UID enforcement. *This is interactive/experimental work — not Jules-delegatable.*
-- 🔴 OCI registry deployment (local `registry:2`)
-- 🔴 Pre-pull DaemonSet for fast startup
-- 🟡 Existing manifests still reference `.sif` files (jupyterlab.sif, python.sif) — need migration
+- **Spec / Reference:** See [Image Pipelining Strategy](./IMAGE_PIPELINING_STRATEGY.md) and [Verification Guide](./WP3-1-6_VERIFICATION.md).
+- ✅ **Manifest schema migration** — added `type` (interactive|batch) and `image` (OCI ref) fields; kept `image_file` (SIF) for batch only.
+- ✅ **OCI images for interactive workloads** — Dockerfiles for JupyterLab, VS Code Server, and Bash TTYD with `libnss-extrausers`.
+- ✅ **In-Cluster OCI registry deployment** — `registry:2` deployed in `slurm` namespace backed by `registry-pvc` with host and node containerd mirroring.
+- ✅ **On-demand pulling** — validated fast layer-cached on-demand pull without pre-pull DaemonSet complexity.
+- ✅ **Apptainer batch validation & Direct NFS Streaming** — built `python.sif` from `python.def` and verified batch execution via Slurm over `/mnt/storage`.
+- ✅ **Shared storage security** — enforced `root:root` `755`/`644` permissions on `/mnt/storage/common/software/` with verified write protection against student UIDs.
 
 ### WP3-1-7: Shared Storage, Datasets & Model Repository
 Shared storage for workspaces, pre-downloaded datasets, and model weights.

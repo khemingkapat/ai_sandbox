@@ -342,9 +342,9 @@ func jobStatus(c echo.Context) error {
 	tokenString := userToken.Raw
 
 	if sessionManager != nil {
-		status, err := sessionManager.GetSessionStatus(context.Background(), jobIDStr)
+		status, proxyPath, err := sessionManager.GetSessionInfo(context.Background(), jobIDStr)
 		if err == nil && status != "UNKNOWN" {
-			proxyURL := fmt.Sprintf("http://localhost:8080/%s/jupyter/%s", userToken.Claims.(jwt.MapClaims)["sun"].(string), jobIDStr)
+			proxyURL := fmt.Sprintf("http://localhost:8080%s", proxyPath)
 			return c.JSON(http.StatusOK, map[string]interface{}{
 				"job_id":    jobIDStr,
 				"state":     status,

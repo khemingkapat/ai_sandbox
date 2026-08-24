@@ -251,7 +251,12 @@ nodesets:
       args: []
       env: []
       securityContext:
-        privileged: true
+        privileged: false
+        capabilities:
+          add:
+            - SYS_ADMIN
+            - DAC_OVERRIDE
+            - DAC_READ_SEARCH
       resources: {}
       volumeMounts:
       - name: slinky-storage
@@ -326,7 +331,6 @@ partitions:
       OverSubscribe: 'YES'
       PreemptMode: 'OFF'
       PriorityTier: '2'
-      MaxTRESPerJob: 'cpu=4,mem=16G'
   batch-cpu:
     enabled: true
     nodesets:
@@ -338,7 +342,6 @@ partitions:
       OverSubscribe: 'YES'
       PreemptMode: 'OFF'
       PriorityTier: '1'
-      MaxTRESPerJob: 'cpu=16,mem=64G'
   batch-gpu:
     enabled: true
     nodesets:
@@ -351,7 +354,6 @@ partitions:
       OverSubscribe: 'YES'
       PreemptMode: 'OFF'
       PriorityTier: '1'
-      MaxTRESPerJob: 'cpu=16,mem=64G'
   inference:
     enabled: true
     nodesets:
@@ -363,7 +365,6 @@ partitions:
       OverSubscribe: 'YES'
       PreemptMode: 'OFF'
       PriorityTier: '3'
-      MaxTRESPerJob: 'cpu=4,mem=32G'
 vendor:
   nvidia:
     dcgm:

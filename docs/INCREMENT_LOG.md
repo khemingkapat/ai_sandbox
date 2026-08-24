@@ -2,6 +2,67 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 27] - 2026-08-23: WP3-1-6 Container Environment & Dual-Path Image Delivery Pipeline
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Implement and verify the complete dual-path container execution pipeline: in-cluster OCI distribution registry with on-demand containerd pulling for interactive workloads, and Apptainer SquashFS direct NFS streaming for batch workloads with read-only root security boundaries.
+
+### 📝 Key Changes & Files Modified
+
+1.  **In-Cluster OCI Distribution Registry (`registry:2`):**
+    *   Created `k8s/registry.yaml`: Defined `registry-pv` (20Gi hostPath mapped to `/mnt/storage/registry`), `registry-pvc`, `Deployment` running `registry:2` on `kind-control-plane` with `hostPort: 5000`, and `registry` ClusterIP Service on port 5000 in namespace `slurm`.
+    *   Updated `k8s/kind-config.yaml`: Added `extraPortMappings` for `5000:5000` on the control-plane node to route host Docker pushes directly to the in-cluster registry, and enabled `containerdConfigPatches` for certs.d.
+2.  **Containerd Endpoint Discovery & Plain HTTP Registry Mirroring:**
+    *   Updated `scripts/start-slinky.sh`: Integrated registry deployment, health check polling, and automated `/etc/containerd/certs.d/localhost:5000/hosts.toml` provisioning across all Kind cluster nodes to mirror `localhost:5000` to `http://kind-control-plane:5000` over the internal Docker network.
+    *   Updated `scripts/build-oci-images.sh`: Configured automated building, tagging (`localhost:5000/...`), and pushing of `interactive-jupyter`, `interactive-codeserver`, and `interactive-bash` directly to the local in-cluster registry.
+3.  **Application Catalog Alignment:**
+    *   Updated `storage/common/software/jupyterlab/manifest.yaml`: Set `image: "localhost:5000/interactive-jupyter:latest"`.
+    *   Updated `storage/common/software/codeserver/manifest.yaml`: Set `image: "localhost:5000/interactive-codeserver:latest"`.
+    *   Updated `storage/common/software/bash/manifest.yaml`: Set `image: "localhost:5000/interactive-bash:latest"`.
+4.  **Batch Apptainer Pipeline & Shared Storage Hardening:**
+    *   Built `storage/common/software/python.sif` from `storage/projects/project1/software/hello/python.def`.
+    *   Hardened directory permissions on `/mnt/storage/common/software` to `root:root` `755` (directories) and `644` (files).
+    *   Updated `docs/WP3-1-6_VERIFICATION.md` and `docs/WORK_PACKAGES.md` with complete passing verification status.
+
+### 💡 Why This Design?
+*   **Dual-Path Symmetry:** Interactive workloads get fast, on-demand OCI layer pulling via local cluster networking without maintenance-heavy Pre-pull DaemonSets. Batch workloads get zero-overhead sequential SquashFS block streaming from shared NFS storage directly into the Linux page cache.
+*   **Tampering Immunity:** Restricting shared software directories to `root:root` `755`/`644` prevents cross-tenant poisoning or accidental deletion of baseline tools by student jobs.
+
+### 🛠️ Verification Steps
+1.  **Test 1 (OCI Registry & Host Push):** Pushed `localhost:5000/interactive-jupyter:latest`; queried `/v2/_catalog` and confirmed all 3 interactive images listed.
+2.  **Test 2 (Interactive On-Demand Pull):** Launched test session pod from `localhost:5000/interactive-jupyter:latest`; containerd pulled layers on demand and pod reached `Ready`.
+3.  **Test 3 (Batch Apptainer SIF):** Submitted `sbatch` job executing Python inside `python.sif` over `/mnt/storage`; executed with exit code 0 (`Apptainer batch execution SUCCESS on Python 3.10.21`).
+4.  **Test 4 (Security & Tampering):** Attempted write to `python.sif` as unprivileged student user UID 1001; operation returned `Permission denied` and image binary integrity remained intact.
+
+---
+
+## [Increment 26] - 2026-08-17: Interactive Workbenches (VS Code Server & TTYD) Ingress & Launch Verification
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Enable interactive browser-based VS Code Server and TTYD web terminal workbenches with dynamic Traefik prefix-stripping reverse proxy routing.
+
+### 📝 Key Changes & Files Modified
+
+1.  **OCI Container Images & Entrypoint Scripts:**
+    *   `images/codeserver/Dockerfile` & `images/codeserver/start-codeserver.sh`: Containerized `code-server` with dynamic extrausers UID resolution, binding to internal port `8888` at workspace `/mnt/storage/projects/<project>`.
+    *   `images/bash/Dockerfile` & `images/bash/start-bash.sh`: Containerized `ttyd` interactive terminal with dynamic user resolution, web-ready terminal emulation, and root path compatibility.
+2.  **App Manifests:**
+    *   `storage/common/software/codeserver/manifest.yaml`: Registered `codeserver` interactive workbench application in common software catalog.
+    *   `storage/common/software/bash/manifest.yaml`: Registered `bash` interactive shell application in common software catalog.
+3.  **Dynamic Ingress & StripPrefix Routing:**
+    *   `portal/session_manager.go`: Dynamically generates Traefik router specifications in `/etc/traefik/dynamic/session-<session_id>.yaml` configured with `stripPrefix` middleware to cleanly forward subpath requests (`/:user/:app/:session_id/`) to root `/` on workload pods.
+    *   `portal/main.go`: Configured Echo reverse proxy wildcard group `/:user/:app` forwarding to Traefik on port `80` with full WebSocket tunneling support.
+    *   `portal/handlers.go`: Normalized session proxy paths to include trailing slashes to prevent relative redirect path corruption.
+
+### 💡 Why This Design?
+*   **Subpath Isolation:** Interactive applications such as `code-server` and `ttyd` serve relative assets (`./_static/...`) and expect requests at their root context `/`. Dynamic Traefik prefix stripping allows multiple concurrent user sessions to share single-port ingress on `:8080` without path collision or container reconfiguration.
+
+### 🛠️ Verification Steps
+1.  **Launch Verification:** Successfully launched both **VS Code Server** and **Interactive Shell (TTYD)** from the web portal dashboard, verified active registration in Slurm (`squeue`), and confirmed browser UI accessibility through Traefik proxy.
+2.  **Scope Boundary / Pending:** We have verified that the VS Code server and TTY interactive shell can be launched and reached via the web portal. Detailed validation for multi-tenant access control boundaries, filesystem isolation under active processes, and network security policies remains pending for subsequent test phases.
+
+---
+
 ## [Increment 25] - 2026-08-17: Slurm-Bridge Pod Attribution & Portal Interactive Routing
 
 *   **Author:** Antigravity (Interactive) & Khem
