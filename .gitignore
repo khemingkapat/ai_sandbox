@@ -11,8 +11,11 @@ jobs/
 !/storage/**/*.yml
 /storage/**/*.sif
 
-# Ignore Kaggle cache, registry data, and general caches
+# Ignore Kaggle cache, registry data, models, datasets, scratch, and general caches
 /storage/registry/
+/storage/models/
+/storage/datasets/
+/storage/scratch/
 /storage/common/kaggle_cache/
 **/__pycache__/
 **/*.pyc
@@ -44,3 +47,4 @@ portal/portal
 /storage/projects/**/.local/
 /storage/projects/**/.cache/
 /storage/projects/**/.config/
+/storage/projects/**/.kaggle/
