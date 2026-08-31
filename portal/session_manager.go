@@ -89,6 +89,13 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 						{Name: "HOME", Value: workspace},
 						{Name: "ALLOCATED_PORT", Value: "8888"},
 						{Name: "BASE_URL", Value: "/"},
+						{Name: "HF_HOME", Value: fmt.Sprintf("%s/.cache/huggingface", workspace)},
+						{Name: "HF_HUB_CACHE", Value: "/mnt/storage/models/huggingface/hub"},
+						{Name: "TORCH_HOME", Value: "/mnt/storage/models/torch"},
+						{Name: "TRANSFORMERS_OFFLINE", Value: "0"},
+						{Name: "KAGGLE_CONFIG_DIR", Value: fmt.Sprintf("%s/.kaggle", workspace)},
+						{Name: "KAGGLEHUB_CACHE", Value: fmt.Sprintf("%s/.cache/kagglehub", workspace)},
+						{Name: "TMPDIR", Value: fmt.Sprintf("/mnt/storage/scratch/%s", username)},
 					},
 					Ports: []corev1.ContainerPort{
 						{ContainerPort: 8888},
