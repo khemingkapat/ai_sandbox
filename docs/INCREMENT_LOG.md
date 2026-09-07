@@ -2,6 +2,51 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 28] - 2026-08-24: WP3-1-7 Central Shared Storage, Curated Datasets & Model Hub Repository
+
+*   **Author:** Antigravity (Interactive) & Khem
+*   **Goal:** Implement the central shared storage architecture (`/mnt/storage`), admin-curated read-only model hub, curated datasets repository, ephemeral scratch space with POSIX sticky bit, and dual-tier container runtime environment contracts across interactive Kubernetes pods and Slurm batch jobs.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Storage Layout & POSIX Permissions (`scripts/init-storage.sh`):**
+    *   Provisioned unified directory hierarchy: `/mnt/storage/{models/huggingface/hub,models/torch,models/ollama}`, `/mnt/storage/datasets/{kaggle,vision,nlp}`, `/mnt/storage/scratch`, `/mnt/storage/common/{etc,software}`, `/mnt/storage/registry`, and `/mnt/storage/projects/{project1,project2,project3}`.
+    *   Enforced permissions: `root:root 755` for shared catalogs, `root:root 1777` with sticky bit for scratch space, and strict `<uid>:<uid> 700` for private student workspaces.
+2.  **Model & Dataset Seeding Tooling:**
+    *   Created `scripts/seed-models.sh`: Populates central read-only models in `/mnt/storage/models/` with `--test-mode` support for lightweight CPU fixtures (`BAAI/bge-small-en-v1.5`, `Qwen/Qwen2.5-0.5B-Instruct`, PyTorch ResNet, Ollama manifests).
+    *   Created `scripts/seed-datasets.sh`: Populates benchmark starter datasets in `/mnt/storage/datasets/` (MNIST, CIFAR-10, IMDb, SQuAD, Titanic).
+    *   Created `scripts/seed-kaggle.sh`: Admin helper to download/unpack course Kaggle competitions and public datasets.
+3.  **Scratch Garbage Collection & Storage Auditing Tooling:**
+    *   Created `scripts/clean-scratch.sh`: Automated purge script for stale scratch files older than retention threshold (default 7 days) with `--dry-run` support.
+    *   Created `scripts/audit-storage.sh`: Analyzes storage utilization per project, checks Slurm associations, and scans for duplicate dataset directories across workspaces.
+4.  **Container Environment Contract Injection:**
+    *   Updated `portal/session_manager.go`: Injected `HF_HOME`, `HF_HUB_CACHE`, `TORCH_HOME`, `TRANSFORMERS_OFFLINE`, `KAGGLE_CONFIG_DIR`, `KAGGLEHUB_CACHE`, and `TMPDIR` into interactive session Pod definitions.
+    *   Updated `portal/handlers.go`: Injected identical storage environment variables into `#SBATCH` batch script templates and Slurm REST API job descriptors.
+5.  **Hardening, Automation & Verification Test Suite:**
+    *   Created `scripts/verify-storage.sh`: Automated test runner executing all 6 acceptance tests end-to-end against Kind/storage.
+    *   Created `k8s/clean-scratch-cronjob.yaml`: Automated daily Kubernetes CronJob to purge expired files from `/mnt/storage/scratch`.
+    *   Hardened `.gitignore` and extracted `templates/projects/project1/`: Completely decoupled runtime student workspaces (`/storage/projects/`) from host git tracking, eliminating permission collisions on developer machines.
+    *   Safeguarded `portal/handlers.go`: Added traversal depth guardrails to soft quota check to prevent HTTP handler latency spikes and documented Layer 2 storage quota architecture.
+    *   Updated `scripts/start-slinky.sh`: Integrated storage initialization, model/dataset seeding, and scratch cleanup CronJob directly into cluster bootstrap.
+    *   Created `docs/WP3-1-7_VERIFICATION.md`: Established comprehensive test plan and verified all 6 acceptance scenarios.
+    *   Updated `docs/WORK_PACKAGES.md`: Marked WP3-1-7 as completed (🟢 Done).
+
+### 💡 Why This Design?
+*   **Tampering & Corruption Immunity:** Curating baseline models and datasets under `root:root 755` prevents race-condition deadlocks during concurrent multi-user student runs and eliminates risks of shared cache poisoning.
+*   **Dual-Tier Flexibility:** Redirecting `HF_HUB_CACHE` to the shared read-only library while pointing `HF_HOME` to the private student workspace allows students to load standard models instantly with 0 extra disk usage, while retaining the freedom to download custom models into their private quota.
+*   **Multi-Tenant Ephemeral Scratch:** World-writable sticky bit (`1777`) on `/mnt/storage/scratch` allows students to run high-throughput temp workloads without leaking files or allowing classmates to delete each other's temporary artifacts.
+
+### 🛠️ Verification Steps
+Executed automated test runner `scripts/verify-storage.sh` with 100% pass rate across all 6 scenarios:
+1.  **Test 1 (Directory Layout & Permissions):** Validated `/mnt/storage/models` (755), `/mnt/storage/datasets` (755), `/mnt/storage/scratch` (1777), and `/mnt/storage/projects/*` (700). Verified student cannot tamper with models/datasets.
+2.  **Test 2 (Dual-Tier Model Hub):** Seeded lightweight test model snapshot via `seed-models.sh --test-mode` and verified model files are discovered, readable, and write-protected.
+3.  **Test 3 (Datasets & Kaggle Isolation):** Populated sample datasets via `seed-datasets.sh --test-mode` and confirmed unprivileged users are blocked from reading private `.kaggle/kaggle.json`.
+4.  **Test 4 (Ephemeral Scratch Sticky Bit):** Created scratch file as UID 1001; confirmed deletion attempt by other user is denied by kernel sticky bit; confirmed cleanup via `clean-scratch.sh --dry-run`.
+5.  **Test 5 (Environment Contract):** Compiled Go portal (`go build ./...`) without errors; verified interactive Pod and batch `#SBATCH` templates inject storage environment variables.
+6.  **Test 6 (Storage Audit):** Executed `audit-storage.sh` and confirmed accurate directory breakdown and duplicate candidate scanning.
+
+---
+
 ## [Increment 27] - 2026-08-23: WP3-1-6 Container Environment & Dual-Path Image Delivery Pipeline
 
 *   **Author:** Antigravity (Interactive) & Khem

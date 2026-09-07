@@ -5,30 +5,21 @@ data/examples/*
 jobs/
 
 /storage/*
-!/storage/**/
-!/storage/**/*.def
-!/storage/**/*.yaml
-!/storage/**/*.yml
-/storage/**/*.sif
+!/storage/common/
+*.sif
 
-# Ignore Kaggle cache, registry data, and general caches
+# Ignore Kaggle cache, registry data, models, datasets, scratch, and general caches
 /storage/registry/
+/storage/models/
+/storage/datasets/
+/storage/scratch/
 /storage/common/kaggle_cache/
 **/__pycache__/
 **/*.pyc
 
-# Projects: Keep project1 as the example, ignore other projects completely
-/storage/projects/*
-!/storage/projects/project1/
-/storage/projects/project1/.bash_history
-
-# Exclude temporary, log, and user-specific files in project1 (the example project)
-/storage/projects/project1/logs/
-/storage/projects/project1/.ipynb_checkpoints/
-/storage/projects/project1/.apptainer/
-/storage/projects/project1/slurm-*.out
+# Projects: Runtime user workspaces are ephemeral & dynamically provisioned
+/storage/projects/
 /storage/**/*.ipynb
-/storage/projects/*.log
 
 storage.bak/
 
@@ -44,3 +35,4 @@ portal/portal
 /storage/projects/**/.local/
 /storage/projects/**/.cache/
 /storage/projects/**/.config/
+/storage/projects/**/.kaggle/

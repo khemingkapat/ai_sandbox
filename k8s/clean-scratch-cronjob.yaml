@@ -1,0 +1,35 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: clean-scratch
+  namespace: slurm
+spec:
+  schedule: "0 2 * * *" # Daily at 02:00 AM UTC
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: clean-scratch
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: cleaner
+            image: alpine:latest
+            command:
+            - /bin/sh
+            - -c
+            - |
+              echo "Purging stale scratch files older than 7 days..."
+              find /mnt/storage/scratch -mindepth 1 -type f -mtime +7 -delete || true
+              find /mnt/storage/scratch -mindepth 1 -type d -empty -mtime +7 -delete 2>/dev/null || true
+              echo "Scratch cleanup finished at $(date -u)"
+            volumeMounts:
+            - name: storage
+              mountPath: /mnt/storage
+          volumes:
+          - name: storage
+            persistentVolumeClaim:
+              claimName: slinky-storage-pvc

@@ -17,7 +17,7 @@
 | 4 | Slinky Deployment & Orchestrator Integration | 🏗️ Foundation | 🟡 Partial |
 | 5 | Slurm Policy & Resource Configuration | 🧩 Services | 🟢 Done |
 | 6 | Container Environment & Image Pipeline | 🧩 Services | 🟢 Done |
-| 7 | Shared Storage, Datasets & Model Repository | 🧩 Services | 🟡 Partial |
+| 7 | Shared Storage, Datasets & Model Repository | 🧩 Services | 🟢 Done |
 | 8 | Network & Security Baseline | 🧩 Services | 🟡 Partial |
 | 9 | LLM Inference Server Deployment | 🧩 Services | 🔴 Not started |
 | 10 | Open-Source Model Curation & Evaluation | 🧩 Services | 🔴 Not started |
@@ -86,13 +86,14 @@ Build curated OCI images for interactive workloads, validate Apptainer for batch
 - ✅ **Apptainer batch validation & Direct NFS Streaming** — built `python.sif` from `python.def` and verified batch execution via Slurm over `/mnt/storage`.
 - ✅ **Shared storage security** — enforced `root:root` `755`/`644` permissions on `/mnt/storage/common/software/` with verified write protection against student UIDs.
 
-### WP3-1-7: Shared Storage, Datasets & Model Repository
+### WP3-1-7: Shared Storage, Datasets & Model Repository 🟢
 Shared storage for workspaces, pre-downloaded datasets, and model weights.
-- Production PVC configuration (NFS CSI or equivalent)
-- Directory structure: /projects/, /datasets/, /models/, /scratch/
-- Curated dataset collection
-- Model weight cache (shared across users)
-- Storage quotas and backup plan
+- **Spec / Reference:** See [Central Storage Architecture](./CENTRAL_STORAGE.md) and [Verification Guide](./WP3-1-7_VERIFICATION.md).
+- ✅ **Storage layout & permissions** — initialized `/mnt/storage/{models,datasets,scratch,projects,common,registry}` via `scripts/init-storage.sh` with strict POSIX permissions.
+- ✅ **Curated dataset collection** — created `scripts/seed-datasets.sh` and `scripts/seed-kaggle.sh` to populate vision, nlp, and Kaggle competition starter datasets.
+- ✅ **Model weight cache & dual-tier fallback** — created `scripts/seed-models.sh` for central models with student private `$HF_HOME` fallback.
+- ✅ **Container environment contract injection** — updated `portal/session_manager.go` and `portal/handlers.go` to inject `HF_HUB_CACHE`, `TORCH_HOME`, `KAGGLE_CONFIG_DIR`, `KAGGLEHUB_CACHE`, and `TMPDIR`.
+- ✅ **Storage audit & scratch cleanup** — created `scripts/clean-scratch.sh` for sticky-bit scratch garbage collection and `scripts/audit-storage.sh` for disk reporting and duplicate dataset detection.
 
 ### WP3-1-8: Network & Security Baseline
 Network isolation, Traefik ingress, TLS, and authentication.

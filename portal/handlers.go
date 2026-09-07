@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -162,6 +163,57 @@ func apiClusterStatus(c echo.Context) error {
 	})
 }
 
+// checkQuota provides an application-layer soft quota pre-flight check when STUDENT_QUOTA_GB is configured.
+// Note: In production HPC clusters, quota enforcement is offloaded to kernel-level Layer 2 storage
+// (e.g., XFS project quotas / CephFS directory quotas as simulated in scripts/demo-xfs-quota.sh),
+// which rejects writes with EDQUOT at the syscall level without userspace traversal overhead.
+func checkQuota(workspace string) error {
+	quotaStr := os.Getenv("STUDENT_QUOTA_GB")
+	if quotaStr == "" {
+		return nil
+	}
+	quotaGB, err := strconv.ParseFloat(quotaStr, 64)
+	if err != nil || quotaGB <= 0 {
+		return nil
+	}
+
+	// Verify workspace exists and is accessible before walking
+	if _, err := os.Stat(workspace); err != nil {
+		// If workspace is not readable (e.g., mode 700 owned by another UID), fail open
+		return nil
+	}
+
+	var size int64
+	var fileCount int
+	const maxFilesToScan = 20000 // Guardrail against runaway traversal latency
+
+	err = filepath.WalkDir(workspace, func(_ string, d os.DirEntry, err error) error {
+		if err != nil {
+			return nil // Skip unreadable entries gracefully
+		}
+		if !d.IsDir() {
+			fileCount++
+			if fileCount > maxFilesToScan {
+				return filepath.SkipAll // Abort walk early to avoid locking HTTP handler
+			}
+			if info, err := d.Info(); err == nil {
+				size += info.Size()
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		fmt.Printf("Warning: soft quota check aborted: %v\n", err)
+		return nil // Fail open on traversal errors
+	}
+
+	limit := int64(quotaGB * 1024 * 1024 * 1024)
+	if size > limit {
+		return fmt.Errorf("Storage Quota Exceeded: Workspace %s has used %.2f GB (Limit: %.2f GB)", workspace, float64(size)/(1024*1024*1024), quotaGB)
+	}
+	return nil
+}
+
 // submitJob handles the submission of both batch and interactive applications.
 func submitJob(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
@@ -189,6 +241,11 @@ func submitJob(c echo.Context) error {
 	workspace := "/mnt/storage/projects/" + project
 	if username == "root" {
 		workspace = "/root"
+	}
+
+	// 1. Perform Soft Quota Pre-Flight Check
+	if err := checkQuota(workspace); err != nil {
+		return c.String(http.StatusTooManyRequests, err.Error())
 	}
 
 	// 1. Prepare Slurm arguments (Override defaults with Form data)
@@ -228,6 +285,16 @@ func submitJob(c echo.Context) error {
 	var sb strings.Builder
 	sb.WriteString(fmt.Sprintf("mkdir -p %s/logs\n", workspace))
 	sb.WriteString(fmt.Sprintf("export WORKSPACE=\"%s\"\n", workspace))
+	sb.WriteString(fmt.Sprintf("export USER=\"%s\"\n", username))
+	sb.WriteString(fmt.Sprintf("export HOME=\"%s\"\n", workspace))
+	sb.WriteString(fmt.Sprintf("export HF_HOME=\"%s/.cache/huggingface\"\n", workspace))
+	sb.WriteString("export HF_HUB_CACHE=\"/mnt/storage/models/huggingface/hub\"\n")
+	sb.WriteString("export TORCH_HOME=\"/mnt/storage/models/torch\"\n")
+	sb.WriteString("export TRANSFORMERS_OFFLINE=\"0\"\n")
+	sb.WriteString(fmt.Sprintf("export KAGGLE_CONFIG_DIR=\"%s/.kaggle\"\n", workspace))
+	sb.WriteString(fmt.Sprintf("export KAGGLEHUB_CACHE=\"%s/.cache/kagglehub\"\n", workspace))
+	sb.WriteString(fmt.Sprintf("export TMPDIR=\"/mnt/storage/scratch/%s\"\n", username))
+	sb.WriteString("mkdir -p \"$TMPDIR\" \"$HF_HOME\" \"$KAGGLEHUB_CACHE\" \"$KAGGLE_CONFIG_DIR\"\n")
 
 	needsPort := strings.Contains(targetApp.ExecCommand, "$ALLOCATED_PORT")
 
@@ -258,8 +325,7 @@ export BASE_URL="/%[1]s/jupyter/$SLURM_JOB_ID"
 	// Conditionally run in Apptainer or directly on the host
 	if targetApp.ImageFile != "" {
 		sb.WriteString(fmt.Sprintf(`
-srun apptainer exec --bind %[1]s:%[1]s \
-    --bind /mnt/storage/common:/mnt/storage/common:ro \
+srun apptainer exec --bind /mnt/storage:/mnt/storage \
     %[2]s/%[3]s \
     bash -c "%[4]s"
 `, workspace, targetApp.SourcePath, targetApp.ImageFile, targetApp.ExecCommand))
@@ -287,6 +353,14 @@ curl -s -X POST http://portal:8080/api/internal/release-port \
 			"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 			"HOME=" + workspace,
 			"USER=" + username,
+			"WORKSPACE=" + workspace,
+			"HF_HOME=" + workspace + "/.cache/huggingface",
+			"HF_HUB_CACHE=/mnt/storage/models/huggingface/hub",
+			"TORCH_HOME=/mnt/storage/models/torch",
+			"TRANSFORMERS_OFFLINE=0",
+			"KAGGLE_CONFIG_DIR=" + workspace + "/.kaggle",
+			"KAGGLEHUB_CACHE=" + workspace + "/.cache/kagglehub",
+			"TMPDIR=/mnt/storage/scratch/" + username,
 		},
 		Name: ptr.To(targetApp.ID),
 		StandardOutput: ptr.To(fmt.Sprintf("%s/logs/%s_%%j.out", workspace, targetApp.ID)),
