@@ -96,13 +96,11 @@ WP3-1-8 is broken down into four modular sub-work-packages to enable staged deve
 
 ---
 
-### Phase 2: Isolation & Hardening (Active)
+### Phase 2: Isolation & Hardening (Completed)
 
-#### 🟡 WP3-1-8-2: Kubernetes NetworkPolicies for Workload Isolation
+#### ✅ WP3-1-8-2: Kubernetes NetworkPolicies for Workload Isolation
 * **GitHub Issue:** [#71](https://github.com/khemingkapat/ai_sandbox/issues/71)
-* **Agent:** Jules (`jules` label active)
-* **Prerequisite:** #70 merged into `feat/net_sec`
-* **Branch Target:** `feat/net_sec`
+* **PR:** [#76](https://github.com/khemingkapat/ai_sandbox/pull/76) (Merged into `feat/net_sec`)
 * **Deliverables:**
   1. `k8s/network-policies/default-deny-workload.yaml`: Zero-trust drop for all Ingress/Egress in `workload`.
   2. `k8s/network-policies/allow-dns-egress.yaml`: Egress to CoreDNS on port 53.
@@ -111,11 +109,9 @@ WP3-1-8 is broken down into four modular sub-work-packages to enable staged deve
   5. `k8s/network-policies/allow-internet-egress.yaml`: Egress to `0.0.0.0/0` with RFC 1918 exceptions (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).
   6. `scripts/start-slinky.sh`: Applies `k8s/network-policies/` on cluster initialization.
 
-#### 🟡 WP3-1-8-3: Traefik Ingress TLS & Security Headers
+#### ✅ WP3-1-8-3: Traefik Ingress TLS & Security Headers
 * **GitHub Issue:** [#72](https://github.com/khemingkapat/ai_sandbox/issues/72)
-* **Agent:** Jules (`jules` label active)
-* **Prerequisite:** #70 merged into `feat/net_sec`
-* **Branch Target:** `feat/net_sec`
+* **PR:** [#75](https://github.com/khemingkapat/ai_sandbox/pull/75) (Merged into `feat/net_sec`)
 * **Deliverables:**
   1. `scripts/generate-certs.sh`: Script generating multi-SAN self-signed certificates for `localhost`, `127.0.0.1`, and `*.sandbox.local`, saved to Secret `traefik-tls-cert`.
   2. `k8s/traefik-security-configmap.yaml`: Declarative Traefik dynamic configuration with default TLS store and security headers middleware (`nosniff`, `SAMEORIGIN`, `browserXssFilter`).
@@ -124,10 +120,11 @@ WP3-1-8 is broken down into four modular sub-work-packages to enable staged deve
 
 ---
 
-### Phase 3: Automated Verification (Staged)
+### Phase 3: Automated Verification (Active)
 
-#### ⚪ WP3-1-8-4: Network & Security Verification Test Suite
+#### 🟡 WP3-1-8-4: Network & Security Verification Test Suite
 * **GitHub Issue:** [#73](https://github.com/khemingkapat/ai_sandbox/issues/73)
+* **Agent:** Jules (`jules` label active)
 * **Prerequisites:** #70, #71, and #72 merged into `feat/net_sec`
 * **Branch Target:** `feat/net_sec`
 * **Deliverables:**
