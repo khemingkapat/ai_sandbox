@@ -29,6 +29,33 @@ This file tracks every discrete increment made during the Slinky migration. Its 
 ### 🛠️ Verification Steps
 1.  **Manifest Syntax & Structure Validation:** Parsed all 5 NetworkPolicy YAML files to confirm correct API schema (`networking.k8s.io/v1`), metadata, matchLabels, and port definitions.
 2.  **Restricted Files Boundary Audit:** Confirmed `k8s/values.yaml`, `k8s/kind-config.yaml`, `k8s/portal-deployment.yaml`, and `portal/*` were unmodified.
+## [Increment 29] - 2026-08-25: WP3-1-8-1 Namespace Isolation & RBAC Hardening
+
+*   **Author:** Jules
+*   **Goal:** Establish strict declarative namespace boundaries with zone labels and downgrade portal service account privileges from cluster-admin level ClusterRole to least-privilege namespace-scoped Roles and RoleBindings while disabling automountServiceAccountToken on interactive pods.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Declarative Namespace Baseline (`k8s/namespaces.yaml`):**
+    *   Defined declarative manifests for `slurm` (labeled `sandbox.zone: control-plane` and `app.kubernetes.io/part-of: ai-sandbox`) and `workload` (labeled `sandbox.zone: workload` and `app.kubernetes.io/part-of: ai-sandbox`) namespaces.
+    *   Updated `scripts/start-slinky.sh` to apply `k8s/namespaces.yaml` declaratively instead of imperative namespace creation.
+2.  **Portal RBAC Least-Privilege Hardening (`k8s/portal-rbac.yaml`):**
+    *   Removed `ClusterRole` and `ClusterRoleBinding` definitions.
+    *   Created namespace-scoped `Role` (`portal-workload-role`) and `RoleBinding` in `workload` namespace granting `portal-sa` (in `slurm`) lifecycle verbs (`create`, `get`, `list`, `watch`, `delete`) for `pods`, `services`, `ingresses`, and read verbs (`get`, `list`, `watch`) for `endpoints` and `endpointslices`.
+    *   Created namespace-scoped `Role` (`traefik-slurm-role`) and `RoleBinding` in `slurm` namespace granting `portal-sa` read verbs (`get`, `list`, `watch`) for `services`, `endpoints`, `endpointslices`, and `ingresses`.
+    *   Verified zero access to `secrets` or `nodes`.
+3.  **Interactive Session Pod Hardening (`portal/session_manager.go`):**
+    *   Updated `CreateSession()` to explicitly set `pod.Spec.AutomountServiceAccountToken = &falseVal`.
+    *   Injected standard zone labels (`sandbox.zone: workload` and `app.kubernetes.io/component: interactive-session`) into interactive pod specifications.
+
+### 💡 Why This Design?
+*   **Least-Privilege Containment:** Scoping web portal permissions strictly to the workload namespace (and read-only network discovery in `slurm` for Traefik) prevents compromised portal instances from inspecting cluster secrets or host node configurations.
+*   **API Server Defense:** Disabling `automountServiceAccountToken` on student interactive workload pods prevents students from accessing or attempting privilege escalation against the Kubernetes API server from inside notebook environments.
+
+### 🛠️ Verification Steps
+1.  **Go Compilation & Quality:** Executed `cd portal && go build ./...` and `cd portal && go vet ./...` (0 errors/warnings).
+2.  **RBAC Manifest Audit:** Verified `k8s/portal-rbac.yaml` contains no `ClusterRole`/`ClusterRoleBinding` and zero permissions for `secrets` or `nodes`.
+3.  **Pod Hardening Check:** Verified `portal/session_manager.go` sets `AutomountServiceAccountToken = &falseVal` and includes zone labels.
 
 ---
 
