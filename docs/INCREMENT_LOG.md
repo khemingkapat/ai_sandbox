@@ -2,6 +2,32 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 30] - 2026-09-07: WP3-1-8-4 Network & Security Verification Test Suite
+
+*   **Author:** Jules (Async)
+*   **Goal:** Implement a reproducible, automated verification test suite (`scripts/verify-security.sh`) to validate the four security baseline guarantees: RBAC confinement, database control plane isolation, inter-tenant workload isolation, and Traefik ingress TLS/headers.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Security Verification Test Suite (`scripts/verify-security.sh`):**
+    *   Created `scripts/verify-security.sh`: Executable bash script (`chmod +x`) with `set -euo pipefail` executing four discrete security test phases:
+        *   **Phase 1 (RBAC & Token Confinement):** Asserts `portal-sa` cannot list nodes or secrets (`kubectl auth can-i`), and verifies `/var/run/secrets/kubernetes.io/serviceaccount` is absent in workload pods with `automountServiceAccountToken: false`.
+        *   **Phase 2 (MariaDB Isolation):** Probes TCP port 3306 on `mariadb.slurm.svc.cluster.local` from an ephemeral workload pod and asserts connection failure/timeout due to NetworkPolicy egress drop.
+        *   **Phase 3 (Inter-Tenant Workload Isolation):** Spawns `tenant-a` and `tenant-b` in `workload` namespace, binds listener on port 8888 on `tenant-b`, and asserts connection attempt from `tenant-a` fails/times out.
+        *   **Phase 4 (Traefik Ingress TLS & Security Headers):** Establishes background `kubectl port-forward` to `svc/portal` in `slurm` namespace, asserts HTTP port 80 redirects (301/308) to HTTPS, and asserts HTTPS port 443 returns `X-Content-Type-Options: nosniff` and `X-Frame-Options: SAMEORIGIN` headers.
+    *   **Cleanup & Exit Protocol:** Registers EXIT trap (`trap cleanup EXIT`) to unconditionally clean up test pods (`sec-test-token-pod`, `tenant-a`, `tenant-b`), temporary files, and background port-forward process PIDs.
+
+### 💡 Why This Design?
+*   **Automated Security Verification:** Testing actual packet delivery and timeout behavior via ephemeral probe pods guarantees NetworkPolicy enforcement at the CNI layer without relying on configuration assumptions.
+*   **Unconditional Cleanup:** Using bash EXIT traps ensures no orphan pods or background port-forward processes leak into the cluster state after test runs.
+
+### 🛠️ Verification Steps
+1.  **Script Syntax & Executable Checks:**
+    *   Ran `bash -n scripts/verify-security.sh` (passed without errors).
+    *   Verified `chmod +x` executable permissions on `scripts/verify-security.sh`.
+2.  **Restricted Files Boundary Audit:**
+    *   Confirmed non-target files (`k8s/*`, `portal/*`, `values.yaml`, `kind-config.yaml`) were untouched.
+
 ## [Increment 29] - 2026-09-07: WP3-1-8-3 Traefik Ingress TLS & Security Headers
 
 *   **Author:** Jules (Async)
