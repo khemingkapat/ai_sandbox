@@ -5,10 +5,10 @@ echo "📦 Installing Slinky components..."
 helm install cert-manager oci://quay.io/jetstack/charts/cert-manager --namespace cert-manager --create-namespace --set crds.enabled=true
 helm install slurm-operator-crds oci://ghcr.io/slinkyproject/charts/slurm-operator-crds --namespace slinky --create-namespace
 helm install slurm-operator oci://ghcr.io/slinkyproject/charts/slurm-operator --namespace slinky --wait
-# Create slurm and workload namespaces and apply PV/PVC configuration
-kubectl create namespace slurm --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace workload --dry-run=client -o yaml | kubectl apply -f -
+# Apply slurm and workload namespaces and PV/PVC configuration
+kubectl apply -f k8s/namespaces.yaml
 kubectl apply -f k8s/pv-pvc.yaml
+kubectl apply -f k8s/network-policies/
 
 echo "🛠️ Building and loading custom Slurm images..."
 ./scripts/build-custom-images.sh
@@ -68,6 +68,10 @@ kind load docker-image hpc-portal:local
 
 echo "🛠️ Building and pushing interactive OCI images..."
 ./scripts/build-oci-images.sh
+
+echo "🔐 Generating TLS certificates and security configuration..."
+./scripts/generate-certs.sh
+kubectl apply -f k8s/traefik-security-configmap.yaml
 
 kubectl apply -f k8s/portal-rbac.yaml
 kubectl apply -f k8s/portal-deployment.yaml

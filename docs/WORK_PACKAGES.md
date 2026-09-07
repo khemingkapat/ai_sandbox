@@ -97,11 +97,10 @@ Shared storage for workspaces, pre-downloaded datasets, and model weights.
 
 ### WP3-1-8: Network & Security Baseline
 Network isolation, Traefik ingress, TLS, and authentication.
-- Kubernetes NetworkPolicy definitions
-- Traefik ingress with TLS
-- Auth integration (JWT → SSO/OAuth2)
-- RBAC for namespaces and resources
-- Student workspace isolation
+- ✅ **WP3-1-8-1: Namespace Isolation & RBAC Hardening** ([#70](https://github.com/khemingkapat/ai_sandbox/issues/70)) — Merged via PR #74.
+- 🟡 **WP3-1-8-2: Kubernetes NetworkPolicies for Workload Isolation** ([#71](https://github.com/khemingkapat/ai_sandbox/issues/71)) — In progress with Jules.
+- 🟡 **WP3-1-8-3: Traefik Ingress TLS & Security Headers** ([#72](https://github.com/khemingkapat/ai_sandbox/issues/72)) — In progress with Jules.
+- ⚪ **WP3-1-8-4: Network & Security Verification Test Suite** ([#73](https://github.com/khemingkapat/ai_sandbox/issues/73)) — Staged.
 
 ### WP3-1-9: LLM Inference Server Deployment
 Central LLM service (Ollama/vLLM/TGI) with pre-loaded models.
