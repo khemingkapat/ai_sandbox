@@ -2,6 +2,45 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 29] - 2026-09-07: WP3-1-8-3 Traefik Ingress TLS & Security Headers
+
+*   **Author:** Jules (Async)
+*   **Goal:** Secure Traefik ingress by terminating HTTPS on port 443 with self-signed TLS certificates, automatically enforcing HTTP-to-HTTPS redirects from port 80 to 443, and injecting standard security headers (`nosniff`, frame protection, XSS protection).
+
+### 📝 Key Changes & Files Modified
+
+1.  **Certificate Generation Script (`scripts/generate-certs.sh`):**
+    *   Created `scripts/generate-certs.sh`: Shell script that uses `openssl` to generate a 2048-bit RSA private key and self-signed certificate valid for 365 days with SANs: `localhost`, `127.0.0.1`, `portal`, `portal.slurm.svc.cluster.local`, and `*.sandbox.local`.
+    *   Generates or updates Kubernetes Secret `traefik-tls-cert` in namespace `slurm` (`--from-file=tls.crt=... --from-file=tls.key=...`).
+2.  **Traefik Dynamic Security ConfigMap (`k8s/traefik-security-configmap.yaml`):**
+    *   Created `k8s/traefik-security-configmap.yaml`: ConfigMap `traefik-security-config` in namespace `slurm` containing dynamic Traefik file configuration.
+    *   Configures `tls.stores.default.defaultCertificate` referencing `/etc/traefik/certs/tls.crt` and `/etc/traefik/certs/tls.key`.
+    *   Defines middleware `security-headers` under `http.middlewares.security-headers.headers` with `contentTypeNosniff: true`, `browserXssFilter: true`, and `customFrameOptionsValue: "SAMEORIGIN"`.
+3.  **Deployment & Service Hardening (`k8s/portal-deployment.yaml`):**
+    *   Updated `traefik` container in `hpc-portal` Deployment:
+        *   Exposed container port `name: websecure, containerPort: 443`.
+        *   Configured Traefik CLI arguments for `websecure` entrypoint (:443), TLS enablement (`--entrypoints.websecure.http.tls=true`), default middleware (`security-headers@file`), HTTP-to-HTTPS redirection (`web` -> `websecure`), and security file provider (`--providers.file.directory=/etc/traefik/security`).
+        *   Mounted volumes `traefik-certs` at `/etc/traefik/certs` (readOnly) and `traefik-security` at `/etc/traefik/security` (readOnly).
+    *   Updated Pod volumes sourcing Secret `traefik-tls-cert` and ConfigMap `traefik-security-config`.
+    *   Updated Service `portal`: Added port `name: https, port: 443, targetPort: 443`.
+4.  **Cluster Startup Integration (`scripts/start-slinky.sh`):**
+    *   Integrated `./scripts/generate-certs.sh` execution and `kubectl apply -f k8s/traefik-security-configmap.yaml` into the cluster bootstrap sequence.
+
+### 💡 Why This Design?
+*   **Decoupled Security Management:** Leveraging Traefik's dynamic file provider mounted via a Kubernetes ConfigMap decouples TLS store configuration and middleware security policy definitions from application source code.
+*   **Defense-in-Depth:** Mandatory HTTPS redirection and standard security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection`) protect student sessions, interactive notebooks, and terminal proxies against credential eavesdropping, MIME sniffing, and clickjacking attacks.
+
+### 🛠️ Verification Steps
+1.  **Script & YAML Syntax Verification:**
+    *   Ran `bash -n scripts/generate-certs.sh` and `bash -n scripts/start-slinky.sh` (passed without errors).
+    *   Validated YAML formatting and key structures for `k8s/traefik-security-configmap.yaml` and `k8s/portal-deployment.yaml`.
+2.  **Certificate & SANs Verification:**
+    *   Executed certificate generation logic using `openssl req` and verified `X509v3 Subject Alternative Name` output contains `DNS:localhost, IP Address:127.0.0.1, DNS:portal, DNS:portal.slurm.svc.cluster.local, DNS:*.sandbox.local` and 365-day validity.
+3.  **Scope Guardrails:**
+    *   Confirmed non-target files (`portal/main.go`, `portal/session_manager.go`, `k8s/values.yaml`, `k8s/kind-config.yaml`, `k8s/network-policies/*`) remained untouched.
+
+---
+
 ## [Increment 28] - 2026-08-24: WP3-1-7 Central Shared Storage, Curated Datasets & Model Hub Repository
 
 *   **Author:** Antigravity (Interactive) & Khem
