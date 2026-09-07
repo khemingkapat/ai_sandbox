@@ -1,0 +1,26 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-registry-egress
+  namespace: workload
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: slurm
+      podSelector:
+        matchLabels:
+          app: registry
+    - namespaceSelector:
+        matchLabels:
+          sandbox.zone: control-plane
+      podSelector:
+        matchLabels:
+          app: registry
+    ports:
+    - protocol: TCP
+      port: 5000
