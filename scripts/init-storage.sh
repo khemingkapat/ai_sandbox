@@ -42,6 +42,13 @@ mkdir -p "$STORAGE_ROOT/projects/project3/.cache/huggingface"
 mkdir -p "$STORAGE_ROOT/projects/project3/.cache/kagglehub"
 mkdir -p "$STORAGE_ROOT/projects/project3/.kaggle"
 
+# Seed starter project templates if available
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TEMPLATE_DIR="$SCRIPT_DIR/../templates/projects/project1"
+if [ -d "$TEMPLATE_DIR" ]; then
+    cp -rn "$TEMPLATE_DIR"/* "$STORAGE_ROOT/projects/project1/" 2>/dev/null || cp -r "$TEMPLATE_DIR"/* "$STORAGE_ROOT/projects/project1/" 2>/dev/null || true
+fi
+
 echo "🔐 Setting permissions and ownership boundaries..."
 
 # Root owned shared infrastructure (755)
