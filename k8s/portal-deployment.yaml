@@ -50,13 +50,13 @@ spec:
         - --providers.file.watch=true
         - --providers.kubernetesingress=true
         - --providers.kubernetesingress.namespaces=slurm,workload
+        - --providers.kubernetesingress.disableclusterscoperesources=true
         - --entrypoints.web.address=:80
         - --entrypoints.websecure.address=:443
         - --entrypoints.websecure.http.tls=true
         - --entrypoints.websecure.http.middlewares=security-headers@file
         - --entrypoints.web.http.redirections.entryPoint.to=websecure
         - --entrypoints.web.http.redirections.entryPoint.scheme=https
-        - --providers.file.directory=/etc/traefik/security
         ports:
         - containerPort: 80
           name: proxy
@@ -69,7 +69,8 @@ spec:
           mountPath: /etc/traefik/certs
           readOnly: true
         - name: traefik-security
-          mountPath: /etc/traefik/security
+          mountPath: /etc/traefik/dynamic/security.yaml
+          subPath: security.yaml
           readOnly: true
       volumes:
       - name: storage

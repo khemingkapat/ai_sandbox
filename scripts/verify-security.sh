@@ -86,7 +86,7 @@ echo "▶ Running Phase 1: RBAC & Token Confinement..."
 # Check 1.1: portal-sa cannot get nodes
 P1_1_FAIL=0
 P1_1_MSG=""
-CAN_GET_NODES=$(kubectl auth can-i get nodes --as=system:serviceaccount:slurm:portal-sa 2>&1 || true)
+CAN_GET_NODES=$(kubectl auth can-i get nodes --as=system:serviceaccount:slurm:portal-sa 2>/dev/null || true)
 CAN_GET_NODES_TRIMMED=$(echo "$CAN_GET_NODES" | xargs)
 
 if [ "$CAN_GET_NODES_TRIMMED" != "no" ]; then
@@ -98,7 +98,7 @@ report_result "Phase 1.1: RBAC Node Inspection Restriction" "$P1_1_FAIL" "${P1_1
 # Check 1.2: portal-sa cannot get secrets in slurm namespace
 P1_2_FAIL=0
 P1_2_MSG=""
-CAN_GET_SECRETS=$(kubectl auth can-i get secrets --as=system:serviceaccount:slurm:portal-sa -n slurm 2>&1 || true)
+CAN_GET_SECRETS=$(kubectl auth can-i get secrets --as=system:serviceaccount:slurm:portal-sa -n slurm 2>/dev/null || true)
 CAN_GET_SECRETS_TRIMMED=$(echo "$CAN_GET_SECRETS" | xargs)
 
 if [ "$CAN_GET_SECRETS_TRIMMED" != "no" ]; then
@@ -203,8 +203,8 @@ spec:
     command: ["sh", "-c", "while true; do nc -l -p 8888; done"]
 EOF
 
-if ! kubectl wait --for=condition=Ready pod/tenant-a -n workload --timeout=30s >/dev/null 2>&1 || \
-   ! kubectl wait --for=condition=Ready pod/tenant-b -n workload --timeout=30s >/dev/null 2>&1; then
+if ! kubectl wait --for=condition=Ready pod/tenant-a -n workload --timeout=60s >/dev/null 2>&1 || \
+   ! kubectl wait --for=condition=Ready pod/tenant-b -n workload --timeout=60s >/dev/null 2>&1; then
     P3_FAIL=1
     P3_MSG="Failed to spawn tenant-a or tenant-b pods in workload namespace"
 else

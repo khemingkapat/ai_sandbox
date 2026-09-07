@@ -36,9 +36,12 @@ kubectl create secret generic slurm-bridge-token -n slurm --from-literal=auth-to
 echo "🌉 Deploying slurm-bridge..."
 helm install slurm-bridge oci://ghcr.io/slinkyproject/charts/slurm-bridge --namespace slurm -f k8s/slurm-bridge-values.yaml --wait
 
-echo "🏷️  Registering dedicated compute node (kind-worker3) with Slurm..."
-kubectl label node kind-worker3 scheduler.slinky.slurm.net/slurm-bridge-external-node=true --overwrite
-kubectl annotate node kind-worker3 scheduler.slinky.slurm.net/external-node-partitions=interactive,batch-cpu,batch-gpu,inference --overwrite
+echo "🏷️  Registering compute worker nodes with Slurm..."
+for worker in kind-worker kind-worker2 kind-worker3; do
+  kubectl label node $worker scheduler.slinky.slurm.net/external-node=true --overwrite
+  kubectl annotate node $worker scheduler.slinky.slurm.net/external-node-partitions=interactive,batch-cpu,batch-gpu,inference --overwrite
+done
+kubectl exec -n slurm slurm-controller-0 -c slurmctld -- scontrol update PartitionName=interactive Nodes=kind-worker,kind-worker2,kind-worker3,slurmd-cpu-[0-1],slurmd-gpu-0
 
 echo "🔧 Fixing inotify limits for Traefik file watcher..."
 for node in $(kind get nodes); do

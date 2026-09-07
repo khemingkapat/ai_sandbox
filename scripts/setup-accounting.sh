@@ -52,6 +52,7 @@ $CTRL_EXEC sacctmgr add user root account=default_acct adminlevel=Admin -i 2>/de
 $CTRL_EXEC sacctmgr add user slurm account=default_acct adminlevel=Admin -i 2>/dev/null || true
 $CTRL_EXEC sacctmgr modify user root set adminlevel=Admin qos=normal,interactive_qos,batch_cpu_qos,batch_gpu_qos,inference_qos -i 2>/dev/null || true
 $CTRL_EXEC sacctmgr modify user slurm set adminlevel=Admin qos=normal,interactive_qos,batch_cpu_qos,batch_gpu_qos,inference_qos -i 2>/dev/null || true
+$CTRL_EXEC sacctmgr modify user set qos+=interactive_qos -i 2>/dev/null || true
 
 # Refresh slurm-bridge controllers to pick up accounting permissions
 kubectl rollout restart deployment/slurm-bridge-controllers deployment/slurm-bridge-scheduler -n slurm 2>/dev/null || true

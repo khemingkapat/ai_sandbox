@@ -13,6 +13,20 @@ data:
             keyFile: /etc/traefik/certs/tls.key
 
     http:
+      routers:
+        portal:
+          entryPoints:
+            - websecure
+          rule: "PathPrefix(`/`)"
+          service: portal-ui
+          priority: 1
+          middlewares:
+            - security-headers
+      services:
+        portal-ui:
+          loadBalancer:
+            servers:
+              - url: "http://127.0.0.1:8080"
       middlewares:
         security-headers:
           headers:
