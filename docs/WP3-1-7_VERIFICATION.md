@@ -53,7 +53,20 @@ flowchart TD
 
 ## 2. Test Plan & Execution Steps
 
-### Pre-Requisite: Storage Initialization
+### Automated Test Runner (Recommended)
+
+All 6 acceptance scenarios below are automated end-to-end via [`scripts/verify-storage.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/verify-storage.sh):
+
+```bash
+# Execute complete automated verification suite
+./scripts/verify-storage.sh
+```
+
+---
+
+### Manual Verification Steps & Individual Test Plan
+
+#### Pre-Requisite: Storage Initialization
 
 ```bash
 # Execute storage initialization
