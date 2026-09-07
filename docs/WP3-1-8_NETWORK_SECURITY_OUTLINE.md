@@ -83,12 +83,11 @@ flowchart TD
 
 WP3-1-8 is broken down into four modular sub-work-packages to enable staged development, testing, and asynchronous execution with Jules.
 
-### Phase 1: Foundation (Active)
+### Phase 1: Foundation (Completed)
 
-#### 🟡 WP3-1-8-1: Namespace Isolation & RBAC Hardening
+#### ✅ WP3-1-8-1: Namespace Isolation & RBAC Hardening
 * **GitHub Issue:** [#70](https://github.com/khemingkapat/ai_sandbox/issues/70)
-* **Agent:** Jules (`jules` label active)
-* **Branch:** `agent/jules/wp3-1-8-1-namespace-rbac` → `feat/net_sec`
+* **PR:** [#74](https://github.com/khemingkapat/ai_sandbox/pull/74) (Merged into `feat/net_sec`)
 * **Deliverables:**
   1. `k8s/namespaces.yaml`: Declarative namespace definitions with standard metadata labels (`sandbox.zone: control-plane` and `sandbox.zone: workload`).
   2. `k8s/portal-rbac.yaml`: Replaces cluster-wide `ClusterRole` with scoped `Role` / `RoleBinding` manifests in `slurm` and `workload`. Strips all permissions for `nodes` and `secrets`.
@@ -97,10 +96,11 @@ WP3-1-8 is broken down into four modular sub-work-packages to enable staged deve
 
 ---
 
-### Phase 2: Isolation & Hardening (Staged)
+### Phase 2: Isolation & Hardening (Active)
 
-#### ⚪ WP3-1-8-2: Kubernetes NetworkPolicies for Workload Isolation
+#### 🟡 WP3-1-8-2: Kubernetes NetworkPolicies for Workload Isolation
 * **GitHub Issue:** [#71](https://github.com/khemingkapat/ai_sandbox/issues/71)
+* **Agent:** Jules (`jules` label active)
 * **Prerequisite:** #70 merged into `feat/net_sec`
 * **Branch Target:** `feat/net_sec`
 * **Deliverables:**
@@ -111,8 +111,9 @@ WP3-1-8 is broken down into four modular sub-work-packages to enable staged deve
   5. `k8s/network-policies/allow-internet-egress.yaml`: Egress to `0.0.0.0/0` with RFC 1918 exceptions (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`).
   6. `scripts/start-slinky.sh`: Applies `k8s/network-policies/` on cluster initialization.
 
-#### ⚪ WP3-1-8-3: Traefik Ingress TLS & Security Headers
+#### 🟡 WP3-1-8-3: Traefik Ingress TLS & Security Headers
 * **GitHub Issue:** [#72](https://github.com/khemingkapat/ai_sandbox/issues/72)
+* **Agent:** Jules (`jules` label active)
 * **Prerequisite:** #70 merged into `feat/net_sec`
 * **Branch Target:** `feat/net_sec`
 * **Deliverables:**
