@@ -71,5 +71,11 @@ echo "🛠️ Building and pushing interactive OCI images..."
 
 kubectl apply -f k8s/portal-rbac.yaml
 kubectl apply -f k8s/portal-deployment.yaml
+kubectl apply -f k8s/clean-scratch-cronjob.yaml
 
-echo "✅ Slinky and HPC Portal are ready!"
+echo "📂 Initializing shared storage hierarchy and seeding baseline test models/datasets..."
+docker exec -i kind-control-plane bash < scripts/init-storage.sh > /dev/null 2>&1 || true
+docker exec -i kind-control-plane bash -s -- --test-mode < scripts/seed-models.sh > /dev/null 2>&1 || true
+docker exec -i kind-control-plane bash -s -- --test-mode < scripts/seed-datasets.sh > /dev/null 2>&1 || true
+
+echo "✅ Slinky, Storage, and HPC Portal are ready!"
