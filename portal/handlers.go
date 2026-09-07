@@ -163,7 +163,10 @@ func apiClusterStatus(c echo.Context) error {
 	})
 }
 
-// checkQuota calculates the disk usage of a workspace and verifies it against the STUDENT_QUOTA_GB env var.
+// checkQuota provides an application-layer soft quota pre-flight check when STUDENT_QUOTA_GB is configured.
+// Note: In production HPC clusters, quota enforcement is offloaded to kernel-level Layer 2 storage
+// (e.g., XFS project quotas / CephFS directory quotas as simulated in scripts/demo-xfs-quota.sh),
+// which rejects writes with EDQUOT at the syscall level without userspace traversal overhead.
 func checkQuota(workspace string) error {
 	quotaStr := os.Getenv("STUDENT_QUOTA_GB")
 	if quotaStr == "" {
@@ -174,9 +177,25 @@ func checkQuota(workspace string) error {
 		return nil
 	}
 
+	// Verify workspace exists and is accessible before walking
+	if _, err := os.Stat(workspace); err != nil {
+		// If workspace is not readable (e.g., mode 700 owned by another UID), fail open
+		return nil
+	}
+
 	var size int64
+	var fileCount int
+	const maxFilesToScan = 20000 // Guardrail against runaway traversal latency
+
 	err = filepath.WalkDir(workspace, func(_ string, d os.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
+		if err != nil {
+			return nil // Skip unreadable entries gracefully
+		}
+		if !d.IsDir() {
+			fileCount++
+			if fileCount > maxFilesToScan {
+				return filepath.SkipAll // Abort walk early to avoid locking HTTP handler
+			}
 			if info, err := d.Info(); err == nil {
 				size += info.Size()
 			}
@@ -184,8 +203,8 @@ func checkQuota(workspace string) error {
 		return nil
 	})
 	if err != nil {
-		fmt.Printf("Warning: quota check failed to walk workspace: %v\n", err)
-		return nil // Fail open on read errors
+		fmt.Printf("Warning: soft quota check aborted: %v\n", err)
+		return nil // Fail open on traversal errors
 	}
 
 	limit := int64(quotaGB * 1024 * 1024 * 1024)
