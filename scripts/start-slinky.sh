@@ -69,6 +69,10 @@ kind load docker-image hpc-portal:local
 echo "🛠️ Building and pushing interactive OCI images..."
 ./scripts/build-oci-images.sh
 
+echo "🔐 Generating TLS certificates and security configuration..."
+./scripts/generate-certs.sh
+kubectl apply -f k8s/traefik-security-configmap.yaml
+
 kubectl apply -f k8s/portal-rbac.yaml
 kubectl apply -f k8s/portal-deployment.yaml
 kubectl apply -f k8s/clean-scratch-cronjob.yaml
