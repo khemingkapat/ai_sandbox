@@ -5,10 +5,10 @@ echo "📦 Installing Slinky components..."
 helm install cert-manager oci://quay.io/jetstack/charts/cert-manager --namespace cert-manager --create-namespace --set crds.enabled=true
 helm install slurm-operator-crds oci://ghcr.io/slinkyproject/charts/slurm-operator-crds --namespace slinky --create-namespace
 helm install slurm-operator oci://ghcr.io/slinkyproject/charts/slurm-operator --namespace slinky --wait
-# Create slurm and workload namespaces and apply PV/PVC configuration
-kubectl create namespace slurm --dry-run=client -o yaml | kubectl apply -f -
-kubectl create namespace workload --dry-run=client -o yaml | kubectl apply -f -
+# Apply slurm and workload namespaces and PV/PVC configuration
+kubectl apply -f k8s/namespaces.yaml
 kubectl apply -f k8s/pv-pvc.yaml
+kubectl apply -f k8s/network-policies/
 
 echo "🛠️ Building and loading custom Slurm images..."
 ./scripts/build-custom-images.sh
@@ -36,9 +36,12 @@ kubectl create secret generic slurm-bridge-token -n slurm --from-literal=auth-to
 echo "🌉 Deploying slurm-bridge..."
 helm install slurm-bridge oci://ghcr.io/slinkyproject/charts/slurm-bridge --namespace slurm -f k8s/slurm-bridge-values.yaml --wait
 
-echo "🏷️  Registering dedicated compute node (kind-worker3) with Slurm..."
-kubectl label node kind-worker3 scheduler.slinky.slurm.net/slurm-bridge-external-node=true --overwrite
-kubectl annotate node kind-worker3 scheduler.slinky.slurm.net/external-node-partitions=interactive,batch-cpu,batch-gpu,inference --overwrite
+echo "🏷️  Registering compute worker nodes with Slurm..."
+for worker in kind-worker kind-worker2 kind-worker3; do
+  kubectl label node $worker scheduler.slinky.slurm.net/external-node=true --overwrite
+  kubectl annotate node $worker scheduler.slinky.slurm.net/external-node-partitions=interactive,batch-cpu,batch-gpu,inference --overwrite
+done
+kubectl exec -n slurm slurm-controller-0 -c slurmctld -- scontrol update PartitionName=interactive Nodes=kind-worker,kind-worker2,kind-worker3,slurmd-cpu-[0-1],slurmd-gpu-0
 
 echo "🔧 Fixing inotify limits for Traefik file watcher..."
 for node in $(kind get nodes); do
@@ -68,6 +71,10 @@ kind load docker-image hpc-portal:local
 
 echo "🛠️ Building and pushing interactive OCI images..."
 ./scripts/build-oci-images.sh
+
+echo "🔐 Generating TLS certificates and security configuration..."
+./scripts/generate-certs.sh
+kubectl apply -f k8s/traefik-security-configmap.yaml
 
 kubectl apply -f k8s/portal-rbac.yaml
 kubectl apply -f k8s/portal-deployment.yaml
