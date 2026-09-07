@@ -8,6 +8,7 @@ helm install slurm-operator oci://ghcr.io/slinkyproject/charts/slurm-operator --
 # Apply slurm and workload namespaces and PV/PVC configuration
 kubectl apply -f k8s/namespaces.yaml
 kubectl apply -f k8s/pv-pvc.yaml
+kubectl apply -f k8s/network-policies/
 
 echo "🛠️ Building and loading custom Slurm images..."
 ./scripts/build-custom-images.sh
