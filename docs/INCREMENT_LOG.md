@@ -38,6 +38,33 @@ This file tracks every discrete increment made during the Slinky migration. Its 
     *   Executed certificate generation logic using `openssl req` and verified `X509v3 Subject Alternative Name` output contains `DNS:localhost, IP Address:127.0.0.1, DNS:portal, DNS:portal.slurm.svc.cluster.local, DNS:*.sandbox.local` and 365-day validity.
 3.  **Scope Guardrails:**
     *   Confirmed non-target files (`portal/main.go`, `portal/session_manager.go`, `k8s/values.yaml`, `k8s/kind-config.yaml`, `k8s/network-policies/*`) remained untouched.
+## [Increment 29] - 2026-08-25: WP3-1-8-2 Kubernetes NetworkPolicies for Workload Isolation
+
+*   **Author:** Jules (Async)
+*   **Goal:** Create declarative Kubernetes NetworkPolicy manifests to enforce zero-trust network isolation on the `workload` namespace, restricting traffic to DNS, Traefik ingress, local registry, and public internet while blocking inter-pod lateral movement and control plane database access.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Zero-Trust Workload Baseline (`k8s/network-policies/default-deny-workload.yaml`):**
+    *   Defined default-deny NetworkPolicy targeting all pods in namespace `workload` for both Ingress and Egress traffic types.
+2.  **DNS Access Policy (`k8s/network-policies/allow-dns-egress.yaml`):**
+    *   Allowed egress from `workload` namespace pods to `kube-system` namespace pods matching `k8s-app: kube-dns` on UDP and TCP port 53.
+3.  **Traefik Ingress Policy (`k8s/network-policies/allow-traefik-ingress.yaml`):**
+    *   Allowed ingress on TCP port 8888 for interactive session pods (`app.kubernetes.io/component: interactive-session`) strictly from `slurm` control plane namespace pod `app: hpc-portal`.
+4.  **Local Registry Egress Policy (`k8s/network-policies/allow-registry-egress.yaml`):**
+    *   Allowed egress from `workload` pods to `slurm` namespace pod `app: registry` on TCP port 5000.
+5.  **Filtered Internet Egress Policy (`k8s/network-policies/allow-internet-egress.yaml`):**
+    *   Allowed egress to `0.0.0.0/0` with RFC 1918 exceptions (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) to enable external package/data downloads while blocking internal cluster network probes (e.g. MariaDB on 3306 or slurmctld).
+6.  **Cluster Bootstrap Integration (`scripts/start-slinky.sh`):**
+    *   Updated deployment workflow to apply `k8s/network-policies/` manifests during cluster startup.
+
+### 💡 Why This Design?
+*   **Defense in Depth:** Default-deny policy guarantees that unconfigured or newly spawned student pods cannot access internal cluster infrastructure or communicate laterally with other tenants' pods.
+*   **RFC 1918 Filtering:** Using CIDR exception blocks permits unprivileged student code to perform legitimate package installations (`pip`, `apt`) over the public internet without exposing internal cluster networks, databases, or host control plane services.
+
+### 🛠️ Verification Steps
+1.  **Manifest Syntax & Structure Validation:** Parsed all 5 NetworkPolicy YAML files to confirm correct API schema (`networking.k8s.io/v1`), metadata, matchLabels, and port definitions.
+2.  **Restricted Files Boundary Audit:** Confirmed `k8s/values.yaml`, `k8s/kind-config.yaml`, `k8s/portal-deployment.yaml`, and `portal/*` were unmodified.
 ## [Increment 29] - 2026-08-25: WP3-1-8-1 Namespace Isolation & RBAC Hardening
 
 *   **Author:** Jules
