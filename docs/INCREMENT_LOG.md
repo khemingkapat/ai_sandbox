@@ -2,6 +2,125 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 30] - 2026-09-07: WP3-1-8-4 Network & Security Verification Test Suite
+
+*   **Author:** Jules (Async)
+*   **Goal:** Implement a reproducible, automated verification test suite (`scripts/verify-security.sh`) to validate the four security baseline guarantees: RBAC confinement, database control plane isolation, inter-tenant workload isolation, and Traefik ingress TLS/headers.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Security Verification Test Suite (`scripts/verify-security.sh`):**
+    *   Created `scripts/verify-security.sh`: Executable bash script (`chmod +x`) with `set -euo pipefail` executing four discrete security test phases:
+        *   **Phase 1 (RBAC & Token Confinement):** Asserts `portal-sa` cannot list nodes or secrets (`kubectl auth can-i`), and verifies `/var/run/secrets/kubernetes.io/serviceaccount` is absent in workload pods with `automountServiceAccountToken: false`.
+        *   **Phase 2 (MariaDB Isolation):** Probes TCP port 3306 on `mariadb.slurm.svc.cluster.local` from an ephemeral workload pod and asserts connection failure/timeout due to NetworkPolicy egress drop.
+        *   **Phase 3 (Inter-Tenant Workload Isolation):** Spawns `tenant-a` and `tenant-b` in `workload` namespace, binds listener on port 8888 on `tenant-b`, and asserts connection attempt from `tenant-a` fails/times out.
+        *   **Phase 4 (Traefik Ingress TLS & Security Headers):** Establishes background `kubectl port-forward` to `svc/portal` in `slurm` namespace, asserts HTTP port 80 redirects (301/308) to HTTPS, and asserts HTTPS port 443 returns `X-Content-Type-Options: nosniff` and `X-Frame-Options: SAMEORIGIN` headers.
+    *   **Cleanup & Exit Protocol:** Registers EXIT trap (`trap cleanup EXIT`) to unconditionally clean up test pods (`sec-test-token-pod`, `tenant-a`, `tenant-b`), temporary files, and background port-forward process PIDs.
+
+### 💡 Why This Design?
+*   **Automated Security Verification:** Testing actual packet delivery and timeout behavior via ephemeral probe pods guarantees NetworkPolicy enforcement at the CNI layer without relying on configuration assumptions.
+*   **Unconditional Cleanup:** Using bash EXIT traps ensures no orphan pods or background port-forward processes leak into the cluster state after test runs.
+
+### 🛠️ Verification Steps
+1.  **Script Syntax & Executable Checks:**
+    *   Ran `bash -n scripts/verify-security.sh` (passed without errors).
+    *   Verified `chmod +x` executable permissions on `scripts/verify-security.sh`.
+2.  **Restricted Files Boundary Audit:**
+    *   Confirmed non-target files (`k8s/*`, `portal/*`, `values.yaml`, `kind-config.yaml`) were untouched.
+
+## [Increment 29] - 2026-09-07: WP3-1-8-3 Traefik Ingress TLS & Security Headers
+
+*   **Author:** Jules (Async)
+*   **Goal:** Secure Traefik ingress by terminating HTTPS on port 443 with self-signed TLS certificates, automatically enforcing HTTP-to-HTTPS redirects from port 80 to 443, and injecting standard security headers (`nosniff`, frame protection, XSS protection).
+
+### 📝 Key Changes & Files Modified
+
+1.  **Certificate Generation Script (`scripts/generate-certs.sh`):**
+    *   Created `scripts/generate-certs.sh`: Shell script that uses `openssl` to generate a 2048-bit RSA private key and self-signed certificate valid for 365 days with SANs: `localhost`, `127.0.0.1`, `portal`, `portal.slurm.svc.cluster.local`, and `*.sandbox.local`.
+    *   Generates or updates Kubernetes Secret `traefik-tls-cert` in namespace `slurm` (`--from-file=tls.crt=... --from-file=tls.key=...`).
+2.  **Traefik Dynamic Security ConfigMap (`k8s/traefik-security-configmap.yaml`):**
+    *   Created `k8s/traefik-security-configmap.yaml`: ConfigMap `traefik-security-config` in namespace `slurm` containing dynamic Traefik file configuration.
+    *   Configures `tls.stores.default.defaultCertificate` referencing `/etc/traefik/certs/tls.crt` and `/etc/traefik/certs/tls.key`.
+    *   Defines middleware `security-headers` under `http.middlewares.security-headers.headers` with `contentTypeNosniff: true`, `browserXssFilter: true`, and `customFrameOptionsValue: "SAMEORIGIN"`.
+3.  **Deployment & Service Hardening (`k8s/portal-deployment.yaml`):**
+    *   Updated `traefik` container in `hpc-portal` Deployment:
+        *   Exposed container port `name: websecure, containerPort: 443`.
+        *   Configured Traefik CLI arguments for `websecure` entrypoint (:443), TLS enablement (`--entrypoints.websecure.http.tls=true`), default middleware (`security-headers@file`), HTTP-to-HTTPS redirection (`web` -> `websecure`), and security file provider (`--providers.file.directory=/etc/traefik/security`).
+        *   Mounted volumes `traefik-certs` at `/etc/traefik/certs` (readOnly) and `traefik-security` at `/etc/traefik/security` (readOnly).
+    *   Updated Pod volumes sourcing Secret `traefik-tls-cert` and ConfigMap `traefik-security-config`.
+    *   Updated Service `portal`: Added port `name: https, port: 443, targetPort: 443`.
+4.  **Cluster Startup Integration (`scripts/start-slinky.sh`):**
+    *   Integrated `./scripts/generate-certs.sh` execution and `kubectl apply -f k8s/traefik-security-configmap.yaml` into the cluster bootstrap sequence.
+
+### 💡 Why This Design?
+*   **Decoupled Security Management:** Leveraging Traefik's dynamic file provider mounted via a Kubernetes ConfigMap decouples TLS store configuration and middleware security policy definitions from application source code.
+*   **Defense-in-Depth:** Mandatory HTTPS redirection and standard security headers (`X-Content-Type-Options: nosniff`, `X-Frame-Options: SAMEORIGIN`, `X-XSS-Protection`) protect student sessions, interactive notebooks, and terminal proxies against credential eavesdropping, MIME sniffing, and clickjacking attacks.
+
+### 🛠️ Verification Steps
+1.  **Script & YAML Syntax Verification:**
+    *   Ran `bash -n scripts/generate-certs.sh` and `bash -n scripts/start-slinky.sh` (passed without errors).
+    *   Validated YAML formatting and key structures for `k8s/traefik-security-configmap.yaml` and `k8s/portal-deployment.yaml`.
+2.  **Certificate & SANs Verification:**
+    *   Executed certificate generation logic using `openssl req` and verified `X509v3 Subject Alternative Name` output contains `DNS:localhost, IP Address:127.0.0.1, DNS:portal, DNS:portal.slurm.svc.cluster.local, DNS:*.sandbox.local` and 365-day validity.
+3.  **Scope Guardrails:**
+    *   Confirmed non-target files (`portal/main.go`, `portal/session_manager.go`, `k8s/values.yaml`, `k8s/kind-config.yaml`, `k8s/network-policies/*`) remained untouched.
+## [Increment 29] - 2026-08-25: WP3-1-8-2 Kubernetes NetworkPolicies for Workload Isolation
+
+*   **Author:** Jules (Async)
+*   **Goal:** Create declarative Kubernetes NetworkPolicy manifests to enforce zero-trust network isolation on the `workload` namespace, restricting traffic to DNS, Traefik ingress, local registry, and public internet while blocking inter-pod lateral movement and control plane database access.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Zero-Trust Workload Baseline (`k8s/network-policies/default-deny-workload.yaml`):**
+    *   Defined default-deny NetworkPolicy targeting all pods in namespace `workload` for both Ingress and Egress traffic types.
+2.  **DNS Access Policy (`k8s/network-policies/allow-dns-egress.yaml`):**
+    *   Allowed egress from `workload` namespace pods to `kube-system` namespace pods matching `k8s-app: kube-dns` on UDP and TCP port 53.
+3.  **Traefik Ingress Policy (`k8s/network-policies/allow-traefik-ingress.yaml`):**
+    *   Allowed ingress on TCP port 8888 for interactive session pods (`app.kubernetes.io/component: interactive-session`) strictly from `slurm` control plane namespace pod `app: hpc-portal`.
+4.  **Local Registry Egress Policy (`k8s/network-policies/allow-registry-egress.yaml`):**
+    *   Allowed egress from `workload` pods to `slurm` namespace pod `app: registry` on TCP port 5000.
+5.  **Filtered Internet Egress Policy (`k8s/network-policies/allow-internet-egress.yaml`):**
+    *   Allowed egress to `0.0.0.0/0` with RFC 1918 exceptions (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) to enable external package/data downloads while blocking internal cluster network probes (e.g. MariaDB on 3306 or slurmctld).
+6.  **Cluster Bootstrap Integration (`scripts/start-slinky.sh`):**
+    *   Updated deployment workflow to apply `k8s/network-policies/` manifests during cluster startup.
+
+### 💡 Why This Design?
+*   **Defense in Depth:** Default-deny policy guarantees that unconfigured or newly spawned student pods cannot access internal cluster infrastructure or communicate laterally with other tenants' pods.
+*   **RFC 1918 Filtering:** Using CIDR exception blocks permits unprivileged student code to perform legitimate package installations (`pip`, `apt`) over the public internet without exposing internal cluster networks, databases, or host control plane services.
+
+### 🛠️ Verification Steps
+1.  **Manifest Syntax & Structure Validation:** Parsed all 5 NetworkPolicy YAML files to confirm correct API schema (`networking.k8s.io/v1`), metadata, matchLabels, and port definitions.
+2.  **Restricted Files Boundary Audit:** Confirmed `k8s/values.yaml`, `k8s/kind-config.yaml`, `k8s/portal-deployment.yaml`, and `portal/*` were unmodified.
+## [Increment 29] - 2026-08-25: WP3-1-8-1 Namespace Isolation & RBAC Hardening
+
+*   **Author:** Jules
+*   **Goal:** Establish strict declarative namespace boundaries with zone labels and downgrade portal service account privileges from cluster-admin level ClusterRole to least-privilege namespace-scoped Roles and RoleBindings while disabling automountServiceAccountToken on interactive pods.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Declarative Namespace Baseline (`k8s/namespaces.yaml`):**
+    *   Defined declarative manifests for `slurm` (labeled `sandbox.zone: control-plane` and `app.kubernetes.io/part-of: ai-sandbox`) and `workload` (labeled `sandbox.zone: workload` and `app.kubernetes.io/part-of: ai-sandbox`) namespaces.
+    *   Updated `scripts/start-slinky.sh` to apply `k8s/namespaces.yaml` declaratively instead of imperative namespace creation.
+2.  **Portal RBAC Least-Privilege Hardening (`k8s/portal-rbac.yaml`):**
+    *   Removed `ClusterRole` and `ClusterRoleBinding` definitions.
+    *   Created namespace-scoped `Role` (`portal-workload-role`) and `RoleBinding` in `workload` namespace granting `portal-sa` (in `slurm`) lifecycle verbs (`create`, `get`, `list`, `watch`, `delete`) for `pods`, `services`, `ingresses`, and read verbs (`get`, `list`, `watch`) for `endpoints` and `endpointslices`.
+    *   Created namespace-scoped `Role` (`traefik-slurm-role`) and `RoleBinding` in `slurm` namespace granting `portal-sa` read verbs (`get`, `list`, `watch`) for `services`, `endpoints`, `endpointslices`, and `ingresses`.
+    *   Verified zero access to `secrets` or `nodes`.
+3.  **Interactive Session Pod Hardening (`portal/session_manager.go`):**
+    *   Updated `CreateSession()` to explicitly set `pod.Spec.AutomountServiceAccountToken = &falseVal`.
+    *   Injected standard zone labels (`sandbox.zone: workload` and `app.kubernetes.io/component: interactive-session`) into interactive pod specifications.
+
+### 💡 Why This Design?
+*   **Least-Privilege Containment:** Scoping web portal permissions strictly to the workload namespace (and read-only network discovery in `slurm` for Traefik) prevents compromised portal instances from inspecting cluster secrets or host node configurations.
+*   **API Server Defense:** Disabling `automountServiceAccountToken` on student interactive workload pods prevents students from accessing or attempting privilege escalation against the Kubernetes API server from inside notebook environments.
+
+### 🛠️ Verification Steps
+1.  **Go Compilation & Quality:** Executed `cd portal && go build ./...` and `cd portal && go vet ./...` (0 errors/warnings).
+2.  **RBAC Manifest Audit:** Verified `k8s/portal-rbac.yaml` contains no `ClusterRole`/`ClusterRoleBinding` and zero permissions for `secrets` or `nodes`.
+3.  **Pod Hardening Check:** Verified `portal/session_manager.go` sets `AutomountServiceAccountToken = &falseVal` and includes zone labels.
+
+---
+
 ## [Increment 28] - 2026-08-24: WP3-1-7 Central Shared Storage, Curated Datasets & Model Hub Repository
 
 *   **Author:** Antigravity (Interactive) & Khem

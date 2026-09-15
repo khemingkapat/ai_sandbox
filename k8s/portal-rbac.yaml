@@ -5,28 +5,63 @@ metadata:
   namespace: slurm
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
+kind: Role
 metadata:
-  name: portal-role
+  name: portal-workload-role
+  namespace: workload
 rules:
 - apiGroups: [""]
-  resources: ["pods", "services", "endpoints", "secrets", "nodes"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  resources: ["pods", "services"]
+  verbs: ["create", "get", "list", "watch", "delete"]
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["create", "get", "list", "watch", "delete"]
+- apiGroups: [""]
+  resources: ["endpoints"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: ["discovery.k8s.io"]
+  resources: ["endpointslices"]
+  verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: portal-workload-rolebinding
+  namespace: workload
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: portal-workload-role
+subjects:
+- kind: ServiceAccount
+  name: portal-sa
+  namespace: slurm
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: traefik-slurm-role
+  namespace: slurm
+rules:
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
 - apiGroups: ["discovery.k8s.io"]
   resources: ["endpointslices"]
   verbs: ["get", "list", "watch"]
 - apiGroups: ["networking.k8s.io"]
-  resources: ["ingresses", "ingressclasses"]
-  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
+kind: RoleBinding
 metadata:
-  name: portal-rolebinding
+  name: traefik-slurm-rolebinding
+  namespace: slurm
 roleRef:
   apiGroup: rbac.authorization.k8s.io
-  kind: ClusterRole
-  name: portal-role
+  kind: Role
+  name: traefik-slurm-role
 subjects:
 - kind: ServiceAccount
   name: portal-sa

@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: slurm
+  labels:
+    app.kubernetes.io/part-of: ai-sandbox
+    sandbox.zone: control-plane
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: workload
+  labels:
+    app.kubernetes.io/part-of: ai-sandbox
+    sandbox.zone: workload

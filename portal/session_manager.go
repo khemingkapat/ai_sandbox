@@ -46,11 +46,13 @@ func NewSessionManager(namespace, traefikDir string) (*SessionManager, error) {
 // CreateSession provisions a new interactive session (Pod, Service, and Ingress).
 func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManifest, slurmArgs map[string]string, username, project, sessionID string) (string, error) {
 	labels := map[string]string{
-		"app":        "interactive-session",
-		"app-id":     manifest.ID,
-		"session-id": sessionID,
-		"user":       username,
-		"project":    project,
+		"app":                          "interactive-session",
+		"app-id":                       manifest.ID,
+		"session-id":                   sessionID,
+		"user":                         username,
+		"project":                      project,
+		"sandbox.zone":                 "workload",
+		"app.kubernetes.io/component": "interactive-session",
 	}
 
 	workspace := fmt.Sprintf("/mnt/storage/projects/%s", project)
@@ -63,6 +65,8 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 	}
 
 	basePath := fmt.Sprintf("/%s/%s/%s", username, manifest.ID, sessionID)
+
+	falseVal := false
 
 	// 1. Create Pod
 	pod := &corev1.Pod{
@@ -78,6 +82,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 			},
 		},
 		Spec: corev1.PodSpec{
+			AutomountServiceAccountToken: &falseVal,
 			Containers: []corev1.Container{
 				{
 					Name:            "session",
