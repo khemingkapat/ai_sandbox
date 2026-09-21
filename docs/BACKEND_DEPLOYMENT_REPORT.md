@@ -31,7 +31,7 @@ This document records the complete backend infrastructure deployment for the AI 
   - [4.1 Dual-Path Execution Architecture](#41-dual-path-execution-architecture)
   - [4.2 Interactive OCI Images](#42-interactive-oci-images)
   - [4.3 Custom Slurm Daemon Images](#43-custom-slurm-daemon-images)
-  - [4.4 In-Cluster OCI Registry](#44-in-cluster-oci-registry)
+  - [4.4 Zero-Registry Image Distribution Architecture](#44-zero-registry-image-distribution-architecture)
   - [4.5 Batch Apptainer Pipeline](#45-batch-apptainer-pipeline)
   - [4.6 Dynamic User Identity Resolution](#46-dynamic-user-identity-resolution)
 - [5. Dataset & Model Repository](#5-dataset--model-repository)
@@ -43,12 +43,13 @@ This document records the complete backend infrastructure deployment for the AI 
   - [5.6 Container Environment Contract](#56-container-environment-contract)
   - [5.7 Storage Governance Tooling](#57-storage-governance-tooling)
 - [6. Network Configuration](#6-network-configuration)
-  - [6.1 Zero-Trust Network Baseline](#61-zero-trust-network-baseline)
-  - [6.2 Network Policy Rules](#62-network-policy-rules)
-  - [6.3 RBAC & Service Account Hardening](#63-rbac--service-account-hardening)
-  - [6.4 Ingress TLS & Security Headers](#64-ingress-tls--security-headers)
-  - [6.5 Traefik Dynamic Session Routing](#65-traefik-dynamic-session-routing)
-  - [6.6 Automated Security Verification](#66-automated-security-verification)
+  - [6.1 Perimeter Defense & Host Firewall (UFW)](#61-perimeter-defense--host-firewall-ufw)
+  - [6.2 Zero-Trust Network Baseline](#62-zero-trust-network-baseline)
+  - [6.3 Network Policy Rules](#63-network-policy-rules)
+  - [6.4 RBAC & Service Account Hardening](#64-rbac--service-account-hardening)
+  - [6.5 Ingress TLS & Security Headers](#65-ingress-tls--security-headers)
+  - [6.6 Traefik Dynamic Session Routing](#66-traefik-dynamic-session-routing)
+  - [6.7 Automated Security Verification](#67-automated-security-verification)
 - [7. Software Catalog & Application Manifests](#7-software-catalog--application-manifests)
 - [8. Conclusion](#8-conclusion)
 
@@ -58,65 +59,70 @@ This document records the complete backend infrastructure deployment for the AI 
 
 ### 1.1 Cluster Topology
 
-The backend is deployed on a four-node Kubernetes cluster provisioned via Kind (Kubernetes-in-Docker). The cluster consists of one control-plane node and three worker nodes, simulating the target production topology of separate control and compute layers.
+The backend is deployed on a two-node virtualized Kubernetes cluster running K3s (v1.36.4+k3s1) on the Computer Engineering Department's Proxmox VE hypervisor (`sandbox01`) across VLAN 123 (`10.35.123.0/24`). The deployment implements a strict separation between control-plane infrastructure and compute execution.
 
 ```mermaid
 flowchart TD
-    subgraph "Kind Cluster (4 Nodes)"
-        CP["kind-control-plane<br/>Control Plane<br/>Registry Host (Port 5000)"]
-        W1["kind-worker<br/>CPU Compute #1<br/>label: external-node=true"]
-        W2["kind-worker2<br/>CPU Compute #2<br/>label: external-node=true"]
-        W3["kind-worker3<br/>CPU/GPU Compute #3<br/>label: external-node=true"]
+    subgraph "Proxmox Host: sandbox01 (VLAN 123)"
+        subgraph "ai-control (VM 103, 10.35.123.50)"
+            CP["K3s Server (Control Plane)<br/>4 vCPU / 16 GB RAM<br/>Disk: 32 GB OS + 200 GB Storage"]
+            NFS_S["NFSv4 Kernel Server<br/>Export: /srv/shared-storage<br/>Bind Mount: /mnt/storage"]
+            CTRL["slurmctld & slurmdbd"]
+            REST["slurmrestd & portal"]
+            DB["MariaDB 10.11"]
+        end
+
+        subgraph "ai-worker1 (VM 104, 10.35.123.51)"
+            W1["K3s Agent (Compute Worker)<br/>8 vCPU / 32 GB RAM / 64 GB OS<br/>label: external-node=true"]
+            NFS_C["NFSv4 Client<br/>Mount: 10.35.123.50:/srv/shared-storage -> /mnt/storage"]
+            SC0["slurmd-cpu-0"]
+            SC1["slurmd-cpu-1"]
+            SG0["slurmd-gpu-0 (mock)"]
+            WP["Workload Pods<br/>(Jupyter, VS Code, Bash)"]
+        end
     end
 
-    subgraph "Slinky StatefulSet Workers"
-        SC0["slurmd-cpu-0<br/>NodeSet: slurmd-cpu"]
-        SC1["slurmd-cpu-1<br/>NodeSet: slurmd-cpu"]
-        SG0["slurmd-gpu-0<br/>NodeSet: slurmd-gpu (mock)"]
-    end
-
-    CP --- W1
-    CP --- W2
-    CP --- W3
+    CP <--->|"Flannel VXLAN (8472/udp) & Kubelet (10250/tcp)"| W1
+    NFS_S ===|"POSIX NFSv4 (2049/tcp)"| NFS_C
     W1 -.- SC0
-    W2 -.- SC1
-    W3 -.- SG0
+    W1 -.- SC1
+    W1 -.- SG0
+    W1 -.- WP
 ```
 
-| Node | Role | Kubelet Feature Gate | Host Mount | Special Function |
-| :--- | :--- | :--- | :--- | :--- |
-| `kind-control-plane` | Control Plane | `KubeletInUserNamespace=true` | `/mnt/storage` | OCI registry host (`hostPort: 5000`) |
-| `kind-worker` | Compute Worker #1 | `KubeletInUserNamespace=true` | `/mnt/storage` | Slurm external node, partition routing |
-| `kind-worker2` | Compute Worker #2 | `KubeletInUserNamespace=true` | `/mnt/storage` | Slurm external node, partition routing |
-| `kind-worker3` | Compute Worker #3 | `KubeletInUserNamespace=true` | `/mnt/storage` | Slurm external node, bridge-managed interactive sessions |
+| Node | Role | vCPU / RAM | Host Storage | IP Address | Special Function & Components |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `ai-control` (VM 103) | Control Plane | 4 vCPU / 16 GB | 32 GB OS (`/`)<br/>200 GB (`/srv/shared-storage`) | `10.35.123.50` | K3s Server, NFSv4 Server, Slinky Operator, `slurmctld`, `slurmdbd`, `slurmrestd`, `mariadb-0`, `hpc-portal` |
+| `ai-worker1` (VM 104) | Compute Worker | 8 vCPU / 32 GB | 64 GB OS (`/`)<br/>NFS mount (`/mnt/storage`) | `10.35.123.51` | K3s Agent, Slurm NodeSets (`slurmd-cpu-[0-1]`, `slurmd-gpu-0`), Apptainer runtime, interactive workload pods |
 
-All three worker nodes carry the label `scheduler.slinky.slurm.net/external-node=true` and the annotation `scheduler.slinky.slurm.net/external-node-partitions=interactive,batch-cpu,batch-gpu,inference`, enabling `slurm-bridge` to schedule native Kubernetes pods on them as Slurm-tracked workloads.
+The worker node `ai-worker1` carries the label `scheduler.slinky.slurm.net/external-node=true` and the annotation `scheduler.slinky.slurm.net/external-node-partitions=interactive,batch-cpu,batch-gpu,inference`, enabling `slurm-bridge` to schedule native Kubernetes pods onto it as Slurm-tracked workloads. Workload components are pinned using explicit `nodeSelector: kubernetes.io/hostname: ai-control` for control services and `kubernetes.io/hostname: ai-worker1` for compute NodeSets.
 
-> **Note on `KubeletInUserNamespace`:** This feature gate is required because the host kernel restricts `/proc/sys/kernel/keys/root_maxkeys` access, which would otherwise cause Kubelet crashes during Kind node initialization.
+> **Native Virtualization Advantage:** Unlike containerized development environments (such as Kind) which require user-namespace workarounds (`KubeletInUserNamespace`) and inotify monkey-patching, the Proxmox VMs run native Ubuntu 24.04.5 LTS kernels with full cgroup v2 support, unconstrained kernel keys, and native systemd integration.
 
 ### 1.2 Kubernetes Volume Architecture
 
-Three persistent volumes provide strict separation between Slurm controller state, shared student data, and workload-namespace data access:
+Persistent volumes provide strict isolation between Slurm controller state, shared multi-tenant student data, and workload session access:
 
 | PersistentVolume | Capacity | Access Mode | Host Path | Claimed By | Mount Purpose |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `slinky-storage-pv` | 20 Gi | `ReadWriteMany` | `/mnt/storage` | `slinky-storage-pvc` (ns: `slurm`) | Student workspaces, models, datasets, common software, registry |
-| `slurm-state-pv` | 5 Gi | `ReadWriteOnce` | `/mnt/slurm-state` | `slurm-state-pvc` (ns: `slurm`) | `slurmctld` controller checkpoints (`/var/spool/slurmctld`) |
-| `workload-storage-pv` | 20 Gi | `ReadWriteMany` | `/mnt/storage` | `slinky-storage-pvc` (ns: `workload`) | Interactive session pod access to `/mnt/storage` |
-| `registry-pv` | 20 Gi | `ReadWriteOnce` | `/mnt/storage/registry` | `registry-pvc` (ns: `slurm`) | In-cluster OCI registry blob storage |
+| `slinky-storage-pv` | 200 Gi (underlying) / 20 Gi (claim) | `ReadWriteMany` | `/mnt/storage` | `slinky-storage-pvc` (ns: `slurm`) | Student workspaces, models, datasets, common software |
+| `slurm-state-pv` | 5 Gi | `ReadWriteOnce` | `/mnt/slurm-state` | `slurm-state-pvc` (ns: `slurm`) | `slurmctld` controller checkpoints on `ai-control` (`/var/spool/slurmctld`) |
+| `workload-storage-pv` | 200 Gi (underlying) / 20 Gi (claim) | `ReadWriteMany` | `/mnt/storage` | `slinky-storage-pvc` (ns: `workload`) | Interactive student session pod access to `/mnt/storage` |
 
-> **Why state isolation matters:** The Slurm controller's checkpoint directory (`/var/spool/slurmctld`) is mounted on a separate PV from student data. This prevents a scenario where student storage filling to capacity would starve the scheduler's ability to write state files, causing a cluster-wide scheduling outage.
+> **Shared Storage Backing & Multi-Node RWX:** Shared storage is backed by a 200 GB dedicated virtual disk on `ai-control` mounted at `/srv/shared-storage` and bind-mounted to `/mnt/storage`. This directory is exported via `nfs-kernel-server` (NFSv4) strictly to `ai-worker1`, where it is mounted at `/mnt/storage`. Multi-node RWX read/write consistency was verified across both VMs using cross-node test pods (`k8s/test-rwx.yaml`).
+>
+> **Why state isolation matters:** The Slurm controller checkpoint directory (`/var/spool/slurmctld`) resides on a local `ReadWriteOnce` PV on `ai-control` separate from shared student storage. This ensures that student storage exhaustion on `/mnt/storage` can never starve scheduler checkpoint writes or trigger cluster-wide scheduling outages.
 
 ### 1.3 Namespace & Zone Model
 
-The cluster is divided into two namespaces with distinct security zones:
+The cluster is organized into two primary namespaces with distinct security zones:
 
-| Namespace | Zone Label | Purpose | Key Pods |
-| :--- | :--- | :--- | :--- |
-| `slurm` | `sandbox.zone: control-plane` | Scheduler control plane, portal, registry, accounting database | `slurm-controller-0`, `slurm-restapi-*`, `slurmd-cpu-[0-1]`, `slurmd-gpu-0`, `hpc-portal`, `registry`, `mariadb` |
-| `workload` | `sandbox.zone: workload` | Dynamic student interactive sessions and bridge-managed pods | Transient Jupyter, VS Code, and Bash terminal pods |
+| Namespace | Zone Label | Node Placement | Purpose | Key Pods |
+| :--- | :--- | :--- | :--- | :--- |
+| `slurm` | `sandbox.zone: control-plane` | `ai-control` (controller)<br/>`ai-worker1` (workers) | Scheduler control plane, portal, accounting database, and compute daemons | `slurm-controller-0`, `slurm-restapi-*`, `mariadb-0`, `hpc-portal`, `slurmd-cpu-[0-1]`, `slurmd-gpu-0` |
+| `workload` | `sandbox.zone: workload` | `ai-worker1` | Dynamic student interactive sessions and bridge-managed pods | Transient Jupyter, VS Code, and Bash terminal pods |
 
-This zone model is the foundation for all network policies — the `control-plane` zone houses trusted infrastructure, while the `workload` zone houses untrusted student code under strict isolation.
+This zone model forms the foundation for all network policies: the `control-plane` zone houses trusted infrastructure pinned to `ai-control`, while the `workload` zone houses untrusted student workloads executed on `ai-worker1` under strict zero-trust network isolation.
 
 ---
 
@@ -169,15 +175,15 @@ flowchart LR
     BRIDGE -->|Intercepts & Schedules| BP
 ```
 
-| Component | Role | Image | Namespace |
-| :--- | :--- | :--- | :--- |
-| **slurm-operator** | Kubernetes operator managing Slurm CRDs (Controller, NodeSet, RestAPI) | `ghcr.io/slinkyproject/slurm-operator` | `slinky` |
-| **slurmctld** | Slurm controller daemon — scheduling decisions, job queue management | `slurmctld-custom:latest` | `slurm` |
-| **slurmrestd** | Slurm REST API — HTTP interface for job submission | `slurmrestd-custom:latest` | `slurm` |
-| **slurmdbd** | Slurm accounting daemon — connects to MariaDB for fair-share and QoS tracking | Bundled in Helm chart | `slurm` |
-| **slurmd (CPU)** | Compute worker NodeSet for CPU partitions (2 replicas, StatefulSet) | `slurmd-custom:latest` | `slurm` |
-| **slurmd (GPU)** | Compute worker NodeSet for GPU partitions (1 replica, StatefulSet) | `slurmd-custom:latest` | `slurm` |
-| **slurm-bridge** | Kubernetes scheduling interceptor — translates Slurm allocations into native K8s pods | `ghcr.io/slinkyproject/slurm-bridge` | `slurm` |
+| Component | Role | Image | Namespace | Node Placement |
+| :--- | :--- | :--- | :--- | :--- |
+| **slurm-operator** | Kubernetes operator managing Slurm CRDs (Controller, NodeSet, RestAPI) | `ghcr.io/slinkyproject/slurm-operator` | `slinky` | `ai-control` |
+| **slurmctld** | Slurm controller daemon — scheduling decisions, job queue management | `slurmctld-custom:latest` | `slurm` | `ai-control` |
+| **slurmrestd** | Slurm REST API — HTTP interface for job submission | `slurmrestd-custom:latest` | `slurm` | `ai-control` |
+| **slurmdbd** | Slurm accounting daemon — connects to MariaDB for fair-share and QoS tracking | Bundled in Helm chart | `slurm` | `ai-control` |
+| **slurmd (CPU)** | Compute worker NodeSet for CPU partitions (2 replicas, StatefulSet, oversubscribed) | `slurmd-custom:latest` | `slurm` | `ai-worker1` |
+| **slurmd (GPU)** | Compute worker NodeSet for GPU partitions (1 replica, StatefulSet, oversubscribed) | `slurmd-custom:latest` | `slurm` | `ai-worker1` |
+| **slurm-bridge** | Kubernetes scheduling interceptor — translates Slurm allocations into native K8s pods | `ghcr.io/slinkyproject/slurm-bridge` | `slurm` | `ai-control` |
 
 ### 2.2 Operator & CRD Bootstrap
 
@@ -189,24 +195,24 @@ The Slinky deployment follows a strict sequential dependency chain:
 
 ### 2.3 Deployment Pipeline
 
-The complete cluster bootstrap is automated in a single script (`scripts/start-slinky.sh`) executing 14 sequential stages:
+The cluster deployment follows a validated, reproducible 14-stage runbook executed via the remote operations workflow (`ptunnel` over SSH):
 
 | Stage | Action | Key Command / Manifest |
 | :--- | :--- | :--- |
-| 1 | Install cert-manager, CRDs, and operator | `helm install` (3 charts) |
-| 2 | Create namespaces, storage PVs, and network policies | `kubectl apply -f k8s/namespaces.yaml, pv-pvc.yaml, network-policies/` |
-| 3 | Build custom Slurm daemon images | `scripts/build-custom-images.sh` |
-| 4 | Wait for operator readiness | `kubectl wait --for=condition=available deployment/slurm-operator` |
-| 5 | Deploy MariaDB accounting database | `kubectl apply -f k8s/mariadb.yaml` |
-| 6 | Install Slurm cluster via Helm | `helm install slurm oci://ghcr.io/slinkyproject/charts/slurm -f k8s/values.yaml` |
-| 7 | Configure Slurm accounting (QoS, accounts, TRES) | `scripts/setup-accounting.sh` |
+| 1 | Install cert-manager, CRDs, and operator | `helm install` (cert-manager, slurm-operator-crds, slurm-operator) |
+| 2 | Create namespaces, storage PVs, and verify multi-node RWX | `kubectl apply -f k8s/namespaces.yaml, pv-pvc.yaml, test-rwx.yaml` |
+| 3 | Side-load custom Slurm daemon images into K3s containerd | `scripts/transfer-images-proxmox.sh` / stream over SSH into `sudo k3s ctr -n k8s.io images import -` |
+| 4 | Wait for operator readiness | `kubectl wait -n slinky --for=condition=available deployment/slurm-operator` |
+| 5 | Deploy MariaDB accounting database pinned to `ai-control` | `kubectl apply -f k8s/mariadb.yaml` |
+| 6 | Install Slurm cluster via Helm with Proxmox topology pinning | `helm install slurm oci://ghcr.io/slinkyproject/charts/slurm -f k8s/values.yaml` |
+| 7 | Configure Slurm accounting (QoS, accounts, TRES limits) | `scripts/setup-accounting.sh` |
 | 8 | Generate JWT token for bridge authentication | `scontrol token lifespan=unlimited` → Secret `slurm-bridge-token` |
-| 9 | Deploy slurm-bridge | `helm install slurm-bridge -f k8s/slurm-bridge-values.yaml` |
-| 10 | Register external worker nodes in Slurm | Label/annotate Kind workers, `scontrol update PartitionName=...` |
-| 11 | Patch inotify limits on all Kind nodes | `sysctl fs.inotify.max_user_instances=8192` |
-| 12 | Deploy in-cluster OCI registry and configure containerd mirrors | `k8s/registry.yaml`, `/etc/containerd/certs.d/` config |
-| 13 | Build and push interactive images, deploy portal and TLS | `build-oci-images.sh`, `generate-certs.sh`, portal manifests |
-| 14 | Initialize storage hierarchy and seed test data | `init-storage.sh`, `seed-models.sh`, `seed-datasets.sh` |
+| 9 | Deploy slurm-bridge pinned to `ai-control` | `helm install slurm-bridge -f k8s/slurm-bridge-values.yaml` |
+| 10 | Register external worker node `ai-worker1` in Slurm | `kubectl label/annotate node ai-worker1`, `scontrol update PartitionName=interactive Nodes=ai-worker1,...` |
+| 11 | Initialize storage hierarchy and seed test models & datasets | `init-storage.sh`, `seed-models.sh --test-mode`, `seed-datasets.sh --test-mode` |
+| 12 | Deploy ephemeral scratch space cleanup CronJob | `kubectl apply -f k8s/clean-scratch-cronjob.yaml` |
+| 13 | Generate Ingress TLS certificates & apply Zero-Trust NetworkPolicies | `generate-certs.sh`, `traefik-security-configmap.yaml`, `k8s/network-policies/` |
+| 14 | Execute test suites & capture hypervisor baseline snapshot | `verify-storage.sh` (6/6 pass), `verify-security.sh` (7/7 pass) → Proxmox snapshot `backend` |
 
 ### 2.4 Slurm Bridge Configuration
 
@@ -218,6 +224,7 @@ The `slurm-bridge` connects Kubernetes pod scheduling to Slurm job accounting. W
 | **Slurm REST API Endpoint** | `http://slurm-restapi.slurm:6820` |
 | **JWT Secret** | `slurm-bridge-token` (key: `auth-token`) |
 | **Default Partition** | `interactive` |
+| **Node Placement** | Pinned to `ai-control` via `nodeSelector: kubernetes.io/hostname: ai-control` |
 | **Tolerations** | `slinky.slurm.net/managed-node:NoExecute` (all sub-components) |
 
 The portal Go application injects Slinky-specific annotations into every interactive pod spec:
@@ -240,6 +247,7 @@ Slurm accounting is backed by a MariaDB 10.11 StatefulSet providing persistent j
 | **Database** | `slurm_acct_db` |
 | **Service User** | `slurm` |
 | **Service** | `mariadb.slurm.svc` (ClusterIP, port 3306) |
+| **Node Selector** | `kubernetes.io/hostname: ai-control` |
 | **Volume** | `emptyDir: {}` (ephemeral in development; production requires persistent storage) |
 | **Readiness Probe** | `mysqladmin ping` (initial delay: 10s, period: 5s) |
 | **Tolerations** | `slinky.slurm.net/managed-node:NoExecute` |
@@ -261,11 +269,18 @@ accounting:
 
 ### 2.6 Disaster Recovery & State Isolation
 
-The `slurmctld` controller pod stores all scheduling state (job queue, node state, checkpoint data) on a dedicated `ReadWriteOnce` PV mounted at `/var/spool/slurmctld`. This enables automatic state recovery:
+The AI Sandbox implements a two-tier disaster recovery and state isolation model:
 
-- **Pod crash/restart:** Kubernetes recreates the pod and reattaches the same PV. The controller reads its checkpoint file and resumes scheduling without job loss.
-- **Verified behavior:** Force-killing the `slurmctld` pod (`--force --grace-period=0`) during active job execution results in full state recovery — queued jobs resume, running jobs are tracked to completion.
-- **State isolation guarantee:** Because `/var/spool/slurmctld` (5 Gi, RWO) is on a separate volume from student data `/mnt/storage` (20 Gi, RWX), storage pressure from student workloads cannot corrupt or starve the scheduler.
+1. **Kubernetes Storage Isolation:**
+   - The `slurmctld` controller pod stores all scheduling state (job queue, node state, checkpoint data) on a dedicated `ReadWriteOnce` PV mounted at `/var/spool/slurmctld` on `ai-control`'s local filesystem.
+   - **Pod crash/restart:** Kubernetes recreates the pod and reattaches the same PV. The controller reads its checkpoint file and resumes scheduling without job loss.
+   - **Verified behavior:** Force-killing the `slurmctld` pod (`--force --grace-period=0`) during active job execution results in full state recovery — queued jobs resume and running jobs are tracked to completion.
+   - **State isolation guarantee:** Because `/var/spool/slurmctld` (5 Gi, RWO) is on a separate volume from shared student storage `/mnt/storage` (200 Gi, RWX), storage exhaustion by student jobs cannot corrupt or starve scheduler state.
+
+2. **Hypervisor Snapshot Checkpoints:**
+   - Synchronized Proxmox VE snapshots are taken across **both VMs together** (`ai-control` and `ai-worker1`) with RAM **unchecked** for clean disk-level consistency.
+   - The `ai-control` snapshot captures the underlying 200 GB storage disk (`/srv/shared-storage`), ensuring that rollbacks cleanly restore both cluster metadata and the shared filesystem simultaneously.
+   - Verified snapshot milestones: `pre-k8s` (base OS), `k8s-ready` (K3s joined), `core-infra-ready` (storage & DB), `slurm-deployed` (Slinky running), and `backend` (all tests verified).
 
 ---
 
@@ -277,11 +292,13 @@ The cluster is divided into four scheduling partitions, each with enforced resou
 
 | Partition | NodeSets / Nodes | Default | Max Duration | PreemptMode | Priority Tier | MaxTRESPerJob | Associated QoS |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `interactive` | `slurmd-cpu`, `slurmd-gpu`, `worker[1-3]` | YES | 2 Hours | OFF | 2 (High) | `cpu=4, mem=16G, gres/gpu=1` | `interactive_qos` |
-| `batch-cpu` | `slurmd-cpu`, `worker[1-2]` | NO | 24 Hours | OFF | 1 (Medium) | `cpu=16, mem=64G` | `batch_cpu_qos` |
-| `batch-gpu` | `slurmd-cpu`, `slurmd-gpu`, `worker[3]` | NO | 7 Days | OFF | 1 (Medium) | `cpu=16, mem=64G, gres/gpu=1` | `batch_gpu_qos` |
-| `inference` | `slurmd-gpu`, `worker[3]` | NO | 12 Hours | OFF | 3 (Highest) | `cpu=4, mem=32G, gres/gpu=1` | `inference_qos` |
+| `interactive` | `slurmd-cpu-[0-1]`, `slurmd-gpu-0`, `ai-worker1` | YES | 2 Hours | OFF | 2 (High) | `cpu=4, mem=16G, gres/gpu=1` | `interactive_qos` |
+| `batch-cpu` | `slurmd-cpu-[0-1]`, `ai-worker1` | NO | 24 Hours | OFF | 1 (Medium) | `cpu=16, mem=64G` | `batch_cpu_qos` |
+| `batch-gpu` | `slurmd-cpu-[0-1]`, `slurmd-gpu-0`, `ai-worker1` | NO | 7 Days | OFF | 1 (Medium) | `cpu=16, mem=64G, gres/gpu=1` | `batch_gpu_qos` |
+| `inference` | `slurmd-gpu-0`, `ai-worker1` | NO | 12 Hours | OFF | 3 (Highest) | `cpu=4, mem=32G, gres/gpu=1` | `inference_qos` |
 
+> **Topology Scheduling & Memory Allocation:** Because compute workers run together on the 8-core `ai-worker1` VM, the Slinky configuration enables `oversubscribeNode: true` across all compute NodeSets. Furthermore, the controller specifies `DefMemPerCPU=2048` (2 GB per requested CPU core) in `extraConf`, guaranteeing predictable memory sizing when jobs request CPU cores without explicit memory specifications.
+>
 > **Why preemption is universally disabled (`PreemptMode=OFF`):** In a classroom environment, killing an active Jupyter session destroys all in-memory state — loaded datasets, model weights, and training progress. Instead of preemption, resource contention is managed exclusively through `MaxTRESPerJob` fencing, which prevents any single job from consuming resources beyond its partition ceiling.
 
 ### 3.2 Quality of Service (QoS) Policies
@@ -347,7 +364,7 @@ A Slurm epilog script (`01-webhook.sh`) executes at the completion of every job 
 }
 ```
 
-The webhook attempts delivery to multiple endpoints (`host.k3d.internal:8080`, `host.minikube.internal:8080`, `172.17.0.1:8080`, `localhost:8080`) with a 5-second timeout, ensuring compatibility across different local development network topologies.
+The webhook delivers status events directly to the portal service (`hpc-portal.slurm.svc.cluster.local:8080`) and fallback endpoints (`localhost:8080`, `10.35.123.50:8080`) with a 5-second timeout, ensuring fast and reliable job state synchronization across both cluster networking and local administration.
 
 ---
 
@@ -361,9 +378,8 @@ The AI Sandbox implements a dual-path container execution model, reflecting the 
 flowchart LR
     subgraph "Interactive Path (OCI)"
         Portal["Go Portal"] -->|Create Pod Spec| Bridge["slurm-bridge"]
-        Bridge -->|Schedule Native K8s Pod| Containerd["containerd"]
-        Containerd -->|Pull Image| Registry["In-Cluster Registry<br/>localhost:5000"]
-        Containerd -->|Run| Pod["OCI Container<br/>(Jupyter / VS Code / Bash)"]
+        Bridge -->|Schedule Native K8s Pod| Containerd["containerd (k8s.io)"]
+        Containerd -->|Local Image Cache| Pod["OCI Container<br/>(Jupyter / VS Code / Bash)"]
     end
 
     subgraph "Batch Path (Apptainer)"
@@ -375,16 +391,16 @@ flowchart LR
 
 | Path | Image Format | Delivery Method | Execution Runtime | Use Case |
 | :--- | :--- | :--- | :--- | :--- |
-| **Interactive** | OCI (Docker) | On-demand pull from `localhost:5000` via containerd | Native Kubernetes pod via `slurm-bridge` | Jupyter, VS Code, Bash terminal sessions |
-| **Batch** | Apptainer SquashFS `.sif` | Direct NFS streaming into Linux page cache | `apptainer exec` inside privileged `slurmd` pod | Training scripts, data preprocessing |
+| **Interactive** | OCI (Docker) | Pre-loaded in K3s containerd (`k8s.io` namespace) via authenticated SSH stream | Native Kubernetes pod via `slurm-bridge` on `ai-worker1` | Jupyter, VS Code, Bash terminal sessions |
+| **Batch** | Apptainer SquashFS `.sif` | Direct NFSv4 streaming into Linux kernel page cache | `apptainer exec` inside `slurmd` worker pod on `ai-worker1` | Training scripts, data preprocessing |
 
-**Why DaemonSet pre-pullers were rejected:** The in-cluster registry provides sub-second pull times for cached layers via containerd's local layer deduplication. A DaemonSet pre-puller would add unnecessary complexity, waste memory on nodes that never run interactive sessions, and create garbage collection conflicts.
+**Why DaemonSet pre-pullers were rejected:** Direct containerd injection provides sub-second instantiation without polling external registries. A DaemonSet pre-puller would add unnecessary complexity, waste memory on nodes that never run interactive sessions, and create garbage collection conflicts.
 
 ### 4.2 Interactive OCI Images
 
-Three curated interactive images are built and pushed to the in-cluster registry:
+Three curated interactive images are built and side-loaded into containerd on `ai-worker1`:
 
-| Image | Base Image | Registry Tag | Port | Key Packages |
+| Image | Base Image | Local Tag | Port | Key Packages |
 | :--- | :--- | :--- | :--- | :--- |
 | **JupyterLab** | `jupyter/scipy-notebook:latest` | `localhost:5000/interactive-jupyter:latest` | 8888 | NumPy, SciPy, Pandas, Matplotlib, scikit-learn, PyTorch, `libnss-extrausers` |
 | **VS Code Server** | `codercom/code-server:latest` | `localhost:5000/interactive-codeserver:latest` | 8888 | VS Code web server, `libnss-extrausers` |
@@ -395,36 +411,34 @@ All three images share a common architecture pattern:
 2. Create mount point `/var/lib/extrausers` for the shared NSS database.
 3. Include a startup script that dynamically resolves the student's UID/GID and drops root privileges before launching the application.
 
-The images are built by `scripts/build-oci-images.sh`, which tags them with the `localhost:5000/` prefix and pushes directly to the in-cluster registry.
+The images are built by `scripts/build-oci-images.sh` and imported directly into K3s containerd on `ai-worker1`.
 
 ### 4.3 Custom Slurm Daemon Images
 
 The standard Slinky Slurm images are extended with custom builds to support the `extrausers` NSS module and Apptainer batch execution:
 
-| Image | Base | Additions |
-| :--- | :--- | :--- |
-| `slurmctld-custom:latest` | `ghcr.io/slinkyproject/slurmctld:25.11-ubuntu24.04` | `libnss-extrausers`, NSS configuration |
-| `slurmrestd-custom:latest` | `ghcr.io/slinkyproject/slurmrestd:25.11-ubuntu24.04` | `libnss-extrausers`, NSS configuration |
-| `slurmd-custom:latest` | `ghcr.io/slinkyproject/slurmd:25.11-ubuntu24.04` | `libnss-extrausers`, NSS configuration, `curl`, `wget`, Apptainer v1.3.6 + `apptainer-suid` v1.3.6 |
+| Image | Base | Additions | Target Node |
+| :--- | :--- | :--- | :--- |
+| `slurmctld-custom:latest` | `ghcr.io/slinkyproject/slurmctld:25.11-ubuntu24.04` | `libnss-extrausers`, NSS configuration | `ai-control` |
+| `slurmrestd-custom:latest` | `ghcr.io/slinkyproject/slurmrestd:25.11-ubuntu24.04` | `libnss-extrausers`, NSS configuration | `ai-control` |
+| `slurmd-custom:latest` | `ghcr.io/slinkyproject/slurmd:25.11-ubuntu24.04` | `libnss-extrausers`, NSS configuration, `curl`, `wget`, Apptainer v1.3.6 + `apptainer-suid` v1.3.6 | `ai-worker1` |
 
-These images are built by `scripts/build-custom-images.sh` and loaded directly into Kind (`kind load docker-image`).
+These images are built by `scripts/build-custom-images.sh` and side-loaded onto the respective Proxmox nodes using `scripts/transfer-images-proxmox.sh`.
 
 **Worker pod security context:** The `slurmd` worker pods run with `privileged: false` but are granted specific Linux capabilities (`SYS_ADMIN`, `DAC_OVERRIDE`, `DAC_READ_SEARCH`) required for Apptainer's container-in-container execution with proot.
 
-### 4.4 In-Cluster OCI Registry
+### 4.4 Zero-Registry Image Distribution Architecture
 
-A local Docker Distribution registry (`registry:2`) runs on the control-plane node, providing fast image delivery without external network dependencies:
+In the Proxmox production-grade environment, running an unauthenticated Docker distribution registry pod (`registry:2`) on a shared departmental VLAN (VLAN 123) poses security and resource overhead risks. Instead, the AI Sandbox adopts a **Zero-Registry, Direct Containerd Side-Load Architecture**:
 
-| Parameter | Value |
-| :--- | :--- |
-| **Image** | `registry:2` |
-| **Namespace** | `slurm` |
-| **Host Port** | `5000` (mapped from Kind control-plane to host `127.0.0.1:5000`) |
-| **Storage** | PVC `registry-pvc` (20 Gi, backed by hostPath `/mnt/storage/registry`) |
-| **Node Selector** | `kubernetes.io/hostname: kind-control-plane` |
-| **Delete Enabled** | `true` |
-
-**containerd mirror configuration:** All Kind nodes have `/etc/containerd/certs.d/localhost:5000/hosts.toml` configured to resolve `localhost:5000` to `http://kind-control-plane:5000`, ensuring that pods on any node can pull images from the registry without TLS or DNS issues.
+1. **Pipeline Script (`scripts/transfer-images-proxmox.sh`):** Streams container images directly from the local operator Docker daemon over authenticated SSH into K3s containerd:
+   ```bash
+   docker save <image> | ssh "$SSH_USER@$TARGET_IP" "sudo k3s ctr -n k8s.io images import -"
+   ```
+2. **Selective Node Distribution:**
+   - **`ai-control` (10.35.123.50):** Receives `slurmctld-custom:latest`, `slurmrestd-custom:latest`, and `hpc-portal:local`.
+   - **`ai-worker1` (10.35.123.51):** Receives `slurmd-custom:latest` and interactive workload session images.
+3. **Operational Benefits:** Pods resolve images instantly from the local containerd cache with zero pull latency, zero network traffic during pod startup, zero storage footprint for registry blob caches, and complete isolation from other tenants on VLAN 123.
 
 ### 4.5 Batch Apptainer Pipeline
 
@@ -462,7 +476,7 @@ This ensures that all file operations inside the container happen under the stud
 
 ### 5.1 Central Storage Hierarchy
 
-All shared data resides under `/mnt/storage/`, organized into a strict directory hierarchy with POSIX permission enforcement:
+All shared data resides under `/mnt/storage/` (backed by the dedicated 200 GB virtual disk on `ai-control` mounted at `/srv/shared-storage` and exported to `ai-worker1` via NFSv4), organized into a strict directory hierarchy with POSIX permission enforcement:
 
 ```
 /mnt/storage/
@@ -573,9 +587,28 @@ Two operational scripts provide ongoing storage management:
 
 ## 6. Network Configuration
 
-### 6.1 Zero-Trust Network Baseline
+### 6.1 Perimeter Defense & Host Firewall (UFW)
 
-The workload namespace implements a zero-trust network model where **all traffic is denied by default** and only explicitly whitelisted flows are permitted:
+Because the cluster resides on a shared university VLAN (VLAN 123, subnet `10.35.123.0/24`) alongside VMs from other research groups, each node enforces perimeter network security at the Linux OS level using Uncomplicated Firewall (UFW):
+
+| Host | Port / Protocol | Source | Purpose |
+| :--- | :--- | :--- | :--- |
+| **`ai-control`** (`10.35.123.50`) | `22/tcp` | Anywhere | Operator SSH administration |
+| | `6443/tcp` | `10.35.123.51` | K3s agent cluster join & API communication |
+| | `10250/tcp` | `10.35.123.51` | Kubelet node metrics & exec streaming |
+| | `8472/udp` | `10.35.123.51` | Flannel VXLAN overlay traffic |
+| | `2049/tcp` | `10.35.123.51` | POSIX NFSv4 shared storage export |
+| | Any | `10.42.0.0/16`, `10.43.0.0/16` | K3s internal Pod and Service CIDRs |
+| **`ai-worker1`** (`10.35.123.51`) | `22/tcp` | Anywhere | Operator SSH administration |
+| | `10250/tcp` | `10.35.123.50` | Kubelet communication from control plane |
+| | `8472/udp` | `10.35.123.50` | Flannel VXLAN overlay traffic |
+| | Any | `10.42.0.0/16`, `10.43.0.0/16` | K3s internal Pod and Service CIDRs |
+
+> **Administrative Ingress via SSH Tunnel:** To prevent untrusted LAN discovery and brute-force probing on VLAN 123, the Kubernetes API (`6443/tcp`) is not exposed to the wider subnet. Remote cluster operations are proxied securely via SSH local port-forwarding (`ptunnel` on `localhost:6443`) managed by the Nix devshell.
+
+### 6.2 Zero-Trust Network Baseline
+
+Inside Kubernetes, the K3s embedded NetworkPolicy controller enforces a zero-trust network model where **all traffic in the `workload` namespace is denied by default** and only strictly whitelisted flows are permitted:
 
 ```mermaid
 flowchart TD
@@ -585,7 +618,6 @@ flowchart TD
 
     subgraph "Allowed Egress"
         DNS["CoreDNS<br/>kube-system:53<br/>✅ UDP/TCP"]
-        Registry["OCI Registry<br/>slurm:5000<br/>✅ TCP"]
         Internet["Public Internet<br/>0.0.0.0/0<br/>✅ TCP<br/>(excluding RFC 1918)"]
     end
 
@@ -596,13 +628,12 @@ flowchart TD
     subgraph "Blocked Traffic (Dropped)"
         MariaDB["MariaDB :3306 ❌"]
         SlurmRPC["Slurm RPC :6817/6818 ❌"]
-        K8sAPI["Kubernetes API ❌"]
+        K8sAPI["Kubernetes API :6443 ❌"]
         PeerPod["Other Student Pods ❌"]
     end
 
     Traefik -->|Ingress| Pod
     Pod -->|Egress| DNS
-    Pod -->|Egress| Registry
     Pod -->|Egress| Internet
     Pod -.->|Dropped| MariaDB
     Pod -.->|Dropped| SlurmRPC
@@ -610,7 +641,7 @@ flowchart TD
     Pod -.->|Dropped| PeerPod
 ```
 
-### 6.2 Network Policy Rules
+### 6.3 Network Policy Rules
 
 Five Kubernetes NetworkPolicy manifests in `k8s/network-policies/` implement the zero-trust model:
 
@@ -619,14 +650,14 @@ Five Kubernetes NetworkPolicy manifests in `k8s/network-policies/` implement the
 | `default-deny-workload` | All pods in `workload` | Ingress + Egress | — | — | **Drop all traffic** by default |
 | `allow-dns-egress` | All pods in `workload` | Egress | `kube-system` (selector: `k8s-app: kube-dns`) | UDP/TCP 53 | Allow DNS resolution |
 | `allow-traefik-ingress` | Pods with label `interactive-session` | Ingress | From `slurm` namespace (selector: `app: hpc-portal`) | TCP 8888 | Allow portal to reach student sessions |
-| `allow-registry-egress` | All pods in `workload` | Egress | `slurm` namespace (selector: `app: registry`) | TCP 5000 | Allow image pulls from in-cluster registry |
+| `allow-registry-egress` | All pods in `workload` | Egress | `slurm` namespace (selector: `app: registry`) | TCP 5000 | Allow image pulls if registry fallback is used |
 | `allow-internet-egress` | All pods in `workload` | Egress | `0.0.0.0/0` excluding `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` | All | Allow public downloads; **block all private RFC 1918 subnets** |
 
-> **Why RFC 1918 filtering is critical:** By allowing egress to `0.0.0.0/0` but explicitly excluding all private IP ranges, students can freely install packages (`pip install`), clone repositories (`git clone`), and download datasets from public APIs — while being completely unable to reach internal cluster services like MariaDB (3306), Slurm RPCs (6817/6818), the Kubernetes API server, or other students' pods.
+> **Why RFC 1918 filtering is critical:** By allowing egress to `0.0.0.0/0` while explicitly filtering out RFC 1918 subnets, students can freely install packages (`pip install`), clone code (`git clone`), and pull open datasets, while being strictly isolated from cluster internals (MariaDB 3306, Slurm RPCs 6817/6818, Kubernetes API server, or adjacent tenant workloads).
 
-### 6.3 RBAC & Service Account Hardening
+### 6.4 RBAC & Service Account Hardening
 
-The portal's service account (`portal-sa`) follows strict least-privilege principles:
+The portal's service account (`portal-sa`) adheres to strict least-privilege principles:
 
 **Scoped permissions (namespace-level Roles, not ClusterRoles):**
 
@@ -637,34 +668,32 @@ The portal's service account (`portal-sa`) follows strict least-privilege princi
 | `portal-workload-role` | `workload` | `endpoints`, `endpointslices` | `get`, `list`, `watch` |
 | `traefik-slurm-role` | `slurm` | `services`, `endpoints`, `endpointslices`, `ingresses` | `get`, `list`, `watch` |
 
-**Explicitly denied:** No `ClusterRole` or `ClusterRoleBinding` exists. The portal cannot read `nodes`, `secrets`, or any resource outside its two target namespaces.
+**Explicitly denied:** No `ClusterRole` or `ClusterRoleBinding` exists. The portal cannot read `nodes`, `secrets`, or cluster-wide resources.
 
-**Student pod hardening:** All student interactive session pods are created with `automountServiceAccountToken: false`, which prevents the Kubernetes API token from being mounted at `/var/run/secrets/kubernetes.io/serviceaccount/token`. This eliminates the attack vector where a student could use the mounted token to query or modify the Kubernetes API from within their session.
+**Student pod hardening:** All student interactive session pods are provisioned with `automountServiceAccountToken: false`. This ensures the Kubernetes API service account token is omitted from `/var/run/secrets/kubernetes.io/serviceaccount/token`, preventing authenticated API tampering from within student sessions.
 
-### 6.4 Ingress TLS & Security Headers
+### 6.5 Ingress TLS & Security Headers
 
-All student traffic enters the cluster through Traefik v3.1, running as a sidecar container in the `hpc-portal` pod:
+All student web traffic enters through Traefik v3.1 running as a sidecar container in the `hpc-portal` pod on `ai-control`:
 
 | EntryPoint | Port | Behavior |
 | :--- | :--- | :--- |
 | `web` | 80 | Unconditional redirect to `websecure` (HTTPS) |
 | `websecure` | 443 | TLS termination with self-signed certificate |
 
-**TLS Certificate:** Generated by `scripts/generate-certs.sh` — a 2048-bit RSA key with a self-signed certificate valid for 365 days, covering SANs: `localhost`, `127.0.0.1`, `portal`, `portal.slurm.svc.cluster.local`, and `*.sandbox.local`. Stored in Kubernetes Secret `traefik-tls-cert`.
+**TLS Certificate:** Generated via `scripts/generate-certs.sh` — a 2048-bit RSA key with a self-signed certificate valid for 365 days, covering SANs: `localhost`, `127.0.0.1`, `portal`, `portal.slurm.svc.cluster.local`, and `*.sandbox.local`. Stored in Secret `traefik-tls-cert`.
 
 **Security headers middleware (`security-headers`):**
 
 | Header | Value | Purpose |
 | :--- | :--- | :--- |
 | `X-Content-Type-Options` | `nosniff` | Prevents MIME-type sniffing attacks |
-| `X-XSS-Protection` | `1; mode=block` | Enables browser XSS filter |
+| `X-XSS-Protection` | `1; mode=block` | Enables browser XSS filtering |
 | `X-Frame-Options` | `SAMEORIGIN` | Prevents clickjacking via iframes |
 
-### 6.5 Traefik Dynamic Session Routing
+### 6.6 Traefik Dynamic Session Routing
 
-The portal generates dynamic Traefik routing rules for each active student session. Routes are written to `/etc/traefik/dynamic/dynamic-routes.yml` (shared via an `emptyDir` volume between the portal and Traefik containers) and picked up by Traefik's file provider (`watch: true`).
-
-**Route structure per session:**
+The portal dynamically generates routing rules for each active interactive session. Routes are written to `/etc/traefik/dynamic/dynamic-routes.yml` and monitored via Traefik's file provider (`watch: true`):
 
 ```yaml
 # Example: user2's Jupyter session (Slurm Job ID 16)
@@ -683,34 +712,32 @@ http:
     jupyter-service-16:
       loadBalancer:
         servers:
-          - url: "http://172.18.0.9:30000"
+          - url: "http://10.42.1.25:8888"
 ```
 
-The `stripPrefix` middleware removes the path prefix before forwarding to the container, so the application inside the pod receives requests at its root `/` path.
+The `stripPrefix` middleware strips the routing prefix so the application inside the pod receives clean requests at its root `/` path. On Proxmox VMs, file events are handled directly by the native Linux kernel inotify subsystem without container namespace masking.
 
-> **inotify tuning:** Kind nodes inherit the host's default `fs.inotify.max_user_instances=128`, which is insufficient for Traefik's file watcher. The bootstrap script patches all Kind nodes to `fs.inotify.max_user_instances=8192` and `fs.inotify.max_user_watches=524288`.
+### 6.7 Automated Security Verification
 
-### 6.6 Automated Security Verification
+An automated test suite (`scripts/verify-security.sh`), adapted specifically for the Proxmox K3s backend, validates the cluster security posture across seven phases:
 
-A comprehensive test suite (`scripts/verify-security.sh`) validates the entire security posture across four phases:
+| Phase | Test | Expected Result | Status |
+| :--- | :--- | :--- | :--- |
+| **1. RBAC Confinement** | `portal-sa` attempts to list cluster nodes | Rejected (`Forbidden`) | 🟢 PASS |
+| **1. RBAC Confinement** | `portal-sa` attempts to list secrets in `slurm` | Rejected (`Forbidden`) | 🟢 PASS |
+| **1. Token Absence** | Check for ServiceAccount token in workload pod | File does not exist | 🟢 PASS |
+| **2. DB Isolation** | TCP probe from `workload` → `mariadb.slurm:3306` | Connection drops / times out | 🟢 PASS |
+| **3. Peer Isolation** | TCP probe between `tenant-a` → `tenant-b` on port 8888 | Connection drops / times out | 🟢 PASS |
+| **4. TLS Redirect** | HTTP request to port 80 | `301`/`307`/`308` redirect to HTTPS | 🟢 PASS |
+| **4. TLS & Headers** | HTTPS request to port 443 | Valid TLS handshake + security headers present | 🟢 PASS |
 
-| Phase | Test | Expected Result |
-| :--- | :--- | :--- |
-| **1. RBAC Confinement** | `portal-sa` attempts to list nodes | Rejected (Forbidden) |
-| **1. RBAC Confinement** | `portal-sa` attempts to list secrets | Rejected (Forbidden) |
-| **1. Token Absence** | Check for ServiceAccount token in workload pod | File does not exist |
-| **2. DB Isolation** | TCP probe from `workload` → `mariadb.slurm:3306` | Connection drops / times out |
-| **3. Peer Isolation** | TCP probe between `tenant-a` → `tenant-b` on port 8888 | Connection drops / times out |
-| **4. TLS & Headers** | HTTP request to port 80 | `301`/`307`/`308` redirect to HTTPS |
-| **4. TLS & Headers** | HTTPS request to port 443 | Valid TLS handshake + security headers present |
-
-The test suite includes an `EXIT` trap for automatic cleanup of probe pods and background port-forwards, preventing resource leaks on test machines.
+*Note: Workload probe pods include annotation `slurmjob.slinky.slurm.net/exclusive: "false"`, ensuring that multi-tenant security verification tests execute smoothly without exclusive node lock conflicts.*
 
 ---
 
 ## 7. Software Catalog & Application Manifests
 
-The software catalog at `/mnt/storage/common/software/` defines the applications available to students through the portal:
+The software catalog at `/mnt/storage/common/software/` defines the interactive environments available to students:
 
 | Application | Manifest ID | Image | Slurm Resources | Port |
 | :--- | :--- | :--- | :--- | :--- |
@@ -718,22 +745,18 @@ The software catalog at `/mnt/storage/common/software/` defines the applications
 | **VS Code Server** | `codeserver` | `localhost:5000/interactive-codeserver:latest` | 1 node, 1 task, 2 CPU, 2G RAM | 8888 |
 | **Web Terminal** | `bash` | `localhost:5000/interactive-bash:latest` | 1 node, 1 task, 1 CPU, 1G RAM | 8888 |
 
-Each application has a `manifest.yaml` defining its container image, startup command, Slurm resource requirements (`--nodes`, `--ntasks`, `--cpus-per-task`, `--mem`), and execution type (`interactive`). The portal reads these manifests to construct the pod specification and Slurm job annotations.
+Each application has a `manifest.yaml` specifying its container image, startup command, and Slurm resource allocations (`--nodes`, `--ntasks`, `--cpus-per-task`, `--mem`). Images are pre-loaded in containerd on `ai-worker1`, ensuring instantaneous startup upon job allocation.
 
 ---
 
 ## 8. Conclusion
 
-The backend deployment across Work Packages WP3-1-4 through WP3-1-8 establishes the complete operational foundation for the AI Sandbox platform. The key outcomes are:
+The backend deployment across Work Packages WP3-1-4 through WP3-1-8 is fully established, operational, and verified on the Computer Engineering Department's Proxmox VE cluster (`sandbox01`):
 
-1. **Slinky as the unified orchestrator** — the Slurm-on-Kubernetes stack is fully deployed with automated bootstrap, accounting, and disaster recovery. The dual-component architecture (slurm-operator for daemon management, slurm-bridge for interactive pod scheduling) provides a clean separation between HPC job scheduling and Kubernetes container orchestration.
+1. **Slinky as the Unified Orchestrator** — Slurm-on-Kubernetes runs with automated bootstrap, MariaDB accounting, and disaster recovery. Control plane daemons (`slurmctld`, `slurmrestd`, `slurmdbd`) are cleanly pinned to `ai-control`, while compute workers (`slurmd-cpu`, `slurmd-gpu`) run on `ai-worker1`.
+2. **Four-Partition Scheduling with Hard Resource Fencing** — The `interactive`, `batch-cpu`, `batch-gpu`, and `inference` partitions enforce strict per-job resource ceilings via `MaxTRESPerJob` and QoS policies, supported by `oversubscribeNode: true` and `DefMemPerCPU=2048`. Fair-share scheduling (`PriorityWeightFairshare=10000`) dynamically balances usage across student projects.
+3. **Dual-Path Container Architecture with Zero-Registry Delivery** — Interactive sessions run as OCI containers side-loaded directly into K3s containerd via authenticated SSH stream, while batch workloads stream Apptainer `.sif` images directly from NFS into Linux kernel page cache. The `libnss-extrausers` NSS module ensures seamless POSIX identity resolution.
+4. **Structured Multi-Tenant Storage with Dual-Tier Caching** — Central read-only caches (`HF_HUB_CACHE`, curated datasets) eliminate duplicate model downloads, while private student workspaces (`projects/<project>`) and sticky-bit scratch space (`1777`) enforce POSIX data separation across the 200 GB NFSv4 filesystem.
+5. **Defense-in-Depth Network Security** — UFW host-level firewalling on VLAN 123, zero-trust default-deny NetworkPolicies with RFC 1918 egress blocking, namespace-scoped RBAC, disabled ServiceAccount token mounting, and Traefik TLS termination safeguard cluster infrastructure against untrusted student code.
 
-2. **Four-partition scheduling with hard resource fencing** — the `interactive`, `batch-cpu`, `batch-gpu`, and `inference` partitions enforce strict per-job resource ceilings via `MaxTRESPerJob` and QoS policies. Fair-share scheduling (`PriorityWeightFairshare=10000`) automatically balances resource allocation across students without administrator intervention.
-
-3. **Dual-path container execution** — interactive workloads run as native OCI containers pulled on-demand from the in-cluster registry, while batch workloads execute Apptainer `.sif` images streamed from NFS. The `libnss-extrausers` dynamic identity system ensures correct POSIX ownership across both paths without baking student accounts into images.
-
-4. **Structured data repository with zero-duplication model caching** — the dual-tier model cache (`HF_HUB_CACHE` for central read-only models, `HF_HOME` for private fallback) eliminates redundant multi-gigabyte downloads. Curated datasets, isolated project workspaces, and sticky-bit scratch space provide a complete multi-tenant storage model.
-
-5. **Zero-trust network security** — default-deny network policies, RFC 1918 egress filtering, namespace-scoped RBAC, disabled ServiceAccount token mounting, and TLS-terminated ingress with security headers create a defense-in-depth posture that protects cluster infrastructure from untrusted student code.
-
-All configurations are verified by automated test suites (`verify-infrastructure.sh`, `verify-storage.sh`, `verify-security.sh`) and are deployed reproducibly via the single-command bootstrap script `start-slinky.sh`.
+All configurations have been verified on the target Proxmox environment via automated test suites (`verify-storage.sh` passing 6/6 tests and `verify-security.sh` passing 7/7 tests) and are locked into clean hypervisor snapshot checkpoints (`backend` / `m2-complete`).
