@@ -5,10 +5,10 @@
     flake-utils.url = "github:numtide/flake-utils";
   };
   outputs =
-    { self
-    , nixpkgs
-    , flake-utils
-    ,
+    {
+      self,
+      nixpkgs,
+      flake-utils,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -40,6 +40,35 @@
           exec kubectl exec -it slurm-controller-0 -n slurm -- bash "$@"
         '';
 
+        # SSH tunnel to Proxmox Kubernetes API (port 6443 via port-forward over SSH)
+        ptunnel = pkgs.writeShellScriptBin "ptunnel" ''
+          TUNNEL_PID=$(pgrep -f "ssh.*-L 6443" || true)
+          if [ -n "$TUNNEL_PID" ]; then
+            echo "⚠️  Tunnel already running (PID: $TUNNEL_PID). Run ptunnel-stop first to restart."
+            exit 0
+          fi
+          echo "🔌 Starting SSH tunnel: localhost:6443 → ai-control:6443"
+          ssh -f -N -L 6443:127.0.0.1:6443 admin_ai@10.35.123.50
+          sleep 1
+          NEW_PID=$(pgrep -f "ssh.*-L 6443" || true)
+          if [ -n "$NEW_PID" ]; then
+            echo "✅ Tunnel established (PID: $NEW_PID). kubectl is now pointing at Proxmox k3s."
+          else
+            echo "❌ Tunnel failed to start. Check SSH access to 10.35.123.50."
+            exit 1
+          fi
+        '';
+
+        ptunnel-stop = pkgs.writeShellScriptBin "ptunnel-stop" ''
+          TUNNEL_PID=$(pgrep -f "ssh.*-L 6443" || true)
+          if [ -z "$TUNNEL_PID" ]; then
+            echo "ℹ️  No active tunnel found."
+          else
+            kill "$TUNNEL_PID"
+            echo "🔌 Tunnel (PID: $TUNNEL_PID) stopped."
+          fi
+        '';
+
         tools = with pkgs; [
           kind
           kubectl
@@ -49,17 +78,21 @@
           kdown
           kstat
           slurm-shell
+          ptunnel
+          ptunnel-stop
         ];
       in
       {
         devShells.default = pkgs.mkShell {
           buildInputs = tools;
           shellHook = ''
-            echo "🚀 Slinky Prototype Shell Initialized"
-            echo "✅ Commands loaded: kup, kdown, kstat, slurm-shell"
+            	    echo "🚀 Slinky Prototype Shell Initialized"
+                        echo "✅ Commands loaded: kup, kdown, kstat, slurm-shell"
+                        echo "🔌 Proxmox tunnel: ptunnel (start) | ptunnel-stop (kill)"
 
-            export SHELL=/home/khemi/.nix-profile/bin/zsh
-            exec /home/khemi/.nix-profile/bin/zsh
+                        export SHELL=/home/khemi/.nix-profile/bin/zsh
+                        export KUBECONFIG="$HOME/.kube/config-proxmox"
+                        exec /home/khemi/.nix-profile/bin/zsh
           '';
         };
       }
