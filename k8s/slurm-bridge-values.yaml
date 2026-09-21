@@ -1,16 +1,22 @@
 admission:
   managedNamespaces:
     - workload
+  nodeSelector:
+    kubernetes.io/hostname: ai-control
   tolerations:
     - key: "slinky.slurm.net/managed-node"
       operator: "Exists"
       effect: "NoExecute"
 controllers:
+  nodeSelector:
+    kubernetes.io/hostname: ai-control
   tolerations:
     - key: "slinky.slurm.net/managed-node"
       operator: "Exists"
       effect: "NoExecute"
 scheduler:
+  nodeSelector:
+    kubernetes.io/hostname: ai-control
   tolerations:
     - key: "slinky.slurm.net/managed-node"
       operator: "Exists"

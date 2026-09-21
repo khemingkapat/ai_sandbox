@@ -102,13 +102,14 @@ controller:
   extraConf: |
     PriorityWeightFairShare=10000
     AccountingStorageEnforce=limits,qos
+    DefMemPerCPU=2048
   extraConfMap: {}
   metadata: {}
   podSpec:
     resources: {}
     initContainers: []
     nodeSelector:
-      kubernetes.io/os: linux
+      kubernetes.io/hostname: ai-control
     affinity: {}
     tolerations:
     - key: "slinky.slurm.net/managed-node"
@@ -152,7 +153,7 @@ restapi:
     resources: {}
     initContainers: []
     nodeSelector:
-      kubernetes.io/os: linux
+      kubernetes.io/hostname: ai-control
     affinity: {}
     tolerations:
     - key: "slinky.slurm.net/managed-node"
@@ -192,7 +193,7 @@ accounting:
     resources: {}
     initContainers: []
     nodeSelector:
-      kubernetes.io/os: linux
+      kubernetes.io/hostname: ai-control
     affinity: {}
     tolerations:
     - key: "slinky.slurm.net/managed-node"
@@ -241,6 +242,7 @@ nodesets:
     enabled: true
     scalingMode: StatefulSet
     replicas: 2
+    oversubscribeNode: true
     taintKubeNodes: false
     workloadDisruptionProtection: true
     ordinalPadding: 0
@@ -288,7 +290,7 @@ nodesets:
       resources: {}
       initContainers: []
       nodeSelector:
-        kubernetes.io/os: linux
+        kubernetes.io/hostname: ai-worker1
       affinity: {}
       tolerations:
       - key: "slinky.slurm.net/managed-node"
@@ -305,6 +307,7 @@ nodesets:
     enabled: true
     scalingMode: StatefulSet
     replicas: 1
+    oversubscribeNode: true
     taintKubeNodes: false
     workloadDisruptionProtection: true
     ordinalPadding: 0

@@ -31,6 +31,8 @@ spec:
       labels:
         app.kubernetes.io/name: mariadb
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: ai-control
       tolerations:
       - key: "slinky.slurm.net/managed-node"
         operator: "Exists"
