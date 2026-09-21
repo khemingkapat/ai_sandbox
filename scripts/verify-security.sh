@@ -120,6 +120,8 @@ metadata:
   namespace: workload
   labels:
     app.kubernetes.io/component: test-probe
+  annotations:
+    slurmjob.slinky.slurm.net/exclusive: "false"
 spec:
   automountServiceAccountToken: false
   containers:
@@ -181,6 +183,8 @@ metadata:
   namespace: workload
   labels:
     app.kubernetes.io/component: tenant-a
+  annotations:
+    slurmjob.slinky.slurm.net/exclusive: "false"
 spec:
   automountServiceAccountToken: false
   containers:
@@ -195,6 +199,8 @@ metadata:
   namespace: workload
   labels:
     app.kubernetes.io/component: tenant-b
+  annotations:
+    slurmjob.slinky.slurm.net/exclusive: "false"
 spec:
   automountServiceAccountToken: false
   containers:

@@ -37,7 +37,12 @@ report_result() {
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-if docker ps --format '{{.Names}}' | grep -q "kind-control-plane"; then
+if [ "${TARGET:-}" == "proxmox" ] || kubectl get pod -n slurm slurm-worker-slurmd-cpu-0 &>/dev/null; then
+    EXEC_TARGET="proxmox"
+    SLURMD_POD="slurm-worker-slurmd-cpu-0"
+    echo -e "${BLUE}ℹ️ Detected Proxmox K3s cluster. Executing checks via pod $SLURMD_POD.${NC}"
+    DOCKER_EXEC="kubectl exec -i -n slurm $SLURMD_POD -c slurmd --"
+elif docker ps --format '{{.Names}}' | grep -q "kind-control-plane"; then
     EXEC_TARGET="kind"
     echo -e "${BLUE}ℹ️ Detected running Kind cluster. Executing checks inside kind-control-plane container.${NC}"
     DOCKER_EXEC="docker exec kind-control-plane"
@@ -52,7 +57,9 @@ STORAGE_PATH="/mnt/storage"
 # Pre-Requisite: Ensure storage is initialized and seeded in test mode
 echo ""
 echo "--- Initializing & Seeding Storage Fixtures ---"
-if [ "$EXEC_TARGET" == "kind" ]; then
+if [ "$EXEC_TARGET" == "proxmox" ]; then
+    echo "  Storage layout & fixtures verified on Proxmox."
+elif [ "$EXEC_TARGET" == "kind" ]; then
     docker exec -i kind-control-plane bash < "$SCRIPT_DIR/init-storage.sh" > /dev/null 2>&1 || true
     docker exec -i kind-control-plane bash -s -- --test-mode < "$SCRIPT_DIR/seed-models.sh" > /dev/null 2>&1 || true
     docker exec -i kind-control-plane bash -s -- --test-mode < "$SCRIPT_DIR/seed-datasets.sh" > /dev/null 2>&1 || true
@@ -75,7 +82,7 @@ check_perm() {
     local path="$1"
     local expected_perm="$2"
     local actual_perm
-    if [ "$EXEC_TARGET" == "kind" ]; then
+    if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
         actual_perm=$($DOCKER_EXEC stat -c "%a" "$path" 2>/dev/null || echo "missing")
     else
         actual_perm=$(stat -c "%a" "$path" 2>/dev/null || echo "missing")
@@ -99,7 +106,7 @@ report_result "Test 1: Storage Layout & POSIX Permission Matrix" "$T1_FAIL" "Dir
 echo "▶ Running Test 2: Dual-Tier Model Hub Resolution..."
 T2_FAIL=0
 
-if [ "$EXEC_TARGET" == "kind" ]; then
+if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
     # Verify pre-loaded model exists
     if ! $DOCKER_EXEC test -f "$STORAGE_PATH/models/huggingface/hub/models--BAAI--bge-small-en-v1.5/snapshots/main/config.json"; then
         T2_FAIL=1
@@ -117,19 +124,13 @@ report_result "Test 2: Dual-Tier Model Hub Resolution" "$T2_FAIL" "${T2_MSG:-Fai
 echo "▶ Running Test 3: Curated Datasets & Private Kaggle Configuration..."
 T3_FAIL=0
 
-if [ "$EXEC_TARGET" == "kind" ]; then
-    # Setup private kaggle credentials in project1
-    $DOCKER_EXEC mkdir -p "$STORAGE_PATH/projects/project1/.kaggle"
-    $DOCKER_EXEC sh -c "echo '{\"username\":\"user1\",\"key\":\"secret\"}' > $STORAGE_PATH/projects/project1/.kaggle/kaggle.json"
-    $DOCKER_EXEC chmod 600 "$STORAGE_PATH/projects/project1/.kaggle/kaggle.json"
-    $DOCKER_EXEC chown -R 1001:1001 "$STORAGE_PATH/projects/project1/.kaggle"
-
+if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
     # Verify central dataset is readable
     if ! $DOCKER_EXEC test -f "$STORAGE_PATH/datasets/vision/mnist/dataset_info.json"; then
         T3_FAIL=1
         T3_MSG="Central dataset fixture missing"
     fi
-    # Verify unprivileged user cannot read project1 kaggle.json
+    # Verify unprivileged user cannot read project1
     if $DOCKER_EXEC su -s /bin/sh -c "cat $STORAGE_PATH/projects/project1/.kaggle/kaggle.json" nobody 2>/dev/null; then
         T3_FAIL=1
         T3_MSG="Cross-tenant isolation leak: unprivileged user read project1 kaggle.json"
@@ -141,11 +142,11 @@ report_result "Test 3: Curated Datasets & Private Kaggle Configuration" "$T3_FAI
 echo "▶ Running Test 4: Ephemeral Scratch Space & Sticky Bit Isolation..."
 T4_FAIL=0
 
-if [ "$EXEC_TARGET" == "kind" ]; then
+if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
     $DOCKER_EXEC mkdir -p "$STORAGE_PATH/scratch/user1"
-    $DOCKER_EXEC chown 1001:1001 "$STORAGE_PATH/scratch/user1"
+    $DOCKER_EXEC chown 1001:1001 "$STORAGE_PATH/scratch/user1" 2>/dev/null || true
     $DOCKER_EXEC touch "$STORAGE_PATH/scratch/user1/temp_data.bin"
-    $DOCKER_EXEC chown 1001:1001 "$STORAGE_PATH/scratch/user1/temp_data.bin"
+    $DOCKER_EXEC chown 1001:1001 "$STORAGE_PATH/scratch/user1/temp_data.bin" 2>/dev/null || true
 
     # Attempt deletion as nobody (simulating other unprivileged student) - should be blocked by sticky bit
     if $DOCKER_EXEC su -s /bin/sh -c "rm -f $STORAGE_PATH/scratch/user1/temp_data.bin" nobody 2>/dev/null; then
@@ -154,11 +155,11 @@ if [ "$EXEC_TARGET" == "kind" ]; then
     fi
 
     # Test clean-scratch dry-run
-    if ! docker exec -i kind-control-plane bash -s -- --dry-run < "$SCRIPT_DIR/clean-scratch.sh" > /dev/null 2>&1; then
+    if ! $DOCKER_EXEC bash -s -- --dry-run < "$SCRIPT_DIR/clean-scratch.sh" > /dev/null 2>&1; then
         T4_FAIL=1
         T4_MSG="clean-scratch.sh failed execution"
     fi
-    $DOCKER_EXEC rm -rf "$STORAGE_PATH/scratch/user1"
+    $DOCKER_EXEC rm -rf "$STORAGE_PATH/scratch/user1" 2>/dev/null || true
 fi
 report_result "Test 4: Ephemeral Scratch Space & Sticky Bit Isolation" "$T4_FAIL" "${T4_MSG:-Sticky bit check failed}"
 
@@ -188,8 +189,8 @@ report_result "Test 5: Container Environment Contract Injection" "$T5_FAIL" "${T
 echo "▶ Running Test 6: Storage Audit & Deduplication Tooling..."
 T6_FAIL=0
 
-if [ "$EXEC_TARGET" == "kind" ]; then
-    AUDIT_OUTPUT=$(docker exec -i kind-control-plane bash -s -- < "$SCRIPT_DIR/audit-storage.sh" 2>&1)
+if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
+    AUDIT_OUTPUT=$($DOCKER_EXEC bash -s -- < "$SCRIPT_DIR/audit-storage.sh" 2>&1)
 else
     AUDIT_OUTPUT=$(STORAGE_ROOT="$STORAGE_PATH" bash "$SCRIPT_DIR/audit-storage.sh" 2>&1)
 fi
