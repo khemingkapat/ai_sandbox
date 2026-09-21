@@ -120,7 +120,7 @@ Because K3s uses containerd without a local Docker daemon, custom images (`slurm
 | `k8s-ready` | K3s installed, 2 nodes joined, system pods ready | 🟢 Done | Before applying repo manifests |
 | `core-infra-ready` | Storage PV/PVCs bound, Cert-Manager, MariaDB healthy | 🟢 Done | Before Slinky install |
 | `slurm-deployed` | Slinky operator, slurmctld, slurmd running, accounting initialized | 🟢 Done | After Slurm sanity checks pass |
-| `m2-complete` | All WP3-1-4 to WP3-1-8 verified, test suites passing | 🟡 **Pending (Action)** | Take now as final Milestone 2 baseline |
+| `backend` (`m2-complete`) | All WP3-1-4 to WP3-1-8 verified, test suites passing | 🟢 Done | Final Milestone 2 baseline |
 
 ---
 
@@ -292,8 +292,8 @@ kubectl apply -f k8s/network-policies/
 ---
 
 ### Step 6: Final Milestone 2 Snapshot Checkpoint
-Once all verification suites pass:
-1. Snapshot VM 104 (`ai-worker1`) $\rightarrow$ Name: `m2-complete`, RAM: unchecked.
-2. Snapshot VM 103 (`ai-control`) $\rightarrow$ Name: `m2-complete`, RAM: unchecked.
+All verification suites passed, and final baseline snapshots have been created:
+1. Snapshot VM 104 (`ai-worker1`) $\rightarrow$ Name: `backend`, RAM: unchecked. (🟢 Done)
+2. Snapshot VM 103 (`ai-control`) $\rightarrow$ Name: `backend`, RAM: unchecked. (🟢 Done)
 
-Milestone 2 backend migration to Proxmox is officially complete!
+Milestone 2 backend migration to Proxmox is officially complete and locked in!
