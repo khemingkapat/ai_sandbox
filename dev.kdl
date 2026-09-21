@@ -8,14 +8,14 @@ layout {
 
     // Tab 1: Editor
     tab name="nvim" focus=true {
-        pane command="nvim" {
-	    args "."
+        pane command="denv" {
+            args "nvim" "."
         }
     }
 
     tab name="agyd" {
-        pane command="agy" {
-            args "-c" "--dangerously-skip-permissions"
+        pane command="denv" {
+            args "agy" "-c" "--dangerously-skip-permissions"
         }
     }
 

@@ -90,9 +90,7 @@
                         echo "✅ Commands loaded: kup, kdown, kstat, slurm-shell"
                         echo "🔌 Proxmox tunnel: ptunnel (start) | ptunnel-stop (kill)"
 
-                        export SHELL=/home/khemi/.nix-profile/bin/zsh
                         export KUBECONFIG="$HOME/.kube/config-proxmox"
-                        exec /home/khemi/.nix-profile/bin/zsh
           '';
         };
       }
