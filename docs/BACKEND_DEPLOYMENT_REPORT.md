@@ -48,7 +48,7 @@ This document records the complete backend infrastructure deployment for the AI 
   - [6.3 Network Policy Rules](#63-network-policy-rules)
   - [6.4 RBAC & Service Account Hardening](#64-rbac--service-account-hardening)
   - [6.5 Ingress TLS & Security Headers](#65-ingress-tls--security-headers)
-  - [6.6 Traefik Dynamic Session Routing](#66-traefik-dynamic-session-routing)
+  - [6.6 Traefik Dynamic Session Routing & Interactive Subpath Architecture](#66-traefik-dynamic-session-routing--interactive-subpath-architecture)
   - [6.7 Automated Security Verification](#67-automated-security-verification)
 - [7. Software Catalog & Application Manifests](#7-software-catalog--application-manifests)
 - [8. Conclusion](#8-conclusion)
@@ -358,9 +358,12 @@ This ensures that a student's batch job cannot escape its Slurm-assigned CPU or 
 Student identity is managed through a centralized NSS (Name Service Switch) system rather than traditional LDAP or local `/etc/passwd` files:
 
 - **Static user database:** Files (`passwd`, `group`, `shadow`) are stored at `/mnt/storage/common/etc/` and mounted read-only into all Slurm daemons via the `extrausers` NSS module.
-- **Slurm accounting account:** A single default account `default_acct` (`Organization="AI Sandbox"`) is created. All users are assigned to this account.
-- **Administrative users:** `root` and `slurm` are granted `adminlevel=Admin` with access to all QoS policies (`normal`, `interactive_qos`, `batch_cpu_qos`, `batch_gpu_qos`, `inference_qos`).
-- **Demo user seeding:** `scripts/seed-demo-users.sh` provisions test users (`user1`–`user4`) with UIDs 1001–1004, assigns them to project groups (`project1`, `project2`, `project3`), and synchronizes the NSS files.
+- **Slurm accounting accounts:** Project-level accounts (`project1`, `project2`, `project3`) alongside administrative accounts (`default_acct`, `root`) are provisioned into MariaDB via SlurmDBD. Users are partitioned into their respective project accounts:
+  - `user1` & `user2` → `project1` (`DefaultQOS=interactive_qos`, QoS: `interactive_qos,batch_cpu_qos,batch_gpu_qos`)
+  - `user3` → `project2` (`DefaultQOS=interactive_qos`, QoS: `interactive_qos,batch_cpu_qos,batch_gpu_qos`)
+  - `user4` → `project3` (`DefaultQOS=interactive_qos`, QoS: `interactive_qos,batch_cpu_qos,batch_gpu_qos`)
+- **Administrative users:** `root` and `slurm` are granted `AdminLevel=Admin` with unrestricted access to all QoS policies (`normal`, `interactive_qos`, `batch_cpu_qos`, `batch_gpu_qos`, `inference_qos`).
+- **User seeding:** Test users (`user1`–`user4`) with UIDs 1001–1004 are mapped to project groups (`project1`, `project2`, `project3`), synchronized with the NSS files, and registered in SlurmDBD fair-share associations.
 
 ### 3.6 Epilog Webhook Integration
 
@@ -414,9 +417,9 @@ Three curated interactive images are built and side-loaded into containerd on `a
 
 | Image | Base Image | Local Tag | Port | Key Packages |
 | :--- | :--- | :--- | :--- | :--- |
-| **JupyterLab** | `jupyter/scipy-notebook:latest` | `localhost:5000/interactive-jupyter:latest` | 8888 | NumPy, SciPy, Pandas, Matplotlib, scikit-learn, PyTorch, `libnss-extrausers` |
-| **VS Code Server** | `codercom/code-server:latest` | `localhost:5000/interactive-codeserver:latest` | 8888 | VS Code web server, `libnss-extrausers` |
-| **Web Terminal** | `public.ecr.aws/ubuntu/ubuntu:24.04` | `localhost:5000/interactive-bash:latest` | 8888 | `ttyd`, `build-essential`, `curl`, `git`, `htop`, `jq`, `vim`, `wget`, `libnss-extrausers` |
+| **JupyterLab** | `jupyter/scipy-notebook:latest` | `interactive-jupyter:latest` | 8888 | NumPy, SciPy, Pandas, Matplotlib, scikit-learn, PyTorch, `libnss-extrausers` |
+| **VS Code Server** | `codercom/code-server:latest` | `interactive-codeserver:latest` | 8888 | VS Code web server, `libnss-extrausers` |
+| **Web Terminal** | `public.ecr.aws/ubuntu/ubuntu:24.04` | `interactive-bash:latest` | 8888 | `ttyd`, `build-essential`, `curl`, `git`, `htop`, `jq`, `vim`, `wget`, `libnss-extrausers` |
 
 All three images share a common architecture pattern:
 1. Install `libnss-extrausers` and configure `/etc/nsswitch.conf` (`passwd: files extrausers`, `group: files extrausers`).
@@ -456,7 +459,8 @@ In the Proxmox production-grade environment, running an unauthenticated Docker d
 
 Batch workloads use Apptainer SquashFS images stored on shared NFS:
 
-- **Image location:** `/mnt/storage/common/software/` (e.g., `python.sif` at 60.7 MB, `jupyterlab.sif` at 283 MB).
+- **Image location:** `/mnt/storage/common/software/` (e.g., `python.sif` at 60.7 MB, accessible cluster-wide and symlinkable into project software directories).
+- **Partition routing:** Batch applications explicitly specify `partition: "batch-cpu"` under `slurm_args` in their `manifest.yaml` (or `#SBATCH --partition=batch-cpu` in batch shell scripts). This guarantees that batch jobs are scheduled onto `slurmd-cpu-[0-1]` workers rather than falling into the default `interactive` partition.
 - **Permission enforcement:** Directory ownership is `root:root` with `755` on directories and `644` on `.sif` files. Unprivileged users (e.g., UID 1001) cannot modify or delete shared software images.
 - **Execution model:** Students submit `sbatch` scripts that invoke `apptainer exec /mnt/storage/common/software/python.sif python3 script.py`. The SquashFS image is streamed directly from NFS into the Linux kernel page cache — no local disk staging is required.
 - **Apptainer configuration:** Rootless execution is enabled via `proot` (`allow setuid = no` in `apptainer.conf`), avoiding the need for `--privileged` security context on worker pods.
@@ -694,8 +698,10 @@ All student web traffic enters through Traefik v3.1 running as a sidecar contain
 
 | EntryPoint | Port | Behavior |
 | :--- | :--- | :--- |
-| `web` | 80 | Unconditional redirect to `websecure` (HTTPS) |
-| `websecure` | 443 | TLS termination with self-signed certificate |
+| `web` | 80 | General HTTP ingress: Priority-1 router (`portal-redirect`) redirects root/login paths to HTTPS. Dynamic session routers (priority 100) serve HTTP directly without forcing SSL upgrades, preventing tunnel/port-forward breakage. |
+| `websecure` | 443 | TLS termination with self-signed certificate, security headers middleware, and dynamic session proxying. |
+
+> **Preventing Port-Forwarding SSL Redirection Loops:** Global entrypoint-level redirections (e.g., `--entrypoints.web.http.redirections.entryPoint.to=websecure`) break SSH port tunnels and port-forwarding proxies (`localhost:8080`), causing client browsers to drop port numbers or trigger `SSL_ERROR_RX_RECORD_TOO_LONG` when plain HTTP responses are intercepted by TLS handlers. To prevent this, redirection is implemented via a priority-1 Traefik router (`redirectScheme`) scoped to the portal, while interactive session routers evaluate at priority 100 on both `web` and `websecure` entrypoints.
 
 **TLS Certificate:** Generated via `scripts/generate-certs.sh` — a 2048-bit RSA key with a self-signed certificate valid for 365 days, covering SANs: `localhost`, `127.0.0.1`, `portal`, `portal.slurm.svc.cluster.local`, and `*.sandbox.local`. Stored in Secret `traefik-tls-cert`.
 
@@ -761,9 +767,9 @@ The software catalog at `/mnt/storage/common/software/` defines the interactive 
 
 | Application | Manifest ID | Image | Slurm Resources | Port |
 | :--- | :--- | :--- | :--- | :--- |
-| **JupyterLab** | `jupyterlab` | `localhost:5000/interactive-jupyter:latest` | 1 node, 1 task, 2 CPU, 2G RAM | 8888 |
-| **VS Code Server** | `codeserver` | `localhost:5000/interactive-codeserver:latest` | 1 node, 1 task, 2 CPU, 2G RAM | 8888 |
-| **Web Terminal** | `bash` | `localhost:5000/interactive-bash:latest` | 1 node, 1 task, 1 CPU, 1G RAM | 8888 |
+| **JupyterLab** | `jupyterlab` | `interactive-jupyter:latest` | 1 node, 1 task, 2 CPU, 2G RAM | 8888 |
+| **VS Code Server** | `codeserver` | `interactive-codeserver:latest` | 1 node, 1 task, 2 CPU, 2G RAM | 8888 |
+| **Web Terminal** | `bash` | `interactive-bash:latest` | 1 node, 1 task, 1 CPU, 1G RAM | 8888 |
 
 Each application has a `manifest.yaml` specifying its container image, startup command, and Slurm resource allocations (`--nodes`, `--ntasks`, `--cpus-per-task`, `--mem`). Images are pre-loaded in containerd on `ai-worker1`, ensuring instantaneous startup upon job allocation.
 
