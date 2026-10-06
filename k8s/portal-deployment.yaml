@@ -24,6 +24,8 @@ spec:
       - name: portal
         image: hpc-portal:local
         imagePullPolicy: IfNotPresent
+        command: ["/mnt/storage/common/bin/hpc-portal"]
+        workingDir: /app
         ports:
         - containerPort: 8080
           name: ui
@@ -57,8 +59,6 @@ spec:
         - --entrypoints.websecure.address=:443
         - --entrypoints.websecure.http.tls=true
         - --entrypoints.websecure.http.middlewares=security-headers@file
-        - --entrypoints.web.http.redirections.entryPoint.to=websecure
-        - --entrypoints.web.http.redirections.entryPoint.scheme=https
         ports:
         - containerPort: 80
           name: proxy

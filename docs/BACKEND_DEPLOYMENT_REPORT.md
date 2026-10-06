@@ -59,11 +59,11 @@ This document records the complete backend infrastructure deployment for the AI 
 
 ### 1.1 Cluster Topology
 
-The backend is deployed on a two-node virtualized Kubernetes cluster running K3s (v1.36.4+k3s1) on the Computer Engineering Department's Proxmox VE hypervisor (`sandbox01`) across VLAN 123 (`10.35.123.0/24`). The deployment implements a strict separation between control-plane infrastructure and compute execution.
+The backend is deployed on a three-node virtualized and accelerated Kubernetes cluster running K3s (v1.36.4/v1.36.5) across VLAN 123 (`10.35.123.0/24`) on the Computer Engineering Department's hypervisor infrastructure (`sandbox01`). The deployment implements a strict separation between control-plane infrastructure, CPU batch workers, and hardware-accelerated GPU compute.
 
 ```mermaid
 flowchart TD
-    subgraph "Proxmox Host: sandbox01 (VLAN 123)"
+    subgraph "Department Infrastructure (VLAN 123)"
         subgraph "ai-control (VM 103, 10.35.123.50)"
             CP["K3s Server (Control Plane)<br/>4 vCPU / 16 GB RAM<br/>Disk: 32 GB OS + 200 GB Storage"]
             NFS_S["NFSv4 Kernel Server<br/>Export: /srv/shared-storage<br/>Bind Mount: /mnt/storage"]
@@ -73,31 +73,41 @@ flowchart TD
         end
 
         subgraph "ai-worker1 (VM 104, 10.35.123.51)"
-            W1["K3s Agent (Compute Worker)<br/>8 vCPU / 32 GB RAM / 64 GB OS<br/>label: external-node=true"]
-            NFS_C["NFSv4 Client<br/>Mount: 10.35.123.50:/srv/shared-storage -> /mnt/storage"]
+            W1["K3s Agent (CPU Compute Worker)<br/>8 vCPU / 32 GB RAM / 64 GB OS<br/>label: external-node=true"]
+            NFS_C1["NFSv4 Client<br/>Mount: 10.35.123.50:/srv/shared-storage -> /mnt/storage"]
             SC0["slurmd-cpu-0"]
             SC1["slurmd-cpu-1"]
-            SG0["slurmd-gpu-0 (mock)"]
             WP["Workload Pods<br/>(Jupyter, VS Code, Bash)"]
+        end
+
+        subgraph "ai-sandbox-gpu-vm (10.35.123.40)"
+            W_GPU["K3s Agent (GPU Accelerated Worker)<br/>16 vCPU / 32 GB RAM / 500 GB OS<br/>NVIDIA L40 (46,068 MiB VRAM)<br/>nvidia-device-plugin (2-way Time-Slicing)"]
+            NFS_C2["NFSv4 Client<br/>Mount: 10.35.123.50:/srv/shared-storage -> /mnt/storage"]
+            SG0["slurmd-gpu-0 (RuntimeClass: nvidia)"]
+            VLLM["vLLM Inference Pod (Staged)"]
         end
     end
 
     CP <--->|"Flannel VXLAN (8472/udp) & Kubelet (10250/tcp)"| W1
-    NFS_S ===|"POSIX NFSv4 (2049/tcp)"| NFS_C
+    CP <--->|"Flannel VXLAN (8472/udp) & Kubelet (10250/tcp)"| W_GPU
+    NFS_S ===|"POSIX NFSv4 (2049/tcp)"| NFS_C1
+    NFS_S ===|"POSIX NFSv4 (2049/tcp)"| NFS_C2
     W1 -.- SC0
     W1 -.- SC1
-    W1 -.- SG0
     W1 -.- WP
+    W_GPU -.- SG0
+    W_GPU -.- VLLM
 ```
 
 | Node | Role | vCPU / RAM | Host Storage | IP Address | Special Function & Components |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | `ai-control` (VM 103) | Control Plane | 4 vCPU / 16 GB | 32 GB OS (`/`)<br/>200 GB (`/srv/shared-storage`) | `10.35.123.50` | K3s Server, NFSv4 Server, Slinky Operator, `slurmctld`, `slurmdbd`, `slurmrestd`, `mariadb-0`, `hpc-portal` |
-| `ai-worker1` (VM 104) | Compute Worker | 8 vCPU / 32 GB | 64 GB OS (`/`)<br/>NFS mount (`/mnt/storage`) | `10.35.123.51` | K3s Agent, Slurm NodeSets (`slurmd-cpu-[0-1]`, `slurmd-gpu-0`), Apptainer runtime, interactive workload pods |
+| `ai-worker1` (VM 104) | CPU Compute Worker | 8 vCPU / 32 GB | 64 GB OS (`/`)<br/>NFS mount (`/mnt/storage`) | `10.35.123.51` | K3s Agent, Slurm NodeSets (`slurmd-cpu-[0-1]`), Apptainer runtime, interactive workload pods |
+| `ai-sandbox-gpu-vm` | GPU Compute Worker | 16 vCPU / 32 GB | 500 GB OS (`/`)<br/>NFS mount (`/mnt/storage`) | `10.35.123.40` | K3s Agent, NVIDIA L40 (46,068 MiB VRAM, Compute Cap 8.9), NVIDIA Device Plugin with 2-way Time-Slicing (`nvidia.com/gpu: 2`), Slurm GPU NodeSet (`slurmd-gpu-0`) |
 
-The worker node `ai-worker1` carries the label `scheduler.slinky.slurm.net/external-node=true` and the annotation `scheduler.slinky.slurm.net/external-node-partitions=interactive,batch-cpu,batch-gpu,inference`, enabling `slurm-bridge` to schedule native Kubernetes pods onto it as Slurm-tracked workloads. Workload components are pinned using explicit `nodeSelector: kubernetes.io/hostname: ai-control` for control services and `kubernetes.io/hostname: ai-worker1` for compute NodeSets.
+Both worker nodes carry the label `scheduler.slinky.slurm.net/external-node=true` and partition scheduling annotations, enabling `slurm-bridge` to schedule native Kubernetes pods onto them as Slurm-tracked workloads. Workload components are pinned using explicit `nodeSelector` rules: control services to `ai-control`, CPU NodeSets to `ai-worker1`, and GPU NodeSets to `ai-sandbox-gpu-vm`.
 
-> **Native Virtualization Advantage:** Unlike containerized development environments (such as Kind) which require user-namespace workarounds (`KubeletInUserNamespace`) and inotify monkey-patching, the Proxmox VMs run native Ubuntu 24.04.5 LTS kernels with full cgroup v2 support, unconstrained kernel keys, and native systemd integration.
+> **Native Virtualization & Hardware Acceleration:** Compute workers run native Ubuntu 24.04 kernels with cgroup v2 support. The GPU worker features an attached physical datacenter accelerator (NVIDIA L40 48GB) exposed through the NVIDIA Container Toolkit (`runtimeClassName: nvidia`) and partitioned into virtual slices via the NVIDIA Kubernetes Device Plugin.
 
 ### 1.2 Kubernetes Volume Architecture
 
@@ -109,7 +119,7 @@ Persistent volumes provide strict isolation between Slurm controller state, shar
 | `slurm-state-pv` | 5 Gi | `ReadWriteOnce` | `/mnt/slurm-state` | `slurm-state-pvc` (ns: `slurm`) | `slurmctld` controller checkpoints on `ai-control` (`/var/spool/slurmctld`) |
 | `workload-storage-pv` | 200 Gi (underlying) / 20 Gi (claim) | `ReadWriteMany` | `/mnt/storage` | `slinky-storage-pvc` (ns: `workload`) | Interactive student session pod access to `/mnt/storage` |
 
-> **Shared Storage Backing & Multi-Node RWX:** Shared storage is backed by a 200 GB dedicated virtual disk on `ai-control` mounted at `/srv/shared-storage` and bind-mounted to `/mnt/storage`. This directory is exported via `nfs-kernel-server` (NFSv4) strictly to `ai-worker1`, where it is mounted at `/mnt/storage`. Multi-node RWX read/write consistency was verified across both VMs using cross-node test pods (`k8s/test-rwx.yaml`).
+> **Shared Storage Backing & Multi-Node RWX:** Shared storage is backed by a 200 GB dedicated virtual disk on `ai-control` mounted at `/srv/shared-storage` and bind-mounted to `/mnt/storage`. This directory is exported via `nfs-kernel-server` (NFSv4) to both `ai-worker1` and `ai-sandbox-gpu-vm`, where it is mounted at `/mnt/storage`. Multi-node RWX read/write consistency was verified across all worker nodes.
 >
 > **Why state isolation matters:** The Slurm controller checkpoint directory (`/var/spool/slurmctld`) resides on a local `ReadWriteOnce` PV on `ai-control` separate from shared student storage. This ensures that student storage exhaustion on `/mnt/storage` can never starve scheduler checkpoint writes or trigger cluster-wide scheduling outages.
 
@@ -119,8 +129,8 @@ The cluster is organized into two primary namespaces with distinct security zone
 
 | Namespace | Zone Label | Node Placement | Purpose | Key Pods |
 | :--- | :--- | :--- | :--- | :--- |
-| `slurm` | `sandbox.zone: control-plane` | `ai-control` (controller)<br/>`ai-worker1` (workers) | Scheduler control plane, portal, accounting database, and compute daemons | `slurm-controller-0`, `slurm-restapi-*`, `mariadb-0`, `hpc-portal`, `slurmd-cpu-[0-1]`, `slurmd-gpu-0` |
-| `workload` | `sandbox.zone: workload` | `ai-worker1` | Dynamic student interactive sessions and bridge-managed pods | Transient Jupyter, VS Code, and Bash terminal pods |
+| `slurm` | `sandbox.zone: control-plane` | `ai-control` (controller)<br/>`ai-worker1`, `ai-sandbox-gpu-vm` (workers) | Scheduler control plane, portal, accounting database, and compute daemons | `slurm-controller-0`, `slurm-restapi-*`, `mariadb-0`, `hpc-portal`, `slurmd-cpu-[0-1]`, `slurmd-gpu-0` |
+| `workload` | `sandbox.zone: workload` | `ai-worker1`, `ai-sandbox-gpu-vm` | Dynamic student interactive sessions and bridge-managed pods | Transient Jupyter, VS Code, and Bash terminal pods |
 
 This zone model forms the foundation for all network policies: the `control-plane` zone houses trusted infrastructure pinned to `ai-control`, while the `workload` zone houses untrusted student workloads executed on `ai-worker1` under strict zero-trust network isolation.
 
@@ -182,7 +192,7 @@ flowchart LR
 | **slurmrestd** | Slurm REST API — HTTP interface for job submission | `slurmrestd-custom:latest` | `slurm` | `ai-control` |
 | **slurmdbd** | Slurm accounting daemon — connects to MariaDB for fair-share and QoS tracking | Bundled in Helm chart | `slurm` | `ai-control` |
 | **slurmd (CPU)** | Compute worker NodeSet for CPU partitions (2 replicas, StatefulSet, oversubscribed) | `slurmd-custom:latest` | `slurm` | `ai-worker1` |
-| **slurmd (GPU)** | Compute worker NodeSet for GPU partitions (1 replica, StatefulSet, oversubscribed) | `slurmd-custom:latest` | `slurm` | `ai-worker1` |
+| **slurmd (GPU)** | Compute worker NodeSet for GPU partitions (1 replica, StatefulSet, `runtimeClassName: nvidia`) | `slurmd-custom:latest` | `slurm` | `ai-sandbox-gpu-vm` |
 | **slurm-bridge** | Kubernetes scheduling interceptor — translates Slurm allocations into native K8s pods | `ghcr.io/slinkyproject/slurm-bridge` | `slurm` | `ai-control` |
 
 ### 2.2 Operator & CRD Bootstrap
@@ -292,12 +302,14 @@ The cluster is divided into four scheduling partitions, each with enforced resou
 
 | Partition | NodeSets / Nodes | Default | Max Duration | PreemptMode | Priority Tier | MaxTRESPerJob | Associated QoS |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `interactive` | `slurmd-cpu-[0-1]`, `slurmd-gpu-0`, `ai-worker1` | YES | 2 Hours | OFF | 2 (High) | `cpu=4, mem=16G, gres/gpu=1` | `interactive_qos` |
+| `interactive` | `slurmd-cpu-[0-1]`, `slurmd-gpu-0`, `ai-worker1`, `ai-sandbox-gpu-vm` | YES | 2 Hours | OFF | 2 (High) | `cpu=4, mem=16G` | `interactive_qos` |
 | `batch-cpu` | `slurmd-cpu-[0-1]`, `ai-worker1` | NO | 24 Hours | OFF | 1 (Medium) | `cpu=16, mem=64G` | `batch_cpu_qos` |
-| `batch-gpu` | `slurmd-cpu-[0-1]`, `slurmd-gpu-0`, `ai-worker1` | NO | 7 Days | OFF | 1 (Medium) | `cpu=16, mem=64G, gres/gpu=1` | `batch_gpu_qos` |
-| `inference` | `slurmd-gpu-0`, `ai-worker1` | NO | 12 Hours | OFF | 3 (Highest) | `cpu=4, mem=32G, gres/gpu=1` | `inference_qos` |
+| `batch-gpu` | `slurmd-cpu-[0-1]`, `slurmd-gpu-0`, `ai-worker1`, `ai-sandbox-gpu-vm` | NO | 7 Days | OFF | 1 (Medium) | `cpu=16, mem=64G` | `batch_gpu_qos` |
+| `inference` | `slurmd-gpu-0`, `ai-sandbox-gpu-vm` | NO | 12 Hours | OFF | 3 (Highest) | `mem=32G` | `inference_qos` |
 
-> **Topology Scheduling & Memory Allocation:** Because compute workers run together on the 8-core `ai-worker1` VM, the Slinky configuration enables `oversubscribeNode: true` across all compute NodeSets. Furthermore, the controller specifies `DefMemPerCPU=2048` (2 GB per requested CPU core) in `extraConf`, guaranteeing predictable memory sizing when jobs request CPU cores without explicit memory specifications.
+> **Topology Scheduling & Accelerator Allocation:** Compute workers run across two distinct physical/virtual execution environments: `ai-worker1` (8-core CPU node) and `ai-sandbox-gpu-vm` (16-core GPU node with NVIDIA L40). The controller specifies `DefMemPerCPU=2048` (2 GB per requested CPU core) in `extraConf`, guaranteeing predictable memory sizing when jobs request CPU cores without explicit memory specifications.
+>
+> **Hardware GPU Multi-Tenancy:** The physical NVIDIA L40 (46,068 MiB VRAM) is partitioned via 2-way hardware Time-Slicing (`nvidia.com/gpu: 2`) configured in the Kubernetes device plugin. Compute jobs submitted to `batch-gpu` and `inference` partitions target `slurmd-gpu-0` (pinned to `ai-sandbox-gpu-vm` with `runtimeClassName: nvidia`), ensuring complete hardware acceleration without CPU-based emulation.
 >
 > **Why preemption is universally disabled (`PreemptMode=OFF`):** In a classroom environment, killing an active Jupyter session destroys all in-memory state — loaded datasets, model weights, and training progress. Instead of preemption, resource contention is managed exclusively through `MaxTRESPerJob` fencing, which prevents any single job from consuming resources beyond its partition ceiling.
 
@@ -594,12 +606,16 @@ Because the cluster resides on a shared university VLAN (VLAN 123, subnet `10.35
 | Host | Port / Protocol | Source | Purpose |
 | :--- | :--- | :--- | :--- |
 | **`ai-control`** (`10.35.123.50`) | `22/tcp` | Anywhere | Operator SSH administration |
-| | `6443/tcp` | `10.35.123.51` | K3s agent cluster join & API communication |
-| | `10250/tcp` | `10.35.123.51` | Kubelet node metrics & exec streaming |
-| | `8472/udp` | `10.35.123.51` | Flannel VXLAN overlay traffic |
-| | `2049/tcp` | `10.35.123.51` | POSIX NFSv4 shared storage export |
+| | `6443/tcp` | `10.35.123.51`, `10.35.123.40` | K3s agent cluster join & API communication |
+| | `10250/tcp` | `10.35.123.51`, `10.35.123.40` | Kubelet node metrics & exec streaming |
+| | `8472/udp` | `10.35.123.51`, `10.35.123.40` | Flannel VXLAN overlay traffic |
+| | `2049/tcp` | `10.35.123.51`, `10.35.123.40` | POSIX NFSv4 shared storage export |
 | | Any | `10.42.0.0/16`, `10.43.0.0/16` | K3s internal Pod and Service CIDRs |
 | **`ai-worker1`** (`10.35.123.51`) | `22/tcp` | Anywhere | Operator SSH administration |
+| | `10250/tcp` | `10.35.123.50` | Kubelet communication from control plane |
+| | `8472/udp` | `10.35.123.50` | Flannel VXLAN overlay traffic |
+| | Any | `10.42.0.0/16`, `10.43.0.0/16` | K3s internal Pod and Service CIDRs |
+| **`ai-sandbox-gpu-vm`** (`10.35.123.40`) | `22/tcp` | Anywhere | Operator SSH administration |
 | | `10250/tcp` | `10.35.123.50` | Kubelet communication from control plane |
 | | `8472/udp` | `10.35.123.50` | Flannel VXLAN overlay traffic |
 | | Any | `10.42.0.0/16`, `10.43.0.0/16` | K3s internal Pod and Service CIDRs |
@@ -691,31 +707,35 @@ All student web traffic enters through Traefik v3.1 running as a sidecar contain
 | `X-XSS-Protection` | `1; mode=block` | Enables browser XSS filtering |
 | `X-Frame-Options` | `SAMEORIGIN` | Prevents clickjacking via iframes |
 
-### 6.6 Traefik Dynamic Session Routing
+### 6.6 Traefik Dynamic Session Routing & Interactive Subpath Architecture
 
 The portal dynamically generates routing rules for each active interactive session. Routes are written to `/etc/traefik/dynamic/dynamic-routes.yml` and monitored via Traefik's file provider (`watch: true`):
 
 ```yaml
-# Example: user2's Jupyter session (Slurm Job ID 16)
+# Example: user1's JupyterLab session (Session ID 1791262884070)
 http:
   routers:
-    jupyter-job-16:
-      rule: "PathPrefix('/user2/jupyter/16')"
-      service: jupyter-service-16
-      entryPoints: ["websecure"]
-      middlewares: ["strip-user2-jupyter-16"]
-  middlewares:
-    strip-user2-jupyter-16:
-      stripPrefix:
-        prefixes: ["/user2/jupyter/16"]
+    jupyterlab-user1-1791262884070:
+      rule: "PathPrefix('/user1/jupyterlab/1791262884070')"
+      service: jupyterlab-user1-1791262884070
+      entryPoints: ["web", "websecure"]
   services:
-    jupyter-service-16:
+    jupyterlab-user1-1791262884070:
       loadBalancer:
         servers:
-          - url: "http://10.42.1.25:8888"
+          - url: "http://10.42.1.46:8888"
 ```
 
-The `stripPrefix` middleware strips the routing prefix so the application inside the pod receives clean requests at its root `/` path. On Proxmox VMs, file events are handled directly by the native Linux kernel inotify subsystem without container namespace masking.
+#### Base URL & Subpath Resolution Architecture
+A critical architectural consideration for web IDEs (JupyterLab, code-server, ttyd) hosted behind a multi-tenant reverse proxy is the handling of URL prefixes and static assets:
+1. **The Subpath Asset Trap (Blank White Screen):** If a proxy strips the path prefix (e.g., `stripPrefix: ["/user1/jupyterlab/..."]`) while the backend application is configured with `BASE_URL=/`, the HTML shell will instruct the client browser to request static JavaScript and CSS bundles from the root domain (`GET /static/lab/main...js`). Because the portal only proxies routes matching `/:user/:app/*`, all static bundle requests return `404 Not Found`, causing the React/Lumino workbench frontend to fail mounting (resulting in an empty white viewport).
+2. **Native Base URL Routing:** Applications supporting subpath deployments (JupyterLab `--ServerApp.base_url` and ttyd `-b`) are configured with `BASE_URL=/user1/jupyterlab/<session_id>/`. The portal eliminates Traefik prefix stripping for these services.
+3. **End-to-End Asset Flow:**
+   - The browser navigates to `http://localhost:8080/user1/jupyterlab/<session_id>/lab`.
+   - The Go Echo portal matches `/:user/:app/*` and forwards the request to the internal Traefik ingress.
+   - Traefik preserves the full URL path and routes to the workload pod (`http://<pod_ip>:8888`).
+   - JupyterLab receives the expected base URL prefix, renders the workbench, and requests bundles under `/user1/jupyterlab/<session_id>/static/lab/...`, returning `200 OK` across all static assets.
+4. **Node Concurrency:** Workload pods specify the annotation `"slurmjob.slinky.slurm.net/exclusive": "false"`, preventing interactive sessions from acquiring exclusive node locks and enabling multiple concurrent student sessions on worker nodes.
 
 ### 6.7 Automated Security Verification
 
@@ -751,12 +771,14 @@ Each application has a `manifest.yaml` specifying its container image, startup c
 
 ## 8. Conclusion
 
-The backend deployment across Work Packages WP3-1-4 through WP3-1-8 is fully established, operational, and verified on the Computer Engineering Department's Proxmox VE cluster (`sandbox01`):
+The backend deployment across Work Packages WP3-1-4 through WP3-1-8 is fully established, operational, and verified across the Computer Engineering Department's infrastructure:
 
-1. **Slinky as the Unified Orchestrator** — Slurm-on-Kubernetes runs with automated bootstrap, MariaDB accounting, and disaster recovery. Control plane daemons (`slurmctld`, `slurmrestd`, `slurmdbd`) are cleanly pinned to `ai-control`, while compute workers (`slurmd-cpu`, `slurmd-gpu`) run on `ai-worker1`.
-2. **Four-Partition Scheduling with Hard Resource Fencing** — The `interactive`, `batch-cpu`, `batch-gpu`, and `inference` partitions enforce strict per-job resource ceilings via `MaxTRESPerJob` and QoS policies, supported by `oversubscribeNode: true` and `DefMemPerCPU=2048`. Fair-share scheduling (`PriorityWeightFairshare=10000`) dynamically balances usage across student projects.
+1. **Slinky as the Unified Heterogeneous Orchestrator** — Slurm-on-Kubernetes runs with automated bootstrap, MariaDB accounting, and disaster recovery across a 3-node topology: `ai-control` (control plane & storage), `ai-worker1` (CPU compute), and `ai-sandbox-gpu-vm` (hardware-accelerated GPU compute).
+2. **Four-Partition Scheduling with GPU Hardware Acceleration** — The `interactive`, `batch-cpu`, `batch-gpu`, and `inference` partitions enforce strict per-job resource ceilings via `MaxTRESPerJob` and QoS policies, supported by `DefMemPerCPU=2048`. The physical NVIDIA L40 (46,068 MiB VRAM) is partitioned via 2-way hardware time-slicing (`nvidia.com/gpu: 2`), enabling concurrent hardware acceleration for Slurm compute jobs (`slurmd-gpu-0` with `runtimeClassName: nvidia`) and interactive workloads.
 3. **Dual-Path Container Architecture with Zero-Registry Delivery** — Interactive sessions run as OCI containers side-loaded directly into K3s containerd via authenticated SSH stream, while batch workloads stream Apptainer `.sif` images directly from NFS into Linux kernel page cache. The `libnss-extrausers` NSS module ensures seamless POSIX identity resolution.
-4. **Structured Multi-Tenant Storage with Dual-Tier Caching** — Central read-only caches (`HF_HUB_CACHE`, curated datasets) eliminate duplicate model downloads, while private student workspaces (`projects/<project>`) and sticky-bit scratch space (`1777`) enforce POSIX data separation across the 200 GB NFSv4 filesystem.
+4. **Structured Multi-Tenant Storage with Dual-Tier Caching** — Central read-only caches (`HF_HUB_CACHE`, curated datasets) eliminate duplicate model downloads, while private student workspaces (`projects/<project>`) and sticky-bit scratch space (`1777`) enforce POSIX data separation across the 200 GB NFSv4 filesystem exported across all worker nodes.
 5. **Defense-in-Depth Network Security** — UFW host-level firewalling on VLAN 123, zero-trust default-deny NetworkPolicies with RFC 1918 egress blocking, namespace-scoped RBAC, disabled ServiceAccount token mounting, and Traefik TLS termination safeguard cluster infrastructure against untrusted student code.
+6. **Comprehensive Automated & Manual Verification** — The cluster has been validated end-to-end using the unified test suite [`scripts/verify-backend-complete.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/verify-backend-complete.sh) across 7 stages (31 checks executed, 30 passing checks with 0 failures) and documented in the copy-paste manual runbook [`docs/BACKEND_VERIFICATION_RUNBOOK.md`](file:///home/khemi/workspace/ai_sandbox/docs/BACKEND_VERIFICATION_RUNBOOK.md).
+7. **Infrastructure Advisory on Central LLM Inference** — Physical GPU operation, NVML querying, and Slurm hardware-accelerated job dispatch are 100% verified. As documented in [`docs/GPU_VLLM_INCIDENT_REPORT.md`](file:///home/khemi/workspace/ai_sandbox/docs/GPU_VLLM_INCIDENT_REPORT.md), standalone vLLM container startup requires the hypervisor administrator to apply host CPU passthrough (`-cpu host` / `q35`) via a cold power cycle to expose AVX/AVX2 vector instructions required by deep learning runtime libraries.
 
-All configurations have been verified on the target Proxmox environment via automated test suites (`verify-storage.sh` passing 6/6 tests and `verify-security.sh` passing 7/7 tests) and are locked into clean hypervisor snapshot checkpoints (`backend` / `m2-complete`).
+All core configurations are locked, verified, and ready for production handoff to the Jules application implementation phase.

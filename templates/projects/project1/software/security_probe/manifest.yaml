@@ -6,6 +6,7 @@ type: "batch"
 image_file: "security_probe.sif"
 exec_command: "bash $WORKSPACE/run_probe.sh"
 slurm_args:
+  partition: "batch-cpu"
   nodes: "1"
   ntasks: "1"
   constraint: "slurmd-cpu"

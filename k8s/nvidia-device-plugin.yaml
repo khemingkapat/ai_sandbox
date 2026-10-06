@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nvidia-device-plugin-config
+  namespace: kube-system
+data:
+  config.json: |
+    {
+      "version": "v1",
+      "flags": {
+        "migStrategy": "none",
+        "failOnInitError": false
+      },
+      "sharing": {
+        "timeSlicing": {
+          "resources": [
+            {
+              "name": "nvidia.com/gpu",
+              "replicas": 2
+            }
+          ]
+        }
+      }
+    }
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: nvidia-device-plugin-daemonset
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      name: nvidia-device-plugin-ds
+  template:
+    metadata:
+      labels:
+        name: nvidia-device-plugin-ds
+    spec:
+      priorityClassName: system-node-critical
+      runtimeClassName: nvidia
+      nodeSelector:
+        accelerator: nvidia-gpu
+      tolerations:
+      - operator: Exists
+      containers:
+      - name: nvidia-device-plugin-ctr
+        image: nvcr.io/nvidia/k8s-device-plugin:v0.16.2
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: FAIL_ON_INIT_ERROR
+          value: "false"
+        - name: DEVICE_DISCOVERY_STRATEGY
+          value: nvml
+        - name: CONFIG_FILE
+          value: /etc/config/config.json
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop: ["ALL"]
+        volumeMounts:
+        - name: device-plugin
+          mountPath: /var/lib/kubelet/device-plugins
+        - name: config
+          mountPath: /etc/config
+      volumes:
+      - name: device-plugin
+        hostPath:
+          path: /var/lib/kubelet/device-plugins
+      - name: config
+        configMap:
+          name: nvidia-device-plugin-config

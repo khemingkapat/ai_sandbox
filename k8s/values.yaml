@@ -100,9 +100,18 @@ controller:
       requests:
         storage: 4Gi
   extraConf: |
+    SlurmdParameters=config_overrides
     PriorityWeightFairShare=10000
     AccountingStorageEnforce=limits,qos
     DefMemPerCPU=2048
+    GresTypes=gpu
+    AccountingStorageTRES=cpu,mem,energy,node,billing,fs/disk,vmem,pages,gres/gpu
+    NodeName=ai-sandbox-gpu-vm Gres=gpu:1
+
+    PartitionName=batch-cpu Nodes=slurmd-cpu,ai-worker1 MaxTime=1-00:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=1 State=UP
+    PartitionName=batch-gpu Nodes=slurmd-cpu,slurmd-gpu,ai-worker1,ai-sandbox-gpu-vm MaxTime=7-00:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=1 State=UP
+    PartitionName=inference Nodes=slurmd-gpu,ai-sandbox-gpu-vm MaxTime=12:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=3 State=UP
+    PartitionName=interactive Nodes=slurmd-cpu,slurmd-gpu,ai-worker1,ai-sandbox-gpu-vm Default=YES MaxTime=02:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=2 State=UP
   extraConfMap: {}
   metadata: {}
   podSpec:
@@ -311,15 +320,58 @@ nodesets:
     taintKubeNodes: false
     workloadDisruptionProtection: true
     ordinalPadding: 0
-    slurmd: *id001
+    slurmd:
+      image:
+        repository: slurmd-custom
+        tag: latest
+      args: []
+      env:
+      - name: NVIDIA_DRIVER_CAPABILITIES
+        value: compute,utility,all
+      securityContext:
+        privileged: false
+        capabilities:
+          add:
+            - SYS_ADMIN
+            - DAC_OVERRIDE
+            - DAC_READ_SEARCH
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+        requests:
+          nvidia.com/gpu: 1
+      volumeMounts:
+      - name: slinky-storage
+        mountPath: /mnt/storage
+      - name: extrausers-vol
+        mountPath: /var/lib/extrausers
+        subPath: common/etc
+        readOnly: true
     logfile: *id002
-    extraConf: null
+    extraConf: "Gres=gpu:1"
     extraConfMap: *id003
     partition: *id004
     ssh: *id005
     updateStrategy: *id006
-    metadata: *id007
-    podSpec: *id008
+    podSpec:
+      resources: {}
+      runtimeClassName: nvidia
+      initContainers: []
+      nodeSelector:
+        kubernetes.io/hostname: ai-sandbox-gpu-vm
+        kubernetes.io/os: linux
+      affinity: {}
+      tolerations:
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Exists"
+        effect: "NoExecute"
+      volumes:
+      - name: slinky-storage
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
+      - name: extrausers-vol
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
 partitions:
   interactive:
     enabled: true

@@ -21,15 +21,27 @@ data:
           service: portal-ui
           priority: 1
           middlewares:
-            - security-headers
+        portal-redirect:
+          entryPoints:
+            - web
+          rule: "PathPrefix(`/`)"
+          service: portal-ui
+          priority: 1
+          middlewares:
+            - redirect-to-https
       services:
         portal-ui:
           loadBalancer:
             servers:
               - url: "http://127.0.0.1:8080"
       middlewares:
+        redirect-to-https:
+          redirectScheme:
+            scheme: https
+            permanent: true
         security-headers:
           headers:
             contentTypeNosniff: true
             browserXssFilter: true
             customFrameOptionsValue: "SAMEORIGIN"
+

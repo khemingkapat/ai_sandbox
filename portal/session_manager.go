@@ -79,6 +79,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 				"slurmjob.slinky.slurm.net/partition": "interactive",
 				"slurmjob.slinky.slurm.net/account":   project,
 				"slurmjob.slinky.slurm.net/user-id":   username,
+				"slurmjob.slinky.slurm.net/exclusive": "false",
 			},
 		},
 		Spec: corev1.PodSpec{
@@ -93,7 +94,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 						{Name: "USER", Value: username},
 						{Name: "HOME", Value: workspace},
 						{Name: "ALLOCATED_PORT", Value: "8888"},
-						{Name: "BASE_URL", Value: "/"},
+						{Name: "BASE_URL", Value: basePath + "/"},
 						{Name: "HF_HOME", Value: fmt.Sprintf("%s/.cache/huggingface", workspace)},
 						{Name: "HF_HUB_CACHE", Value: "/mnt/storage/models/huggingface/hub"},
 						{Name: "TORCH_HOME", Value: "/mnt/storage/models/torch"},
@@ -210,9 +211,14 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 		return "", fmt.Errorf("failed to create ingress: %w", err)
 	}
 
-	// 4. Create Dynamic Traefik Route with StripPrefix
+	// 4. Create Dynamic Traefik Route
 	if sm.traefikDir != "" {
-		traefikCfg := fmt.Sprintf("http:\n  routers:\n    session-%[1]s:\n      entryPoints:\n        - web\n      rule: \"PathPrefix(\x60%[2]s\x60)\"\n      priority: 100\n      middlewares:\n        - strip-%[1]s\n      service: svc-%[1]s\n  middlewares:\n    strip-%[1]s:\n      stripPrefix:\n        prefixes:\n          - \"%[2]s/\"\n          - \"%[2]s\"\n  services:\n    svc-%[1]s:\n      loadBalancer:\n        servers:\n          - url: \"http://svc-%[1]s.%[3]s.svc.cluster.local:8888\"\n", sessionID, basePath, sm.namespace)
+		var traefikCfg string
+		if manifest.ID == "codeserver" {
+			traefikCfg = fmt.Sprintf("http:\n  routers:\n    session-%[1]s:\n      entryPoints:\n        - web\n        - websecure\n      rule: \"PathPrefix(\x60%[2]s\x60)\"\n      priority: 100\n      middlewares:\n        - strip-%[1]s\n      service: svc-%[1]s\n  middlewares:\n    strip-%[1]s:\n      stripPrefix:\n        prefixes:\n          - \"%[2]s/\"\n          - \"%[2]s\"\n  services:\n    svc-%[1]s:\n      loadBalancer:\n        servers:\n          - url: \"http://svc-%[1]s.%[3]s.svc.cluster.local:8888\"\n", sessionID, basePath, sm.namespace)
+		} else {
+			traefikCfg = fmt.Sprintf("http:\n  routers:\n    session-%[1]s:\n      entryPoints:\n        - web\n        - websecure\n      rule: \"PathPrefix(\x60%[2]s\x60)\"\n      priority: 100\n      service: svc-%[1]s\n  services:\n    svc-%[1]s:\n      loadBalancer:\n        servers:\n          - url: \"http://svc-%[1]s.%[3]s.svc.cluster.local:8888\"\n", sessionID, basePath, sm.namespace)
+		}
 
 		cfgPath := filepath.Join(sm.traefikDir, fmt.Sprintf("session-%s.yaml", sessionID))
 		if err := os.WriteFile(cfgPath, []byte(traefikCfg), 0644); err != nil {

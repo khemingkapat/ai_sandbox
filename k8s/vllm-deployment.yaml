@@ -1,0 +1,115 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: slurm
+  labels:
+    app: vllm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+    spec:
+      runtimeClassName: nvidia
+      nodeSelector:
+        kubernetes.io/hostname: ai-sandbox-gpu-vm
+      tolerations:
+      - operator: Exists
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:latest
+        imagePullPolicy: IfNotPresent
+        args:
+        - "--model"
+        - "Qwen/Qwen2.5-32B-Instruct-AWQ"
+        - "--gpu-memory-utilization"
+        - "0.65"
+        - "--max-model-len"
+        - "16384"
+        - "--port"
+        - "8000"
+        env:
+        - name: HUGGINGFACE_HUB_CACHE
+          value: /root/.cache/huggingface/hub
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+            memory: "32Gi"
+            cpu: "8"
+          requests:
+            nvidia.com/gpu: "1"
+            memory: "16Gi"
+            cpu: "4"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 60
+          periodSeconds: 15
+          failureThreshold: 20
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 120
+          periodSeconds: 30
+          failureThreshold: 5
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+        - name: dshm
+          mountPath: /dev/shm
+      volumes:
+      - name: model-cache
+        hostPath:
+          path: /mnt/storage/models/huggingface
+          type: DirectoryOrCreate
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-service
+  namespace: slurm
+  labels:
+    app: vllm
+spec:
+  type: ClusterIP
+  selector:
+    app: vllm
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: vllm-ingress
+  namespace: slurm
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /v1
+        pathType: Prefix
+        backend:
+          service:
+            name: vllm-service
+            port:
+              number: 8000
