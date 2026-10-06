@@ -1,55 +1,79 @@
-# Interactive Tutorial Module List: AI Sandbox Learning Track
+# Interactive Tutorial Curriculum: AI Sandbox Practical Workloads
 
-> **Status:** Draft / Proposed Module Outline  
-> **Target Environment:** Localized AI Sandbox (Inside user container / compute node)  
-> **Prerequisites:** Completion of Central Portal Quickstart / Demo Pod
-
----
-
-## 🎯 Architectural Intent & Scope
-
-Following the findings in [interactive_tutorial_feasibility.md](file:///home/khemi/workspace/ai_sandbox/docs/interactive_tutorial_feasibility.md), this 10-module curriculum is designed exclusively for the **Localized AI Sandbox** environment. It teaches students how to use the hybrid Kubernetes + Slurm (Slinky) + Apptainer infrastructure safely without causing multi-tenant resource starvation, storage IOPS collapse, or orphaned compute jobs.
+> **Status:** Active Specification  
+> **Target Audience:** Students, Researchers, and AI Practitioners  
+> **Environment:** Localized AI Sandbox (Compute Pods & Interactive Workspaces)  
+> **Prerequisites:** Central Portal Login (Authentik SSO) & Basic Linux / Python Fluency  
 
 ---
 
-## 📋 The 10 Interactive Tutorial Modules
+## 🎯 Curriculum Overview & Learning Objectives
 
-1. **Module 1: Sandbox Orientation & Shared Storage Topography**
-   - **Focus:** Understanding filesystem tiers: `/projects/{project_name}` (persistent project workspace), `/common/software` (pre-built container images), `/common/kaggle_cache` (read-only shared datasets), and local node scratch space.
-   - **Hands-on Task:** Inspect environment variables, verify quota limits, and distinguish persistent mounts from ephemeral container filesystems.
+This curriculum trains students and researchers on the practical capabilities of the AI Sandbox platform. Rather than dealing with backend cluster administration, learners focus on executing real-world AI/ML workloads—navigating the storage hierarchy, managing compute lifecycles, and integrating with high-throughput shared AI acceleration infrastructure.
 
-2. **Module 2: Slurm Cluster Topology & Inspection via Slinky**
-   - **Focus:** Understanding how Slurm operates inside Kubernetes. Exploring partitions, node states, and cluster capacity.
-   - **Hands-on Task:** Query partition availability using `sinfo`, inspect the active queue with `squeue`, and check fair-share priorities.
+By completing this track, learners will be able to:
+1. **Work within Platform Guardrails:** Understand private vs. shared storage tiers, resource quotas, and pre-baked optimized container images.
+2. **Develop Interactively:** Launch and use containerized web IDEs (JupyterLab, VS Code) and command-line compute sessions (`salloc`) with GPU acceleration.
+3. **Execute Scalable Batch Workloads:** Submit asynchronous data preprocessing (`batch-cpu`) and resilient deep learning training runs (`batch-gpu`) using Slurm (`sbatch`).
+4. **Leverage Shared AI Infrastructure:** Integrate applications with the Central LLM Inference API, construct vector pipelines with Qdrant, and perform parameter-efficient fine-tuning (PEFT/QLoRA) on shared GPUs.
+5. **Serve Custom Models:** Deploy and query private on-demand inference endpoints using vLLM.
 
-3. **Module 3: Rootless Container Execution with Apptainer**
-   - **Focus:** Why Docker is restricted in multi-tenant HPC and how Apptainer provides secure, rootless container isolation.
-   - **Hands-on Task:** Run commands inside a pre-built PyTorch `.sif` image using `apptainer exec` and explore an interactive container shell using `apptainer shell`.
+---
 
-4. **Module 4: Hardware Acceleration & GPU Allocation**
-   - **Focus:** GPU topology, generic resources (`--gres=gpu:X`), NVIDIA container runtime integration, and the Apptainer `--nv` flag.
-   - **Hands-on Task:** Allocate a GPU node, run `nvidia-smi` inside the Apptainer container, and verify PyTorch detects the CUDA device.
+## 📋 Tutorial Modules
 
-5. **Module 5: Interactive Sessions vs. Headless Jobs (`salloc` & `srun`)**
-   - **Focus:** The role of interactive debugging sessions versus batch processing. Preventing idle interactive allocations that hoard cluster resources.
-   - **Hands-on Task:** Request a bounded interactive allocation using `salloc`, run a step with `srun`, and observe automatic teardown on timeout.
+### 🧭 Phase 1: Platform Orientation & User Environment
 
-6. **Module 6: Production Batch Workloads with `sbatch`**
-   - **Focus:** Anatomy of an HPC batch submission script: resource directives (`#SBATCH`), memory allocation (`--mem`), CPU cores (`--cpus-per-task`), walltime limits (`--time`), and log file capture (`--output`, `--error`).
-   - **Hands-on Task:** Author an `sbatch` script for an asynchronous model training run, submit it to the queue, and verify job decoupling from the local terminal.
+1. **Module 1: Orientation, Storage Tiers & Student Quotas**
+   - **Concepts:** Understanding storage isolation in a multi-tenant sandbox. Differentiating private persistent home storage (`/projects/{project_name}` or `/home/{user}`), read-only shared datasets (`/mnt/shared_datasets`), pre-baked container caches, and node-local scratch space. Understanding quota caps (50 GB storage, 3 concurrent jobs, 8 vCPUs, 32 GB RAM, 8 GB vGPU slice).
+   - **Hands-on Task:** Inspect environment variables, verify disk quotas using system tools, verify read permissions on `/mnt/shared_datasets`, and write temporary files to node scratch.
 
-7. **Module 7: Storage I/O Hygiene & Dataset Staging**
-   - **Focus:** Avoiding shared network storage IOPS exhaustion during high-throughput ML dataloading. Understanding the penalty of small-file random reads on shared mounts.
-   - **Hands-on Task:** Benchmark reading a dataset directly from `/common/kaggle_cache` versus staging it to node-local scratch/RAM disk before training.
+2. **Module 2: Container Environments & The Pre-Baked Image Catalog**
+   - **Concepts:** Why the sandbox utilizes pre-baked OCI images (instant pod initialization, avoiding shared storage metadata contention from dynamic package installs). Using standard interactive environments vs. batch execution runtimes. Proper package management guidelines (`pip install --user`) for session-specific dependencies.
+   - **Hands-on Task:** Launch a container shell using the pre-baked NVIDIA NGC PyTorch environment, inspect available hardware with `nvidia-smi` and `torch.cuda.is_available()`, and verify pre-installed acceleration libraries (FlashAttention-2, BitsAndBytes).
 
-8. **Module 8: Interactive Web Services & Dynamic Reverse Proxy Routing**
-   - **Focus:** How the Sandbox exposes web-based IDEs (JupyterLab) through dynamic port leases and Traefik reverse-proxy routing without public port mapping.
-   - **Hands-on Task:** Launch a headless JupyterLab instance inside a Slurm allocation, verify port binding via the local lease database, and access the session securely via its proxy URL.
+---
 
-9. **Module 9: Job Lifecycle Monitoring, Accounting & Remediation**
-   - **Focus:** Diagnosing job states, understanding accounting logs, identifying resource bottlenecks, and cleaning up runaway workloads.
-   - **Hands-on Task:** Inspect a running job with `scontrol show job`, query historical resource usage with `sacct`, and terminate a stuck or rogue job using `scancel`.
+### 💻 Phase 2: Interactive Development & Prototyping
 
-10. **Module 10: Fault Tolerance, Preemption & Checkpointing**
-    - **Focus:** Surviving walltime cutoffs, node reboots, and Kubernetes `OOMKilled` (Exit Code 137) events. Implementing robust checkpoint/resume patterns.
-    - **Hands-on Task:** Trigger an intentional job walltime timeout, verify automated checkpoint persistence to `/projects/{project_name}/checkpoints`, and resume training seamlessly from the saved state.
+3. **Module 3: Launching Interactive Workspaces (JupyterLab & VS Code)**
+   - **Concepts:** Interactive session architecture: pod creation via `slurm-bridge`, authenticated URL routing via Traefik reverse proxy, and session duration enforcement (2-hour default limit) to maintain cluster availability.
+   - **Hands-on Task:** Launch an interactive JupyterLab instance from the portal, access the workspace securely via the generated proxy URL, create a Python notebook, and verify access to the allocated GPU slice.
+
+4. **Module 4: Interactive Compute Allocations (`salloc` & CLI Debugging)**
+   - **Concepts:** Interactive terminal sessions and debugging directly on compute nodes without consuming login node resources. Fair resource allocation hygiene: releasing allocations when inactive.
+   - **Hands-on Task:** Request a bounded interactive GPU allocation using `salloc -p interactive --gres=gpu:1 --time=00:30:00`, execute interactive Python debugging steps with `srun`, monitor live execution, and terminate the session.
+
+---
+
+### 🚀 Phase 3: Batch Execution & Scalable Pipelines
+
+5. **Module 5: Submitting Batch Data Preprocessing Jobs (`batch-cpu`)**
+   - **Concepts:** Writing batch submission scripts: partition selection (`batch-cpu`), core counts (`--cpus-per-task`), memory allocation (`--mem`), walltime limits, and log capture (`--output`, `--error`). Utilizing single-node Polars and Dask for out-of-core data transformations within container memory limits.
+   - **Hands-on Task:** Write an `sbatch` script that processes a multi-gigabyte dataset stored in `/mnt/shared_datasets` using Polars and writes preprocessed features to personal persistent storage.
+
+6. **Module 6: GPU Batch Training & Checkpointing (`batch-gpu`)**
+   - **Concepts:** Submitting long-running model training jobs (up to 24 GB VRAM, 7-day walltime). Designing fault-tolerant workflows that survive walltime limits or node maintenance through checkpoint/resume routines.
+   - **Hands-on Task:** Submit an `sbatch` job running a PyTorch training loop on `batch-gpu`. Inspect stdout/stderr log output, check job status using `squeue`, and confirm model checkpoint persistence in `/projects/{project_name}/checkpoints`.
+
+7. **Module 7: Job Lifecycle Management & Troubleshooting**
+   - **Concepts:** Tracking job execution, analyzing accounting records, diagnosing common job failures (`OOMKilled` exit code 137, time limits, unmet hardware constraints), and terminating stalled workloads.
+   - **Hands-on Task:** Inspect live job details with `scontrol show job`, query historical resource metrics using `sacct`, and safely terminate an active job with `scancel`.
+
+---
+
+### 🤖 Phase 4: Applied AI & Shared Services Workloads
+
+8. **Module 8: Querying the Central LLM Inference API & Building RAG with Qdrant**
+   - **Concepts:** Leveraging shared cluster services: querying the high-throughput Central LLM API (dedicated NVIDIA L40) and connecting to the centralized Qdrant vector database via OpenAI-compatible endpoints.
+   - **Hands-on Task:** In a Jupyter environment, connect to the shared Central LLM API endpoint. Ingest documents into the centralized Qdrant instance using LlamaIndex, perform semantic retrieval, and execute a full Retrieval-Augmented Generation (RAG) query.
+
+9. **Module 9: Parameter-Efficient Fine-Tuning (PEFT / QLoRA)**
+   - **Concepts:** Fine-tuning large language models within the student interactive GPU envelope (8 GB VRAM cap). Applying 4-bit quantization (BitsAndBytes), Low-Rank Adaptation (LoRA), and gradient checkpointing to avoid memory overflow.
+   - **Hands-on Task:** Execute a QLoRA fine-tuning script on a domain-specific dataset, monitor VRAM consumption with `nvidia-smi` to ensure adherence to the 8 GB quota, and save the resulting LoRA adapter weights to personal storage.
+
+10. **Module 10: Hosting Custom Fine-Tuned Models (On-Demand vLLM Server)**
+    - **Concepts:** Exposing custom-trained adapters using an on-demand, private vLLM serving pod. Maintaining endpoint portability: how private serving instances expose the same OpenAI-compatible REST API format as the central inference service.
+    - **Hands-on Task:** Launch a private vLLM server hosting the LoRA adapter produced in Module 9, query the model endpoint via `curl` and Python OpenAI client requests, verify streaming generation, and gracefully shut down the service pod.
+
+
