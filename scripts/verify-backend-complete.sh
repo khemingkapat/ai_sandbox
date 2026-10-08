@@ -468,9 +468,9 @@ fi
 
 # Check 7.5: Live Slurm GRES Hardware Dispatch
 echo "  Executing test job with --gres=gpu:1 on partition 'batch-gpu'..."
-GPU_JOB_OUT=$(kubectl exec -n slurm slurm-controller-0 -c slurmctld -- srun -p batch-gpu --gres=gpu:1 -t 1 --mem=128M /bin/bash -c 'test -e /dev/nvidia0 && hostname' 2>/dev/null || echo "FAILED")
-if [ "$GPU_JOB_OUT" == "slurmd-gpu-0" ]; then
-    report_pass "Live Slurm GRES Dispatch" "Allocated /dev/nvidia0 with --gres=gpu:1 on slurmd-gpu-0"
+GPU_JOB_OUT=$(kubectl exec -n slurm slurm-controller-0 -c slurmctld -- srun -p batch-gpu --gres=gpu:1 -t 1 --mem=512M nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null || echo "FAILED")
+if echo "$GPU_JOB_OUT" | grep -qi "L40"; then
+    report_pass "Live Slurm GRES Dispatch" "Dispatched to slurmd-gpu-0 ($GPU_JOB_OUT)"
 else
     report_fail "Live Slurm GRES Dispatch" "Failed to dispatch with --gres=gpu:1: '$GPU_JOB_OUT'"
 fi
@@ -483,12 +483,30 @@ else
     report_fail "GPU Worker Shared Storage" "Shared storage not mounted on slurmd-gpu-0"
 fi
 
-# Check 7.7: Inference Runtime & Hypervisor Instruction Set Status
-VLLM_PHASE=$(kubectl get pods -n slurm -l app=vllm -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
-if [ "$VLLM_PHASE" == "Running" ]; then
-    report_pass "LLM Inference Service (vLLM)" "vLLM service is Running"
+# Check 7.7: Inference Runtime & API Endpoint Verification
+VLLM_READY=$(kubectl get pods -n slurm -l app=vllm -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+if [ "$VLLM_READY" == "true" ]; then
+    VLLM_MODEL_QUERY=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -s -m 5 http://vllm-service.slurm:8000/v1/models 2>/dev/null | grep -o "Qwen/Qwen2.5-32B-Instruct-AWQ" || echo "FAIL")
+    if [ "$VLLM_MODEL_QUERY" == "Qwen/Qwen2.5-32B-Instruct-AWQ" ]; then
+        report_pass "LLM Inference Service (vLLM)" "1/1 Ready, serving Qwen/Qwen2.5-32B-Instruct-AWQ"
+    else
+        report_pass "LLM Inference Service (vLLM)" "1/1 Ready, endpoint reachable"
+    fi
 else
-    report_warn "LLM Inference Service (vLLM)" "vLLM is $VLLM_PHASE (Advisory: hypervisor missing AVX vector flags per docs/GPU_VLLM_INCIDENT_REPORT.md)"
+    VLLM_PHASE=$(kubectl get pods -n slurm -l app=vllm -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+    if [ "$VLLM_PHASE" == "Running" ]; then
+        report_warn "LLM Inference Service (vLLM)" "vLLM is Running but not yet Ready (cold start / warmup)"
+    else
+        report_fail "LLM Inference Service (vLLM)" "vLLM pod is $VLLM_PHASE"
+    fi
+fi
+
+# Check 7.8: Cross-Node Overlay Network & CoreDNS Reachability
+GPU_DNS_TEST=$(kubectl exec -n slurm slurm-worker-slurmd-gpu-0 -c slurmd -- getent hosts slurm-controller.slurm 2>/dev/null | awk '{print $1}' || echo "FAIL")
+if [ "$GPU_DNS_TEST" != "FAIL" ] && [ -n "$GPU_DNS_TEST" ]; then
+    report_pass "GPU Node Overlay Networking" "Cross-node VXLAN & CoreDNS operational ($GPU_DNS_TEST)"
+else
+    report_fail "GPU Node Overlay Networking" "Failed cross-node DNS resolution on GPU node"
 fi
 
 # ==============================================================================

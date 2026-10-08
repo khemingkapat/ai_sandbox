@@ -3,8 +3,8 @@
 **Document ID:** INC-2026-10-04-GPU-VLLM-BLOCKER  
 **Target Audience:** Project Supervisor, Infrastructure & Hypervisor Administrators, Senior Systems Architecture Team  
 **Author:** AI Sandbox Engineering Team  
-**Date:** October 6, 2026  
-**Status:** BLOCKED (Pending Hypervisor Configuration Update)
+**Date:** October 7, 2026 (Updated)  
+**Status:** RESOLVED (Verified Operational)
 
 ---
 
@@ -151,5 +151,26 @@ In addition to the infrastructure blocker, an architectural analysis was conduct
 ## Summary of Completed Work Artifacts
 
 1. [`k8s/nvidia-device-plugin.yaml`](file:///home/khemi/workspace/ai_sandbox/k8s/nvidia-device-plugin.yaml): 2-way GPU Time-Slicing with Slinky tolerations applied.
-2. [`k8s/vllm-deployment.yaml`](file:///home/khemi/workspace/ai_sandbox/k8s/vllm-deployment.yaml): Production vLLM deployment manifest with memory utilization cap, shared NFS model cache mount (`/mnt/storage/models/huggingface`), and Traefik `/v1` ingress.
-3. [`EXECUTION_SCRATCHPAD.md`](file:///home/khemi/.gemini/antigravity-cli/brain/54371abe-c34f-41f0-a7cf-e1c67315af68/EXECUTION_SCRATCHPAD.md): Operational status tracker updated.
+2. [`k8s/vllm-deployment.yaml`](file:///home/khemi/workspace/ai_sandbox/k8s/vllm-deployment.yaml): Production vLLM deployment manifest with memory utilization cap, shared NFS model cache mount (`/mnt/storage/models/huggingface`), `startupProbe` resilience, and Traefik `/v1` ingress.
+3. [`docs/BACKEND_VERIFICATION_RUNBOOK.md`](file:///home/khemi/workspace/ai_sandbox/docs/BACKEND_VERIFICATION_RUNBOOK.md): Module 6 updated with live Slurm GRES GPU execution, vLLM API validation, and Flannel overlay checksum mitigation procedures.
+4. [`scripts/verify-backend-complete.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/verify-backend-complete.sh): Automated Stage 7 expanded to 8 GPU and inference checks (all 32 cluster checks passing).
+
+---
+
+## 🏁 Resolution Post-Mortem (October 7, 2026)
+
+1. **Hypervisor Host CPU Passthrough Applied:**
+   * The underlying VM `ai-sandbox-gpu-vm` was updated with host CPU features (`avx`, `avx2`, `fma`).
+   * The kernel was updated to `7.0.0-34-generic` with NVIDIA Driver `595.91.07` / CUDA `13.2`.
+   * UCX and PyTorch C++ extension vector crashes ceased completely.
+
+2. **Overlay Network Bug Identified & Mitigated:**
+   * On Kernel 7.0 / VirtIO, generic TX checksumming (`tx-checksum-ip-generic`) on `flannel.1` corrupted encapsulated VXLAN UDP packets, dropping DNS and cross-node traffic.
+   * Mitigated with `ethtool -K flannel.1 tx off` and persisted across reboots via `/etc/udev/rules.d/99-flannel-tx-checksum.rules`.
+
+3. **vLLM StartupProbe Integration:**
+   * Added `startupProbe` (up to 10-minute threshold) in `k8s/vllm-deployment.yaml` to accommodate cold-start NFS checkpoint loading and PyTorch AOT compilation without triggering premature kubelet liveness terminations.
+
+4. **Verification Sign-Off:**
+   * `vllm-8445ccb49-m64q9` is `1/1 Running` and actively serving `Qwen/Qwen2.5-32B-Instruct-AWQ`.
+   * Verified live chat completion requests through `vllm-service.slurm:8000/v1/chat/completions`.

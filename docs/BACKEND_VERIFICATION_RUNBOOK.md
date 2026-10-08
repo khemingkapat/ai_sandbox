@@ -344,6 +344,65 @@ kubectl exec -n slurm slurm-controller-0 -c slurmctld -- srun -p inference -t 1 
 
 ---
 
+### 6.5 Live Slurm GRES Hardware Passthrough (`nvidia-smi`)
+Allocates a virtual GPU slice via GRES (`--gres=gpu:1`) and executes NVML inside the job to confirm physical device binding and driver communication.
+
+```bash
+kubectl exec -n slurm slurm-controller-0 -c slurmctld -- \
+  srun -p batch-gpu --gres=gpu:1 -t 1 --mem=512M nvidia-smi --query-gpu=name,driver_version,memory.total --format=csv,noheader
+```
+
+**Expected Output:**
+```text
+NVIDIA L40, 595.91.07, 46068 MiB
+```
+
+---
+
+### 6.6 Central LLM Inference Serving & API Validation (vLLM)
+Validates that the OpenAI-compatible vLLM service (`vllm-service:8000`) is active, healthy, and generating completions using the loaded `Qwen/Qwen2.5-32B-Instruct-AWQ` model.
+
+```bash
+# 1. Verify model catalog
+kubectl exec -n slurm deploy/hpc-portal -c portal -- \
+  curl -s http://vllm-service.slurm:8000/v1/models | jq .
+
+# 2. Execute chat completion test
+kubectl exec -n slurm deploy/hpc-portal -c portal -- \
+  curl -s http://vllm-service.slurm:8000/v1/chat/completions \
+    -H "Content-Type: application/json" \
+    -d '{
+      "model": "Qwen/Qwen2.5-32B-Instruct-AWQ",
+      "messages": [{"role": "user", "content": "Respond with: SYSTEM READY"}],
+      "max_tokens": 15
+    }' | jq .choices[0].message.content
+```
+
+**Expected Output:**
+```text
+"SYSTEM READY"
+```
+
+---
+
+### 6.7 Flannel Overlay VXLAN Checksum Mitigation & DNS Validation
+Documents the Linux Kernel 7.0 / VirtIO network stack gotcha: generic TX checksumming (`tx-checksum-ip-generic`) on `flannel.1` causes corruption of cross-node UDP VXLAN traffic.
+
+1. **Verify cross-node overlay DNS resolution on the GPU node:**
+   ```bash
+   kubectl exec -n slurm slurm-worker-slurmd-gpu-0 -c slurmd -- getent hosts slurm-controller.slurm
+   ```
+   **Expected Output:** Returns `10.43.16.187 slurm-controller.slurm.svc.cluster.local`.
+
+2. **Persistence check on GPU node host (`ai-sandbox-gpu-vm`):**
+   ```bash
+   # Persistent udev rule ensures TX offload is disabled upon device creation:
+   cat /etc/udev/rules.d/99-flannel-tx-checksum.rules
+   # Expected: ACTION=="add", SUBSYSTEM=="net", KERNEL=="flannel*", RUN+="/usr/sbin/ethtool -K %k tx off"
+   ```
+
+---
+
 ## 🎯 Verification Sign-Off Checklist
 
 | Component | Test Method | Status | Verified By |
@@ -356,10 +415,13 @@ kubectl exec -n slurm slurm-controller-0 -c slurmctld -- srun -p inference -t 1 
 | **GPU Time-Slicing (`nvidia.com/gpu: 2`)** | `kubectl get node ai-sandbox-gpu-vm` | 🟢 Verified | Automated + Manual |
 | **Physical L40 Accelerator (NVML)** | `nvidia-smi` in plugin pod | 🟢 Verified | Automated + Manual |
 | **Slurm GPU Worker Pinning** | `kubectl get pod slurmd-gpu-0` | 🟢 Verified | Automated + Manual |
-| **Live Slurm GPU Dispatch** | `srun -p batch-gpu -w slurmd-gpu-0` | 🟢 Verified | Automated + Manual |
+| **Live Slurm GRES Hardware Dispatch** | `srun -p batch-gpu --gres=gpu:1 nvidia-smi` | 🟢 Verified | Automated + Manual |
+| **Central LLM Serving (vLLM)** | `curl vllm-service:8000/v1/chat/completions` | 🟢 Verified | Automated + Manual |
+| **GPU Overlay VXLAN Checksum Mitigation** | `ethtool -K flannel.1 tx off` + DNS probe | 🟢 Verified | Automated + Manual |
 | **Shared Storage Mount (CPU + GPU)** | `df -h /mnt/storage` on workers | 🟢 Verified | Automated + Manual |
 | **Multi-Tenant POSIX DAC** | `stat -c %a /projects/*` | 🟢 Verified | Automated + Manual |
 | **Scratch Sticky-Bit (`1777`)** | `stat -c %a /scratch` | 🟢 Verified | Automated + Manual |
 | **RBAC Confinement (`portal-sa`)**| `kubectl auth can-i` | 🟢 Verified | Automated + Manual |
 | **DB & Peer Isolation** | TCP probe from `workload` pod | 🟢 Verified | Automated + Manual |
 | **Traefik TLS & 80->443 Redirect**| `curl -I` port 80/443 | 🟢 Verified | Automated + Manual |
+

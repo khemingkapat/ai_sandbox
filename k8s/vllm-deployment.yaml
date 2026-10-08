@@ -50,20 +50,25 @@ spec:
             nvidia.com/gpu: "1"
             memory: "16Gi"
             cpu: "4"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 60
         readinessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 60
-          periodSeconds: 15
-          failureThreshold: 20
+          periodSeconds: 10
+          failureThreshold: 3
         livenessProbe:
           httpGet:
             path: /health
             port: 8000
-          initialDelaySeconds: 120
-          periodSeconds: 30
-          failureThreshold: 5
+          periodSeconds: 15
+          failureThreshold: 3
         volumeMounts:
         - name: model-cache
           mountPath: /root/.cache/huggingface
