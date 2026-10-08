@@ -99,8 +99,8 @@ flowchart LR
         CentralProm --> CentralGraf
     end
 
-    Ingress -->|PULL: Scrape /metrics (30s)| CentralProm
-    Slurm -.->|PUSH: Epilog Webhook| CentralWH
+    Ingress -->|"PULL: Scrape /metrics (30s)"| CentralProm
+    Slurm -.->|"PUSH: Epilog Webhook"| CentralWH
 ```
 
 ### Clarifying Prometheus & Grafana Roles:
