@@ -7,6 +7,8 @@ metadata:
     app: vllm
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: vllm
@@ -22,7 +24,7 @@ spec:
       - operator: Exists
       containers:
       - name: vllm
-        image: vllm/vllm-openai:latest
+        image: vllm/vllm-openai:v0.31.0
         imagePullPolicy: IfNotPresent
         args:
         - "--model"
@@ -107,6 +109,9 @@ metadata:
   namespace: slurm
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.priority: "100"
+    traefik.ingress.kubernetes.io/router.middlewares: vllm-ratelimit@file,vllm-inflight@file
 spec:
   rules:
   - http:

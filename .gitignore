@@ -36,3 +36,4 @@ portal/portal
 /storage/projects/**/.cache/
 /storage/projects/**/.config/
 /storage/projects/**/.kaggle/
+data/models_cache/

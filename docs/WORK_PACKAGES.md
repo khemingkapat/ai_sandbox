@@ -103,20 +103,18 @@ Network isolation, Traefik ingress, TLS, and authentication.
 - ⚪ **WP3-1-8-4: Network & Security Verification Test Suite** ([#73](https://github.com/khemingkapat/ai_sandbox/issues/73)) — Staged.
 
 ### WP3-1-9: LLM Inference Server Deployment
-Central LLM service (Ollama/vLLM/TGI) with pre-loaded models.
-- Inference server deployment
-- Pre-loaded model set (Llama 3, Mistral, embeddings, etc.)
-- API endpoint with rate limiting
-- GPU resource allocation for inference
-- Portal integration (model picker UI)
+Central LLM service (vLLM) with Traefik API protection and hardware time-slicing.
+- ✅ **Inference server stabilization** — Pinned `vllm/vllm-openai:v0.31.0` with CUDA 13.0 / PyTorch 2.13 and `Recreate` deployment strategy in [`k8s/vllm-deployment.yaml`](file:///home/khemi/workspace/ai_sandbox/k8s/vllm-deployment.yaml).
+- ✅ **API gateway protection & rate limiting** — Traefik `/v1` ingress router with `vllm-ratelimit` (10 req/s, burst 20) and `vllm-inflight` (max 15 concurrent) middlewares in [`k8s/traefik-security-configmap.yaml`](file:///home/khemi/workspace/ai_sandbox/k8s/traefik-security-configmap.yaml).
+- ✅ **Dual-tenancy GPU allocation** — NVIDIA L40 (46GB) virtual time-slicing verified with vLLM (`0.65` utilization) and Slurm GRES GPU dispatch.
+- 🟡 **Portal integration** — Web UI model catalog and student API token generator staged.
 
 ### WP3-1-10: Open-Source Model Curation & Evaluation
-Select, benchmark, and document models for the sandbox.
-- Curated model catalog (LLMs, vision, embeddings, code)
-- Evaluation benchmarks per model
-- Model cards with usage guidance
-- Download/caching automation
-- GPU memory requirements per model
+Curated model catalog and ingestion pipeline focusing on Qwen 3.5 and Gemma 4.
+- ✅ **Curated model matrix & catalog manifest** — Created [`docs/MODEL_CATALOG.json`](file:///home/khemi/workspace/ai_sandbox/docs/MODEL_CATALOG.json) and [`docs/MODEL_CATALOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/MODEL_CATALOG.md) specifying Qwen 3.5 (MoE 35B-A3B & Dense 9B), Gemma 4 (E4B & 12B), EmbeddingGemma 2, and BGE-M3.
+- ✅ **Hardware profiling & memory sizing guide** — Documented VRAM footprints, 3:1 Hybrid DeltaNet linear attention benefits, and Slurm partition sizing.
+- ✅ **Student offline developer runbook** — Provided copy-paste snippets for zero-download `local_files_only=True` loading and batch PEFT/LoRA fine-tuning.
+- ✅ **Automated ingestion & evaluation pipeline** — Created [`scripts/ingest-model.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/ingest-model.sh) automating pre-flight verification, download, POSIX hardening (755/644), Slurm profiling, and catalog sync.
 
 ### WP3-1-11: Experiment Tracking Tools Setup
 Deploy MLflow (or similar) so students import mlflow and go.

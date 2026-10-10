@@ -14,13 +14,22 @@ data:
 
     http:
       routers:
+        vllm-api:
+          entryPoints:
+            - web
+            - websecure
+          rule: "PathPrefix(`/v1`)"
+          service: vllm-backend
+          priority: 100
+          middlewares:
+            - vllm-ratelimit
+            - vllm-inflight
         portal:
           entryPoints:
             - websecure
           rule: "PathPrefix(`/`)"
           service: portal-ui
           priority: 1
-          middlewares:
         portal-redirect:
           entryPoints:
             - web
@@ -34,6 +43,10 @@ data:
           loadBalancer:
             servers:
               - url: "http://127.0.0.1:8080"
+        vllm-backend:
+          loadBalancer:
+            servers:
+              - url: "http://vllm-service.slurm:8000"
       middlewares:
         redirect-to-https:
           redirectScheme:
@@ -44,4 +57,12 @@ data:
             contentTypeNosniff: true
             browserXssFilter: true
             customFrameOptionsValue: "SAMEORIGIN"
+        vllm-ratelimit:
+          rateLimit:
+            average: 10
+            burst: 20
+            period: 1s
+        vllm-inflight:
+          inFlightReq:
+            amount: 15
 
