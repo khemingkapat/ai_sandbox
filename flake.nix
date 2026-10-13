@@ -16,17 +16,18 @@
         pkgs = nixpkgs.legacyPackages.${system};
 
         # Define commands as binary scripts on the PATH
-        kup = pkgs.writeShellScriptBin "kup" ''
-          echo "Creating Kubernetes cluster..."
-          kind create cluster --config k8s/kind-config.yaml
-          echo "Waiting for cluster to be ready..."
-          kubectl wait --for=condition=Ready nodes --all --timeout=60s
-          echo "Running Slinky installation script..."
-          ./scripts/start-slinky.sh
-        '';
-        kdown = pkgs.writeShellScriptBin "kdown" ''
-          exec kind delete cluster "$@"
-        '';
+        # [DEPRECATED / ARCHIVED: Local Kind Cluster]
+        # kup = pkgs.writeShellScriptBin "kup" ''
+        #   echo "Creating Kubernetes cluster..."
+        #   kind create cluster --config k8s/kind-config.yaml
+        #   echo "Waiting for cluster to be ready..."
+        #   kubectl wait --for=condition=Ready nodes --all --timeout=60s
+        #   echo "Running Slinky installation script..."
+        #   ./scripts/start-slinky.sh
+        # '';
+        # kdown = pkgs.writeShellScriptBin "kdown" ''
+        #   exec kind delete cluster "$@"
+        # '';
         kstat = pkgs.writeShellScriptBin "kstat" ''
           echo "=== Slurm Namespace ==="
           kubectl get pods -n slurm "$@"
@@ -70,12 +71,12 @@
         '';
 
         tools = with pkgs; [
-          kind
+          # kind
           kubectl
           kubernetes-helm
           go
-          kup
-          kdown
+          # kup
+          # kdown
           kstat
           slurm-shell
           ptunnel
@@ -86,8 +87,8 @@
         devShells.default = pkgs.mkShell {
           buildInputs = tools;
           shellHook = ''
-            	    echo "🚀 Slinky Prototype Shell Initialized"
-                        echo "✅ Commands loaded: kup, kdown, kstat, slurm-shell"
+            	    echo "🚀 Slinky Proxmox Shell Initialized"
+                        echo "✅ Commands loaded: kstat, slurm-shell"
                         echo "🔌 Proxmox tunnel: ptunnel (start) | ptunnel-stop (kill)"
 
                         export KUBECONFIG="$HOME/.kube/config-proxmox"

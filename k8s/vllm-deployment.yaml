@@ -7,6 +7,8 @@ metadata:
     app: vllm
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: vllm
@@ -16,18 +18,24 @@ spec:
         app: vllm
     spec:
       runtimeClassName: nvidia
+      terminationGracePeriodSeconds: 10
       nodeSelector:
         kubernetes.io/hostname: ai-sandbox-gpu-vm
       tolerations:
-      - operator: Exists
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Equal"
+        value: "slurm-bridge-scheduler"
+        effect: "NoExecute"
       containers:
       - name: vllm
-        image: vllm/vllm-openai:latest
+        image: vllm/vllm-openai:v0.31.0
         imagePullPolicy: IfNotPresent
         args:
         - "--model"
         - "Qwen/Qwen2.5-32B-Instruct-AWQ"
         - "--gpu-memory-utilization"
+        # 0.65 reserved during time-slicing phase with Slurm batch jobs.
+        # Can be increased to 0.90+ once GPU #1 is dedicated exclusively to inference.
         - "0.65"
         - "--max-model-len"
         - "16384"
@@ -38,6 +46,8 @@ spec:
           value: /root/.cache/huggingface/hub
         - name: HF_HOME
           value: /root/.cache/huggingface
+        - name: HF_HUB_OFFLINE
+          value: "1"
         ports:
         - containerPort: 8000
           name: http
@@ -72,6 +82,7 @@ spec:
         volumeMounts:
         - name: model-cache
           mountPath: /root/.cache/huggingface
+          readOnly: true
         - name: dshm
           mountPath: /dev/shm
       volumes:
@@ -107,6 +118,9 @@ metadata:
   namespace: slurm
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.priority: "100"
+    traefik.ingress.kubernetes.io/router.middlewares: vllm-ratelimit@file,vllm-inflight@file
 spec:
   rules:
   - http:
