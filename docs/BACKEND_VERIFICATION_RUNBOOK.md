@@ -375,7 +375,7 @@ kubectl exec -n slurm deploy/hpc-portal -c portal -- \
       "model": "Qwen/Qwen2.5-32B-Instruct-AWQ",
       "messages": [{"role": "user", "content": "Respond with: SYSTEM READY"}],
       "max_tokens": 15
-    }' | jq .choices[0].message.content
+    }' | jq -r '.choices[0].message.content'
 ```
 
 **Expected Output:**

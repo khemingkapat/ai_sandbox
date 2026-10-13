@@ -47,26 +47,38 @@ Models in the **Qwen 3.5** family utilize a **3:1 hybrid attention stack** (thre
 
 ## 3. Curated Model Matrix
 
-| Track | Model Identifier | Architecture | Precision | Disk Size | Weights VRAM | Peak VRAM | Slurm Sizing |
-| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- |
-| **Flagship Central LLM** | `Qwen/Qwen3.5-35B-A3B` | Hybrid DeltaNet MoE (3B active) | BF16 | 35.0 GB | 22.0 GB | 28.0 GB | `inference` / vLLM |
-| **Dense Coding & Reasoning** | `Qwen/Qwen3.5-9B` | Hybrid DeltaNet Dense | BF16 | 18.0 GB | 14.5 GB | 18.0 GB | `batch-gpu` (1 GPU) |
-| **Interactive Multimodal** | `google/gemma-4-E4B-it` | Dense Multimodal | BF16 | 8.5 GB | 7.0 GB | 9.5 GB | `interactive` (8 GB slice) |
-| **High-Context Multimodal** | `google/gemma-4-12b-it` | Unified Multimodal (256K) | BF16 | 24.0 GB | 19.0 GB | 24.0 GB | `batch-gpu` (1 GPU) |
-| **Multimodal Embeddings** | `google/embeddinggemma-2` | Gemma2 Embedding (740M) | FP16 | 1.5 GB | 1.2 GB | 1.8 GB | `batch-cpu` / GPU |
-| **Multilingual RAG Retrieval** | `BAAI/bge-m3` | XLM-RoBERTa (560M) | FP16 | 2.2 GB | 1.1 GB | 1.8 GB | `batch-cpu` / GPU |
+| Track | Model Identifier | Architecture | Precision | Disk Size | Weights VRAM | Peak VRAM | Slurm Sizing / Serving | Estimate Source |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :---: |
+| **Active Central LLM (Served)** | `Qwen/Qwen2.5-32B-Instruct-AWQ` | Qwen2ForCausalLM (32B) | INT4-AWQ | 22.0 GB | 18.1 GB | 28.0 GB | `inference` / vLLM (Live) | Measured |
+| **Standby Central MoE** | `Qwen/Qwen3.5-35B-A3B` | Hybrid DeltaNet MoE (3B active) | BF16 | 35.0 GB | 22.0 GB | 28.0 GB | `batch-gpu` (1 GPU) | Estimated |
+| **Dense Coding & Reasoning** | `Qwen/Qwen3.5-9B` | Hybrid DeltaNet Dense | BF16 | 18.0 GB | 14.5 GB | 18.0 GB | `batch-gpu` (1 GPU) | Estimated |
+| **Interactive Multimodal** | `google/gemma-4-E4B-it` | Dense Multimodal | BF16 | 8.5 GB | 7.0 GB | 9.5 GB | `interactive` (8 GB slice) | Estimated |
+| **High-Context Multimodal** | `google/gemma-4-12b-it` | Unified Multimodal (256K) | BF16 | 24.0 GB | 19.0 GB | 24.0 GB | `batch-gpu` (1 GPU) | Estimated |
+| **Multimodal Embeddings** | `google/embeddinggemma-2` | Gemma2 Embedding (740M) | FP16 | 1.5 GB | 1.2 GB | 1.8 GB | `batch-cpu` / GPU | Estimated |
+| **Multilingual RAG Retrieval** | `BAAI/bge-m3` | XLM-RoBERTa (560M) | FP16 | 2.2 GB | 1.1 GB | 1.8 GB | `batch-cpu` / GPU | Estimated |
 
 ---
 
 ## 4. Detailed Model Cards
 
-### 4.1 Flagship MoE: `Qwen/Qwen3.5-35B-A3B`
+### 4.0 Active Central LLM: `Qwen/Qwen2.5-32B-Instruct-AWQ`
+* **Status:** **LIVE / CURRENTLY SERVED** via `k8s/vllm-deployment.yaml` at `/v1`.
+* **Architecture:** Auto-regressive transformer (`Qwen2ForCausalLM`) with 32B total parameters, 4-bit AWQ quantized.
+* **Precision:** INT4-AWQ weights (safetensors format).
+* **Context Window:** 16,384 tokens configured (`--max-model-len 16384`).
+* **Hardware Sizing (Measured):**
+  * Weights VRAM: **18.14 GiB** (measured by vLLM loader on NVIDIA L40).
+  * Peak Memory Allocation: **28.0 GiB** (under `--gpu-memory-utilization 0.65`).
+  * Available KV Cache: **8.14 GiB** (~33,312 tokens capacity, FlashInfer sampling enabled).
+* **Serving Configuration:** Pinned `vllm/vllm-openai:v0.31.0` image, Traefik Ingress with rate-limiting and inflight request limiting.
+
+### 4.1 Standby MoE: `Qwen/Qwen3.5-35B-A3B`
 * **Architecture:** Mixture-of-Experts with 35B total parameters and **3B active parameters** per forward pass.
 * **Attention Mechanism:** 3:1 Hybrid Gated DeltaNet + Gated Full Attention.
 * **Modalities:** Interleaved Text, Image, and Video.
 * **Context Window:** Up to 131,072 tokens.
 * **Intended Use:** High-throughput central inference serving, deep reasoning, agentic tool workflows, multimodal queries.
-* **Hardware Fit:** Served centrally via vLLM on `ai-sandbox-gpu-vm`. Consumes ~22 GB for weights, leaving ~7 GB for KV cache under 0.65 utilization.
+* **Hardware Fit:** Planned for central deployment once dedicated GPU #1 partition is provisioned. Weights occupy ~22 GB in BF16.
 
 ### 4.2 Dense Workhorse: `Qwen/Qwen3.5-9B`
 * **Architecture:** Fully dense transformer with DeltaNet linear attention layers.
@@ -255,3 +267,18 @@ The ingestion tool automates:
 3. **Hardening:** Locks permissions to `0755`/`0644` under `root:root`.
 4. **Hardware Profiling:** Dispatches a non-interactive benchmark job to `batch-gpu` to measure peak VRAM and generation speed on the NVIDIA L40.
 5. **Catalog Sync:** Appends metadata to `docs/MODEL_CATALOG.json` and updates `docs/MODEL_CATALOG.md`.
+
+---
+
+## 7. Accepted Architecture Gaps (Milestone 3 Close-Out)
+
+During the Milestone 3 audit, the following items were identified and explicitly accepted as non-blocking for baseline educational testing:
+
+| Accepted Gap | Current State | Target Production Resolution | Rationale |
+| :--- | :--- | :--- | :--- |
+| **API Authentication** | Endpoint `/v1` accepts requests without Bearer tokens. | Traefik ForwardAuth or API-Key validation middleware via Central Portal. | Traefik is accessible only via campus VPN network; exposure is bounded during PoC testing. |
+| **Per-User Rate Limiting** | Rate limit is IP-based (`average: 10, burst: 20`). | Portal-issued JWTs passed in headers with user-keyed rate buckets. | IP bucket prevents total denial of service during initial interactive sessions. |
+| **Inflight Concurrency Limit** | Static ceiling of `inFlightReq: 15`. | Dynamic load shedding based on vLLM queue depth / latency metrics. | Baseline load testing with 100 students will inform fine-tuning of concurrency thresholds. |
+| **GPU Time-Slicing vs. Dedicated** | vLLM shares physical L40 with Slurm jobs (`0.65` utilization limit). | Dedicated physical GPU partition (`GPU #1` for inference, `GPU #2` for Slurm). | Hardware provisioning is scheduled for production phase per `SYSTEM_ASSESSMENT_AND_PLANNING_REPORT.md`. |
+| **Automated Profiling Ingestion** | `ingest-model.sh` submits profiling job without auto-updating catalog VRAM numbers. | Automated Slurm job monitoring hook writing back measured metrics. | Administrators manually review benchmark logs before publishing official catalog numbers. |
+

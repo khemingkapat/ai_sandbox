@@ -2,7 +2,41 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
-## [Increment 30] - 2026-09-07: WP3-1-8-4 Network & Security Verification Test Suite
+## [Increment 31] - 2026-10-12: WP3-1-9 & WP3-1-10 LLM Inference Engine & Model Catalog Milestone 3 Close-Out
+
+*   **Author:** Antigravity & Khem (Interactive / Co-Architect Audit)
+*   **Goal:** Close out Milestone 3 (vLLM Inference Server & Open-Source Model Catalog) by resolving architectural divergence, hardening shared storage permissions, securing deployment lifecycle, bug-fixing model ingestion, and validating full cluster compliance via expanded verification suite.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Architecture Harmonization (`docs/SYSTEM_ASSESSMENT_AND_PLANNING_REPORT.md`):**
+    *   Formally ratified administrator/PM decision to standardize on **vLLM** for both central inference and student workloads (superseding initial Triton/TensorRT-LLM proposal).
+    *   Updated §4.2 Status to Decided with comprehensive architectural justification and updated compute resource matrix.
+2.  **vLLM Deployment Hardening (`k8s/vllm-deployment.yaml`):**
+    *   **Read-Only Model Storage Mount:** Enforced `readOnly: true` on `/root/.cache/huggingface` volume mount, preventing container processes from altering or corrupting shared NFS model weights.
+    *   **Offline Mode Enforcement:** Injected `HF_HUB_OFFLINE: "1"` into container environment variables to guarantee zero runtime outbound model downloads.
+    *   **Toleration Scoping:** Replaced blanket `operator: Exists` with precise toleration scoped exclusively to `slinky.slurm.net/managed-node=slurm-bridge-scheduler:NoExecute`.
+    *   **Fast Recovery Lifecycle:** Lowered `terminationGracePeriodSeconds: 10` for faster recreate cycles without GPU release deadlocks.
+3.  **Model Catalog Truth & Parity (`docs/MODEL_CATALOG.json` & `docs/MODEL_CATALOG.md`):**
+    *   Registered the active served model `Qwen/Qwen2.5-32B-Instruct-AWQ` as `central_serving: true` with measured VRAM metrics (18.14 GiB weights, 28.0 GiB peak at 0.65 utilization, 16,384 context length).
+    *   Reclassified standby models (`Qwen3.5-35B-A3B`) to `central_serving: false`.
+    *   Added `"estimate_source": "measured" | "estimated"` across all catalog entries.
+    *   Documented explicit *Accepted Architecture Gaps (Milestone 3 Close-Out)* covering VPN-bounded auth, IP-based rate limiting, and time-sliced GPU partition limits.
+4.  **Automated Ingestion Pipeline Fixes (`scripts/ingest-model.sh`):**
+    *   **Cache Directory Naming:** Fixed Hugging Face cache layout bug by utilizing `${MODEL_ID//\//--}`, ensuring strict adherence to `models--<org>--<name>` standards.
+    *   **Template Support:** Added `*.jinja` and `chat_template*` to snapshot patterns.
+    *   **Pre-flight Security Gate:** Added blocking validation against unsafe pickled weights (`.bin`/`.pt`) without safetensors.
+    *   **Test Isolation:** Sanitized `--test-mode` to operate inside isolated temporary directories without modifying production catalogs or `/mnt/storage`.
+    *   **Offline Verification:** Downloaded and verified `Qwen/Qwen3.5-0.8B` directly into shared NFS cache and confirmed offline `AutoTokenizer` execution.
+5.  **Dedicated LLM Verification Suite Expansion (`scripts/verify-llm.sh`):**
+    *   Expanded test suite from 14 to 22 checks, adding behavioral 60-request burst rate limiting, read-only cache mount probing, context window overflow HTTP 400 rejection check, and in-place container recovery benchmarking under `--destructive`.
+6.  **Work Package Tracking (`docs/WORK_PACKAGES.md`):**
+    *   Updated WP3-1-9 and WP3-1-10 to reflect audited completion status.
+
+### 🛠️ Verification Steps
+*   **Full Verification Suite:** Ran `bash scripts/verify-llm.sh` -> 21/21 checks PASSED (0 failures, 0 warnings).
+*   **Destructive Crash Recovery:** Ran `bash scripts/verify-llm.sh --destructive` -> Container recovered in-place and returned to Ready in 2 seconds; 22/22 checks PASSED.
+
 
 *   **Author:** Jules (Async)
 *   **Goal:** Implement a reproducible, automated verification test suite (`scripts/verify-security.sh`) to validate the four security baseline guarantees: RBAC confinement, database control plane isolation, inter-tenant workload isolation, and Traefik ingress TLS/headers.

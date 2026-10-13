@@ -175,7 +175,7 @@ The resource limits below are the hard caps applied per individual job:
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Interactive Prototyping** | Interactive | 4 Cores | 8 GB | None | 2 Hours | JupyterLab, VS Code |
 | **Small Model Fine-Tuning** | Interactive | 4 Cores | 16 GB | 8 GB (shared GPU #2) | 2 Hours | PyTorch, HuggingFace PEFT |
-| **Central LLM Inference API** | Central Service | 4 Cores | 32 GB | Full GPU #1 (48GB) | Persistent | Triton / vLLM |
+| **Central LLM Inference API** | Central Service | 4 Cores | 32 GB | Full GPU #1 (48GB) | Persistent | vLLM |
 | **Data Preprocessing** | Batch | 8 Cores | 32 GB | None | 24 Hours | Pandas, Dask, Polars |
 | **Heavy Batch Training** | Batch | 16 Cores | 64 GB | 24 GB (shared GPU #2) | 7 Days | PyTorch, Accelerate |
 
@@ -224,9 +224,9 @@ Traditional university HPC clusters use Apptainer (formerly Singularity) to run 
 
 ### 4.2 LLM Inference Runtime
 
-**Status: Open — pending supervisor review**
+**Status: Decided — vLLM adopted for both workloads (revised after administrator and project manager review; supersedes the original dual-engine Triton + vLLM proposal)**
 
-The Sandbox serves two different types of LLM workloads: (1) a central always-on API shared by all 100 students, and (2) individual students who want to test their own custom fine-tuned models. No single inference engine is the best fit for both cases, so a dual-engine strategy is proposed.
+The Sandbox serves two different types of LLM workloads: (1) a central always-on API shared by all 100 students, and (2) individual students who want to test their own custom fine-tuned models. The original analysis below proposed a dual-engine strategy (Triton for the central API, vLLM for student pods). That evaluation is retained for traceability; the final decision is recorded in the **Decision** block that follows the comparison table.
 
 | Evaluation Criterion | Option A: NVIDIA Triton (TensorRT-LLM) | Option B: vLLM | Option C: Ollama |
 | :--- | :--- | :--- | :--- |
@@ -236,11 +236,15 @@ The Sandbox serves two different types of LLM workloads: (1) a central always-on
 | **Memory Optimization** | **Enterprise-grade:** Inflight batching and paged KV cache, rigidly optimized at compile time for the specific model. | **Advanced:** PagedAttention dynamically manages the KV cache to avoid fragmentation. | **Basic:** Standard llama.cpp execution without high-concurrency memory management. |
 | **Suitable for Student Custom Models** | **No:** Expecting students to compile TensorRT engine files is not feasible in a classroom environment. | **Yes:** Students can point vLLM at their own fine-tuned model folder and start testing in under 10 seconds. | **Yes:** But lacks the performance and API consistency needed for student application testing. |
 
-**Recommendation — Dual-Engine Strategy:**
+**Original Recommendation (superseded) — Dual-Engine Strategy:** Triton (TensorRT-LLM) for the central API on GPU #1, and on-demand vLLM pods for student custom models on GPU #2. This was not adopted; see the Decision below.
 
-- **Central Inference API (GPU #1) → NVIDIA Triton (TensorRT-LLM):** IT administrators compile the standard models (e.g., Llama 3.1 8B) once. Triton then serves them at maximum throughput for all 100 students simultaneously. Administrators absorb the compilation overhead so students never experience it.
+**Decision:** **vLLM for both workloads.**
 
-- **Student Custom Inference (GPU #2) → vLLM (on-demand pods):** When a student wants to test their own fine-tuned model, the system launches an isolated, temporary vLLM pod that mounts only that student's private NFS folder. vLLM loads the model dynamically with no compilation step. Although a single-user pod does not fully use vLLM's high-concurrency features, vLLM is used here for **API standardization** — code written to call a private vLLM pod uses the exact same API format as the central Triton service, so no code changes are needed when moving from testing to production.
+- **Central Inference API (GPU #1) → vLLM (always-on Deployment):** Served as a single OpenAI-compatible `Deployment` (`vllm/vllm-openai`, pinned tag, `Recreate` strategy) behind the Traefik gateway with rate-limiting and in-flight request protection. The current baseline serves `Qwen/Qwen2.5-32B-Instruct-AWQ` from the shared, read-only model cache. When GPU #1 becomes exclusive to inference, the memory-utilization setting will be raised accordingly.
+
+- **Student Custom Inference (GPU #2) → vLLM (on-demand pods):** Unchanged. A temporary, isolated vLLM pod mounts only that student's private NFS folder and loads the model dynamically with no compilation step.
+
+**Justification (administrator and project manager direction):** A single engine removes the Ahead-of-Time TensorRT compilation step that administrators would otherwise repeat for every model update, and it lets the central service and student pods share one runtime, one API format and one container image. Models can be changed by editing a deployment argument rather than rebuilding engines. The trade-off accepted is lower peak throughput than a compiled TensorRT-LLM engine under very high concurrent load; at the expected load of up to 100 students, vLLM's continuous batching and PagedAttention are considered sufficient. This should be revisited only if load testing shows the central API cannot meet its latency target.
 
 **References:**
 1. NVIDIA Corporation, *TensorRT-LLM Architecture and Triton Inference Server*, 2024. [NVIDIA Docs](https://developer.nvidia.com/tensorrt-llm)
