@@ -53,7 +53,7 @@ data:
         vllm-backend:
           loadBalancer:
             servers:
-              - url: "http://vllm-service.slurm:8000"
+              - url: "http://vllm-service.services.svc.cluster.local:8000"
         mlflow-backend:
           loadBalancer:
             servers:

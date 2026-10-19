@@ -2,20 +2,24 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: vllm
-  namespace: slurm
+  namespace: services
   labels:
     app: vllm
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: central-services
 spec:
   replicas: 1
   strategy:
     type: Recreate
   selector:
     matchLabels:
-      app: vllm
+      app.kubernetes.io/name: vllm
   template:
     metadata:
       labels:
         app: vllm
+        app.kubernetes.io/name: vllm
+        app.kubernetes.io/part-of: central-services
     spec:
       runtimeClassName: nvidia
       terminationGracePeriodSeconds: 10
@@ -99,36 +103,16 @@ apiVersion: v1
 kind: Service
 metadata:
   name: vllm-service
-  namespace: slurm
+  namespace: services
   labels:
     app: vllm
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: central-services
 spec:
   type: ClusterIP
   selector:
-    app: vllm
+    app.kubernetes.io/name: vllm
   ports:
   - name: http
     port: 8000
     targetPort: 8000
----
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: vllm-ingress
-  namespace: slurm
-  annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
-    traefik.ingress.kubernetes.io/router.priority: "100"
-    traefik.ingress.kubernetes.io/router.middlewares: vllm-ratelimit@file,vllm-inflight@file
-spec:
-  rules:
-  - http:
-      paths:
-      - path: /v1
-        pathType: Prefix
-        backend:
-          service:
-            name: vllm-service
-            port:
-              number: 8000

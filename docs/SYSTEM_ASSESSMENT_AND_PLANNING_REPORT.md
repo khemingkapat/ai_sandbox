@@ -251,7 +251,7 @@ The Sandbox serves two different types of LLM workloads: (1) a central always-on
 
 **Decision:** **vLLM for both workloads.**
 
-- **Central Inference API (GPU #1) → vLLM (always-on Deployment):** Served as a single OpenAI-compatible `Deployment` (`vllm/vllm-openai`, pinned tag, `Recreate` strategy) behind the Traefik gateway with rate-limiting and in-flight request protection. The current baseline serves `Qwen/Qwen2.5-32B-Instruct-AWQ` from the shared, read-only model cache. When GPU #1 becomes exclusive to inference, the memory-utilization setting will be raised accordingly.
+- **Central Inference API (GPU #1) → vLLM (always-on Deployment):** Served as a single OpenAI-compatible `Deployment` (`vllm/vllm-openai`, pinned tag, `Recreate` strategy) in the dedicated `services` namespace (`sandbox.zone: central-services`) on `ai-sandbox-gpu-vm`. It is fronted by the Traefik gateway (`https://<gateway>/v1`) with rate-limiting (`vllm-ratelimit`) and in-flight request concurrency protection (`vllm-inflight`). Pods in the `workload` namespace access it securely via the gateway or through internal DNS (`vllm-service.services.svc.cluster.local:8000`) enabled by the `allow-vllm-egress` NetworkPolicy. The current baseline serves `Qwen/Qwen2.5-32B-Instruct-AWQ` from the shared, read-only model cache. When GPU #1 becomes exclusive to inference, the memory-utilization setting will be raised accordingly.
 
 - **Student Custom Inference (GPU #2) → vLLM (on-demand pods):** Unchanged. A temporary, isolated vLLM pod mounts only that student's private NFS folder and loads the model dynamically with no compilation step.
 

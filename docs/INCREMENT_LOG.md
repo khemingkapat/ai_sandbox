@@ -2,6 +2,30 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 33] - 2026-10-19: Central Services Harmonization (vLLM Migration to services Namespace)
+
+*   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)
+*   **Goal:** Complete the 3-Tier topology migration by shifting the central vLLM inference engine from `slurm` into the dedicated `services` namespace (`sandbox.zone: central-services`), updating Traefik dynamic gateway routing, establishing CNI egress policies, and validating end-to-end inference from student pods.
+
+### 📝 Key Changes & Files Modified
+
+1.  **vLLM Deployment & Service (`k8s/vllm-deployment.yaml`):**
+    *   Moved `vllm` Deployment and `vllm-service` from `slurm` to `services` namespace.
+    *   Standardized labels: `app.kubernetes.io/name: vllm`, `app.kubernetes.io/part-of: central-services`.
+    *   Preserved hardware constraints: `runtimeClassName: nvidia`, `nvidia.com/gpu: 1`, hostPath `/mnt/storage/models/huggingface` (`readOnly: true`), `HF_HUB_OFFLINE: "1"`.
+2.  **Traefik Dynamic Routing (`k8s/traefik-security-configmap.yaml`):**
+    *   Updated `vllm-backend` load balancer URL to `http://vllm-service.services.svc.cluster.local:8000`.
+    *   Restarted `hpc-portal` deployment to reload the dynamic configuration.
+3.  **Network Policy Hardening (`k8s/network-policies/allow-vllm-egress.yaml`):**
+    *   Created CNI egress policy in `workload` namespace allowing TCP port 8000 communication to `services` namespace (`app.kubernetes.io/name: vllm`).
+4.  **Verification & Validation:**
+    *   Verified GPU VRAM allocation (18.14 GB weights, 0.65 memory utilization) on `ai-sandbox-gpu-vm`.
+    *   Verified `curl -sk https://127.0.0.1:443/v1/models` through Traefik gateway returns active model `Qwen/Qwen2.5-32B-Instruct-AWQ`.
+    *   Verified live OpenAI-compatible chat completion from student workload pod: `https://portal.slurm.svc.cluster.local:443/v1/chat/completions`.
+    *   Re-verified MLflow suite via `scripts/verify-mlflow.sh` -> 9/9 PASSED with zero regressions.
+
+---
+
 ## [Increment 32] - 2026-10-19: WP3-1-11 Centralized Experiment Tracking (MLflow) Deployment & Verification
 
 *   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)
