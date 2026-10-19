@@ -2,6 +2,44 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 32] - 2026-10-19: WP3-1-11 Centralized Experiment Tracking (MLflow) Deployment & Verification
+
+*   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)
+*   **Goal:** Establish an always-on, decoupled Central Experiment Tracking Service (MLflow) backed by an isolated PostgreSQL 16 database, static local storage, Traefik gateway routing, network security isolation, and automated verification.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Central Services Topology (`k8s/mlflow/00-namespace.yaml` & `k8s/namespaces.yaml`):**
+    *   Created `services` namespace with `sandbox.zone: central-services`, formalizing the 3-tier architecture (Control Plane: `slurm`, Shared Services: `services`, Student Workloads: `workload`).
+2.  **Decoupled Database Backend (`k8s/mlflow/02-postgres.yaml`):**
+    *   Deployed PostgreSQL 16 Alpine StatefulSet + Service in `services` pinned to worker node `ai-worker1` with Slinky tolerations (`slinky.slurm.net/managed-node: Exists`).
+    *   Strictly isolated student telemetry writes from the Slurm accounting MariaDB (`slurm_acct_db`) on `ai-control`.
+3.  **Storage Foundation (`scripts/init-storage.sh` & `k8s/mlflow/01-storage.yaml`):**
+    *   Initialized `/mnt/storage/mlflow/postgres` (mode 777 for container pgdata initialization over NFS4) and `/mnt/storage/mlflow/artifacts` (mode 777).
+    *   Created static PersistentVolumes and Claims (`manual` StorageClass) binding `mlflow-postgres-pvc` (10Gi) and `mlflow-artifacts-pvc` (50Gi).
+4.  **Tracking Server Deployment (`k8s/mlflow/03-deployment.yaml` & `images/mlflow/Dockerfile`):**
+    *   Created self-contained `images/mlflow/Dockerfile` bundling `psycopg2-binary`.
+    *   Built `mlflow-server:latest` and imported it directly into containerd on `ai-worker1`.
+    *   Updated `k8s/mlflow/03-deployment.yaml` to run `mlflow-server:latest` directly with zero runtime `initContainer` pip installs.
+    *   Configured Gunicorn server with `--backend-store-uri`, `--artifacts-destination /mnt/storage/artifacts`, `--serve-artifacts`, and `--static-prefix /mlflow`.
+5.  **Gateway Routing & Security Headers (`k8s/traefik-security-configmap.yaml`):**
+    *   Added `mlflow` Traefik router matching `PathPrefix(/mlflow) || PathPrefix(/api/2.0) || PathPrefix(/ajax-api) || PathPrefix(/get-artifact)` forwarding to `http://mlflow.services.svc.cluster.local:5000` with HTTPS redirection and security headers.
+6.  **Network Policy Confinement (`k8s/network-policies/`):**
+    *   `allow-mlflow-egress.yaml`: Permitted `workload` namespace TCP port 5000 egress to `services` namespace.
+    *   `allow-postgres-services-only.yaml`: Enforced CNI-level policy dropping external TCP 5432 ingress to PostgreSQL from all non-MLflow pods.
+7.  **Client Environment (`images/jupyterlab/Dockerfile`, `portal/session_manager.go`, `scripts/build-oci-images.sh`):**
+    *   Pre-baked `mlflow` into `interactive-jupyter:latest` image and imported it into node containerd on both compute workers (`ai-worker1` and `ai-sandbox-gpu-vm`).
+    *   Injected passive `ENV MLFLOW_TRACKING_URI="http://mlflow.services.svc.cluster.local:5000"` in `images/jupyterlab/Dockerfile` and in `portal/session_manager.go`, keeping experiment tracking opt-in without forcing overhead on non-MLflow students.
+8.  **Verification Suite & Documentation:**
+    *   Created `scripts/verify-mlflow.sh` (9/9 automated tests passing: DB readiness, CNI isolation, server health, Traefik UI, static assets, REST search API, Python SDK logging with `interactive-jupyter:latest`, and proxied PVC artifact storage).
+    *   Created `docs/WP3-1-11_EXPERIMENT_TRACKING_GUIDE.md` and updated `docs/WORK_PACKAGES.md`.
+
+### 🛠️ Verification Steps
+*   Ran `bash scripts/verify-mlflow.sh` -> 9/9 tests PASSED with zero failures or warnings.
+*   Verified artifact file uploaded over HTTP to `/mnt/storage/mlflow/artifacts/2/<run_id>/artifacts/output_metric.json` by student image `interactive-jupyter:latest`.
+
+---
+
 ## [Increment 31] - 2026-10-12: WP3-1-9 & WP3-1-10 LLM Inference Engine & Model Catalog Milestone 3 Close-Out
 
 *   **Author:** Antigravity & Khem (Interactive / Co-Architect Audit)
