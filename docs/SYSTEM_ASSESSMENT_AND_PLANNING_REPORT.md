@@ -32,6 +32,7 @@ This document defines the physical infrastructure, workload capacity, and techno
   - [4.7 Container Image Strategy](#47-container-image-strategy)
   - [4.8 GPU Sharing Mechanism](#48-gpu-sharing-mechanism)
   - [4.9 Monitoring & Observability](#49-monitoring--observability)
+  - [4.10 Experiment Tracking Platform](#410-experiment-tracking-platform)
 - [5. Conclusion](#5-conclusion)
 
 ---
@@ -91,8 +92,11 @@ When a student requests a Jupyter session, the Go Portal submits a job to Slurm 
 #### Batch Jobs (Training & Data Processing)
 Students submit batch scripts using standard `sbatch` commands. Slurm queues the job and runs it inside an isolated container when resources are available. No web browser needed — the job runs in the background and the student can check results later.
 
-#### Central Services (LLM API / Vector DB)
-These are always-on services running in a high-priority queue. Students call them as an API rather than managing their own model servers. This is cost-efficient because all students share one central LLM instead of each student spinning up their own.
+#### Central Services (LLM API, Vector DB & Experiment Tracking)
+These are always-on services running in the central shared services tier. Students interact with them via high-level APIs rather than managing individual instances:
+- **Central LLM API (vLLM):** Shared inference service on GPU #1 providing an OpenAI-compatible endpoint.
+- **Vector Database (Qdrant):** Central in-memory retrieval engine for RAG curricula.
+- **Experiment Tracking (MLflow):** Shared tracking server for logging hyperparameters, loss curves, and model artifacts. Deployed exclusively on compute worker nodes (completely decoupled from the Slurm control plane database) with proxied artifact storage.
 
 ---
 
@@ -129,6 +133,11 @@ After login, the Portal automatically provisions a private storage folder for th
 
 **Shared Dataset Storage (Avoiding duplicate copies of large models):**  
 A single read-only shared volume is mounted across all pods at `/mnt/shared_datasets`. Large base models and training datasets are stored here once and shared by all students. Because it is `ReadOnlyMany`, students cannot accidentally delete or modify the shared files.
+
+**Experiment Tracking & Artifact Storage (Decoupled & Proxied):**  
+To prevent filesystem concurrency bottlenecks and UID permission mismatches:
+- **Relational Metadata Store:** An independent PostgreSQL database is deployed on worker nodes (e.g., `ai-worker1`) backed by a dedicated PVC. It is strictly isolated from the Slurm accounting control-plane database on `ai-control`.
+- **Proxied Artifact Store:** Artifacts (model weights, training plots, checkpoints) are stored on a dedicated PVC mounted at `/mnt/storage/artifacts` on the MLflow server. Clients interact with artifacts exclusively via MLflow's HTTP proxied artifact streaming (`--artifacts-destination`). Workload pods do not mount raw artifact NFS folders directly, eliminating UID/GID permission collisions and POSIX file lock contention.
 
 ---
 
@@ -176,6 +185,8 @@ The resource limits below are the hard caps applied per individual job:
 | **Interactive Prototyping** | Interactive | 4 Cores | 8 GB | None | 2 Hours | JupyterLab, VS Code |
 | **Small Model Fine-Tuning** | Interactive | 4 Cores | 16 GB | 8 GB (shared GPU #2) | 2 Hours | PyTorch, HuggingFace PEFT |
 | **Central LLM Inference API** | Central Service | 4 Cores | 32 GB | Full GPU #1 (48GB) | Persistent | vLLM |
+| **Central MLflow Server** | Central Service | 2 Cores | 4 GB | None | Persistent | MLflow Tracking Server (Gunicorn) |
+| **Central MLflow Database** | Central Service | 1 Core | 1 GB | None | Persistent | PostgreSQL 16 (Worker Node) |
 | **Data Preprocessing** | Batch | 8 Cores | 32 GB | None | 24 Hours | Pandas, Dask, Polars |
 | **Heavy Batch Training** | Batch | 16 Cores | 64 GB | 24 GB (shared GPU #2) | 7 Days | PyTorch, Accelerate |
 
@@ -433,6 +444,44 @@ The Sandbox needs to expose metrics for GPU health, CPU/memory usage, and Slurm 
 
 ---
 
+### 4.10 Experiment Tracking Platform
+
+**Status: Decided**
+
+Students training deep learning models or fine-tuning LLMs need a centralized dashboard to track hyperparameters, visualize loss curves, compare experiments, and manage model checkpoints. The platform must operate fully on-premise, support concurrent classroom writes, and integrate seamlessly with PyTorch and Hugging Face.
+
+| Evaluation Criterion | Option A: MLflow (Open-Source) | Option B: Aim (Self-Hosted) | Option C: Weights & Biases (Self-Hosted Enterprise) | Option D: Shared TensorBoard |
+| :--- | :--- | :--- | :--- | :--- |
+| **Operational & Architectural Footprint** | **Low-to-Medium:** Lightweight Python/Gunicorn service backed by a dedicated PostgreSQL database container and shared PVC. | **Low:** Fast Python/Rust log visualizer, but lacks native model registry and mature artifact proxying. | **Extremely Heavy:** Complex enterprise deployment requiring Kubernetes operators, MinIO, Redis, ClickHouse, MySQL, and license server. | **Very Low:** Single visualizer, but lacks hyperparameter tables, run metadata filtering, and API logging. |
+| **Concurrency & Storage Reliability** | **High (via Dedicated RDBMS):** PostgreSQL handles thousands of concurrent metric writes. Proxied artifact store eliminates NFS file lock crashes. | **Medium:** SQLite/file-based backend struggles with multi-user concurrent writes over NFS. | **High:** Enterprise distributed databases handle massive concurrency. | **Very Poor:** Multiple writers appending to shared log directories over NFS causes event file corruption. |
+| **Licensing & Cost** | **Free (Apache 2.0):** No per-seat limits, no cloud phone-home requirement. | **Free (Apache 2.0):** Completely open-source. | **Commercial / Prohibitive:** Expensive enterprise campus license; SaaS version violates data privacy and offline requirements. | **Free (Apache 2.0)** |
+| **Framework Integration & Curriculum Standard** | **De facto standard:** Native zero-code `mlflow.autolog()` for PyTorch, Transformers, Lightning, and Scikit-learn. Universal industry adoption. | **Limited:** Good UI, but requires custom wrappers for many modern LLM training frameworks. | **Industry standard:** Excellent SDK, but introduces vendor lock-in. | **Basic:** PyTorch `SummaryWriter` only; lacks structured run comparison tables and model artifact lineage. |
+
+**Decision:** Option A — **MLflow (Open-Source)**, deployed as a centralized shared service in the compute worker plane, backed by an isolated PostgreSQL container and proxied artifact storage.
+
+**Architectural Justification & Structural Isolation:**
+1. **Decoupled Failure Domain (Protecting the Control Plane):**  
+   Under no circumstances is MLflow's operational database colocated with the Slurm accounting MariaDB (`slurm_acct_db`) on `ai-control`. Rapid metric logging from 50–100 students would risk saturating connection pools and disk IOPS, which would stall `slurmdbd` and freeze cluster scheduling. MLflow's database (`postgres:16-alpine`) runs strictly as a dedicated container on worker nodes (`ai-worker1`), physically and logically isolating student experiment traffic from the cluster control plane.
+2. **Rejection of SQLite over NFS:**  
+   Default tutorials run MLflow with local SQLite files. In a shared university cluster, concurrent student writes to a SQLite database hosted on NFS will trigger lock timeouts (`sqlite3.OperationalError: database is locked`) and permanent database corruption. A dedicated PostgreSQL instance completely eliminates this risk.
+3. **Proxied Artifact Architecture (`--artifacts-destination`):**  
+   Rather than having student containers mount raw shared NFS artifact directories directly (which causes POSIX UID/GID permission collisions and security boundary leaks), the MLflow server is configured with proxied artifact storage. Workload pods stream artifacts (model checkpoints, plots, logs) over internal HTTP (TCP port 5000) directly to the tracking server, which writes them to the underlying storage volume with consistent service permissions.
+4. **Zero-Configuration Student Experience:**  
+   The `mlflow` client is pre-baked into the base container image (see Section [4.7](#47-container-image-strategy)), and `MLFLOW_TRACKING_URI=http://mlflow.services.svc.cluster.local:5000` is pre-injected into interactive Jupyter and batch Slurm environments. Students can execute `import mlflow; mlflow.autolog()` immediately with zero setup.
+
+**Resource Sizing & Infrastructure Footprint:**
+- **Tracking Server:** 2 CPU Cores, 4 GB RAM limit (Gunicorn multi-worker WSGI).
+- **PostgreSQL Database:** 1 CPU Core, 1 GB RAM limit, 20 GB Persistent Volume Claim.
+- **Artifact Store:** Dedicated shared PVC mounted at `/mnt/storage/artifacts` (200 GB quota).
+- **Network Policy:** Egress rule added to `workload` namespace allowing TCP port 5000 communication to the MLflow service. Database port (5432) is restricted strictly to internal communication from the MLflow tracking server.
+
+**References:**
+1. MLflow Project, *MLflow Tracking Server Architecture & Proxied Artifact Access*, 2024. [MLflow Documentation](https://mlflow.org/docs/latest/tracking/server.html)
+2. PostgreSQL Global Development Group, *PostgreSQL 16 Documentation & High-Concurrency Write Tuning*, 2024. [PostgreSQL Docs](https://www.postgresql.org/docs/16/)
+3. Databricks Corporation, *Best Practices for Scalable MLflow Deployments*, 2024. [Databricks Engineering Blog](https://www.databricks.com/blog)
+
+---
+
 ## 5. Conclusion
 
 The AI Sandbox architecture is designed to be a fair, stable, and scalable platform for a 50–100 student AI curriculum. The key design principles are:
@@ -442,5 +491,6 @@ The AI Sandbox architecture is designed to be a fair, stable, and scalable platf
 3. **Identity and storage delegation** — authentication is fully delegated to the university Authentik server, and storage isolation is handled at the Kubernetes volume level, eliminating the need for manual user administration.
 4. **Pre-baked OCI images** — ensuring sub-5-second pod startup times by caching images on all nodes, avoiding the NFS metadata bottleneck that Conda environments would cause.
 5. **Lightweight monitoring** — exposing metrics for the central system to scrape, rather than running a local database that wastes student RAM.
+6. **Decoupled central experiment tracking** — providing a zero-configuration MLflow service backed by an isolated worker-node PostgreSQL database and proxied artifact storage, preventing student workloads from impacting the Slurm control plane.
 
 This document is the agreed baseline. Any changes to hardware, technology choices, or capacity limits going forward should be reflected here as a living record of the platform's state.

@@ -18,6 +18,12 @@ RUN mkdir -p /var/lib/extrausers
 COPY start-jupyter.sh /usr/local/bin/start-jupyter.sh
 RUN chmod +x /usr/local/bin/start-jupyter.sh
 
+# Install MLflow for optional experiment tracking
+RUN pip install --no-cache-dir mlflow
+
+# Passive tracking URI pointing to central services
+ENV MLFLOW_TRACKING_URI="http://mlflow.services.svc.cluster.local:5000"
+
 # Fix permissions to allow dynamic users to use the default home if needed
 # although usually they will use /mnt/storage
 RUN chmod -R 777 /home/jovyan

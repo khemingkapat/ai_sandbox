@@ -102,6 +102,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 						{Name: "KAGGLE_CONFIG_DIR", Value: fmt.Sprintf("%s/.kaggle", workspace)},
 						{Name: "KAGGLEHUB_CACHE", Value: fmt.Sprintf("%s/.cache/kagglehub", workspace)},
 						{Name: "TMPDIR", Value: fmt.Sprintf("/mnt/storage/scratch/%s", username)},
+						{Name: "MLFLOW_TRACKING_URI", Value: "http://mlflow.services.svc.cluster.local:5000"},
 					},
 					Ports: []corev1.ContainerPort{
 						{ContainerPort: 8888},

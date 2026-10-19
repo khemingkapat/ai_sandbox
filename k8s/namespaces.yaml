@@ -13,3 +13,11 @@ metadata:
   labels:
     app.kubernetes.io/part-of: ai-sandbox
     sandbox.zone: workload
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: services
+  labels:
+    app.kubernetes.io/part-of: ai-sandbox
+    sandbox.zone: central-services

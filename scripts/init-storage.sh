@@ -37,10 +37,13 @@ mkdir -p "$STORAGE_ROOT/projects/project1/.cache/kagglehub"
 mkdir -p "$STORAGE_ROOT/projects/project1/.kaggle"
 mkdir -p "$STORAGE_ROOT/projects/project2/.cache/huggingface"
 mkdir -p "$STORAGE_ROOT/projects/project2/.cache/kagglehub"
-mkdir -p "$STORAGE_ROOT/projects/project2/.kaggle"
 mkdir -p "$STORAGE_ROOT/projects/project3/.cache/huggingface"
 mkdir -p "$STORAGE_ROOT/projects/project3/.cache/kagglehub"
 mkdir -p "$STORAGE_ROOT/projects/project3/.kaggle"
+
+# 6. Central Services Storage (MLflow)
+mkdir -p "$STORAGE_ROOT/mlflow/postgres"
+mkdir -p "$STORAGE_ROOT/mlflow/artifacts"
 
 # Seed starter project templates if available
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -77,5 +80,12 @@ chmod u=rwx,g=,o=,u-s,g-s "$STORAGE_ROOT/projects/project2"
 chown -R 1004:1004 "$STORAGE_ROOT/projects/project3"
 chmod 700 "$STORAGE_ROOT/projects/project3"
 chmod u=rwx,g=,o=,u-s,g-s "$STORAGE_ROOT/projects/project3"
+
+# MLflow Central Service Storage
+# Postgres: Directory permissions for container pgdata creation over NFS4
+chmod 777 "$STORAGE_ROOT/mlflow/postgres"
+# Artifacts: World-writable directory for proxied tracking server streaming
+chown -R 0:0 "$STORAGE_ROOT/mlflow/artifacts"
+chmod 777 "$STORAGE_ROOT/mlflow/artifacts"
 
 echo "✅ Storage initialization complete under $STORAGE_ROOT."

@@ -24,6 +24,13 @@ data:
           middlewares:
             - vllm-ratelimit
             - vllm-inflight
+        mlflow:
+          entryPoints:
+            - web
+            - websecure
+          rule: "PathPrefix(`/mlflow`) || PathPrefix(`/api/2.0`) || PathPrefix(`/ajax-api`) || PathPrefix(`/get-artifact`)"
+          service: mlflow-backend
+          priority: 50
         portal:
           entryPoints:
             - websecure
@@ -47,6 +54,10 @@ data:
           loadBalancer:
             servers:
               - url: "http://vllm-service.slurm:8000"
+        mlflow-backend:
+          loadBalancer:
+            servers:
+              - url: "http://mlflow.services.svc.cluster.local:5000"
       middlewares:
         redirect-to-https:
           redirectScheme:

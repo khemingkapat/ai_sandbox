@@ -16,9 +16,14 @@ docker build -t interactive-codeserver:latest -t localhost:5000/interactive-code
 echo "  - Building interactive-bash:latest..."
 docker build -t interactive-bash:latest -t localhost:5000/interactive-bash:latest images/bash/
 
+# 4. Build MLflow Server image
+echo "  - Building mlflow-server:latest..."
+docker build -t mlflow-server:latest -t localhost:5000/mlflow-server:latest images/mlflow/
+
 echo "🚀 Pushing interactive images to local OCI registry (localhost:5000)..."
 docker push localhost:5000/interactive-jupyter:latest
 docker push localhost:5000/interactive-codeserver:latest
 docker push localhost:5000/interactive-bash:latest
+docker push localhost:5000/mlflow-server:latest
 
-echo "✅ Interactive images built and pushed successfully!"
+echo "✅ Interactive and central service images built and pushed successfully!"

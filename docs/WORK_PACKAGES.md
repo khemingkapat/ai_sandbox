@@ -118,12 +118,12 @@ Curated model catalog and ingestion pipeline focusing on Qwen 3.5, Qwen 2.5, and
 - ✅ **Automated ingestion & evaluation pipeline** — Hardened [`scripts/ingest-model.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/ingest-model.sh) with safetensors enforcement gates, jinja template caching, and verified offline tokenizer execution.
 
 ### WP3-1-11: Experiment Tracking Tools Setup
-Deploy MLflow (or similar) so students import mlflow and go.
-- Tracking server deployment
-- Storage backend (DB + artifact store on shared PVC)
-- Per-student/project isolation
-- Pre-configured client in container images
-- Integration guide and examples
+- ✅ **Tracking server deployment** — Deployed Gunicorn WSGI MLflow server in dedicated `services` namespace on `ai-worker1` with Slinky tolerations.
+- ✅ **Storage backend (Decoupled DB + Proxied Artifacts)** — Dedicated PostgreSQL 16 StatefulSet (`mlflow-postgres-pvc`, 10Gi) isolated from control plane MariaDB; proxied artifact streaming (`--serve-artifacts`) writing to `/mnt/storage/mlflow/artifacts` (50Gi PVC).
+- ✅ **Traefik gateway integration** — Dynamically routed `/mlflow`, `/api/2.0`, `/ajax-api`, and static bundles (`--static-prefix /mlflow`) with security headers over HTTPS.
+- ✅ **Per-student/project isolation** — Namespaced experiment support via `MLFLOW_EXPERIMENT_NAME` with NetworkPolicy restricting DB port 5432 and permitting workload port 5000 egress.
+- ✅ **Passive client in container images** — `mlflow` pre-installed in [`images/jupyterlab/Dockerfile`](file:///home/khemi/workspace/ai_sandbox/images/jupyterlab/Dockerfile) with passive pointer `MLFLOW_TRACKING_URI=http://mlflow.services.svc.cluster.local:5000`.
+- ✅ **Integration guide & automated test suite** — Established [`docs/WP3-1-11_EXPERIMENT_TRACKING_GUIDE.md`](file:///home/khemi/workspace/ai_sandbox/docs/WP3-1-11_EXPERIMENT_TRACKING_GUIDE.md) and [`scripts/verify-mlflow.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/verify-mlflow.sh) (9/9 checks PASSED).
 
 ---
 
