@@ -36,7 +36,7 @@ spec:
         imagePullPolicy: IfNotPresent
         args:
         - "--model"
-        - "Qwen/Qwen2.5-32B-Instruct-AWQ"
+        - "Qwen/Qwen3.5-0.8B"
         - "--gpu-memory-utilization"
         # 0.65 reserved during time-slicing phase with Slurm batch jobs.
         # Can be increased to 0.90+ once GPU #1 is dedicated exclusively to inference.

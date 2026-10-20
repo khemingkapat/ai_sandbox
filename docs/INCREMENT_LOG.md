@@ -2,6 +2,34 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 34] - 2026-10-20: WP3-1-9 & WP3-1-10 Live Model Swap, Qwen 3.5 Verification & Candidate Backlog
+
+*   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)
+*   **Goal:** Address Milestone 3 close-out questions on model modernization and live model swapping: fix `verify-llm.sh` namespace drift (`slurm` -> `services`), establish a candidate model backlog for cluster VRAM profiling, build the deterministic `swap-model.sh` operator CLI with pre-flight offline validation, and validate live model swapping to modern Qwen 3.5 (`Qwen/Qwen3.5-0.8B`, `Qwen3_5ForConditionalGeneration`).
+
+### 📝 Key Changes & Files Modified
+
+1.  **Candidate Models Backlog (`docs/CANDIDATE_MODELS_BACKLOG.md`):**
+    *   Curated actionable reference matrix of foundation models across Qwen 3.5, Mistral, Phi, Gemma, and Smol families evaluated against the NVIDIA L40 VRAM ceiling (46 GiB at 0.65 utilization = ~29.2 GiB cap).
+    *   Detailed exact precision formats (INT4-GPTQ/AWQ, FP8, BF16) and corresponding KV-cache headroom.
+2.  **Verification Suite Harmonization (`scripts/verify-llm.sh`):**
+    *   Updated all checks from `slurm` to `services` namespace (`vllm-service.services.svc.cluster.local:8000`).
+    *   Added **Check 4.6 (Real Model Cache Snapshot Integrity)**: validates real on-disk `.safetensors` files and `config.json` inside `/mnt/storage/models/huggingface/hub` beyond mock fixture testing.
+    *   Restored executable permissions on `scripts/ingest-model.sh`.
+    *   Full verification suite result: **22/22 PASSED (0 failures, 0 warnings)**.
+3.  **Automated Model Swap Operator (`scripts/swap-model.sh`):**
+    *   Created CLI supporting `--model`, `--max-model-len`, `--gpu-mem`, and `--dry-run`.
+    *   Pre-flight check blocks mutation if target model is not already cached on NFS under `HF_HUB_OFFLINE=1`.
+    *   Maintains automatic backup and rollback to previous deployment if rollout or live inference fails.
+    *   Dynamically synchronizes `docs/MODEL_CATALOG.json` parity.
+4.  **Live Model Swap Execution & Verification:**
+    *   Executed swap from `Qwen/Qwen2.5-32B-Instruct-AWQ` to `Qwen/Qwen3.5-0.8B`.
+    *   Rollout completed in 215s with zero GPU VRAM deadlock.
+    *   Confirmed `vllm/vllm-openai:v0.31.0` natively supports `Qwen3_5ForConditionalGeneration`.
+    *   Internal service `/v1/models` and live Traefik chat completion `/v1/chat/completions` validated successfully with 310ms roundtrip.
+
+---
+
 ## [Increment 33] - 2026-10-19: Central Services Harmonization (vLLM Migration to services Namespace)
 
 *   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)

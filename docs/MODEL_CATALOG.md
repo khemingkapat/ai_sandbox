@@ -49,7 +49,8 @@ Models in the **Qwen 3.5** family utilize a **3:1 hybrid attention stack** (thre
 
 | Track | Model Identifier | Architecture | Precision | Disk Size | Weights VRAM | Peak VRAM | Slurm Sizing / Serving | Estimate Source |
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :---: |
-| **Active Central LLM (Served)** | `Qwen/Qwen2.5-32B-Instruct-AWQ` | Qwen2ForCausalLM (32B) | INT4-AWQ | 22.0 GB | 18.1 GB | 28.0 GB | `inference` / vLLM (Live) | Measured |
+| **Active Central LLM (Served)** | `Qwen/Qwen3.5-0.8B` | Hybrid DeltaNet Dense (0.8B) | BF16 | 1.74 GB | 1.8 GB | ~28.0 GB | `inference` / vLLM (Live) | Measured |
+| **Standby Central Baseline** | `Qwen/Qwen2.5-32B-Instruct-AWQ` | Qwen2ForCausalLM (32B) | INT4-AWQ | 22.0 GB | 18.1 GB | 28.0 GB | `batch-gpu` / vLLM Standby | Measured |
 | **Standby Central MoE** | `Qwen/Qwen3.5-35B-A3B` | Hybrid DeltaNet MoE (3B active) | BF16 | 35.0 GB | 22.0 GB | 28.0 GB | `batch-gpu` (1 GPU) | Estimated |
 | **Dense Coding & Reasoning** | `Qwen/Qwen3.5-9B` | Hybrid DeltaNet Dense | BF16 | 18.0 GB | 14.5 GB | 18.0 GB | `batch-gpu` (1 GPU) | Estimated |
 | **Interactive Multimodal** | `google/gemma-4-E4B-it` | Dense Multimodal | BF16 | 8.5 GB | 7.0 GB | 9.5 GB | `interactive` (8 GB slice) | Estimated |
@@ -57,12 +58,26 @@ Models in the **Qwen 3.5** family utilize a **3:1 hybrid attention stack** (thre
 | **Multimodal Embeddings** | `google/embeddinggemma-2` | Gemma2 Embedding (740M) | FP16 | 1.5 GB | 1.2 GB | 1.8 GB | `batch-cpu` / GPU | Estimated |
 | **Multilingual RAG Retrieval** | `BAAI/bge-m3` | XLM-RoBERTa (560M) | FP16 | 2.2 GB | 1.1 GB | 1.8 GB | `batch-cpu` / GPU | Estimated |
 
+> [!NOTE]
+> For a full list of candidate models evaluated for cluster hardware (including Mistral NeMo, Phi-4, Gemma 2/4, and SmolLM2), refer to [`docs/CANDIDATE_MODELS_BACKLOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/CANDIDATE_MODELS_BACKLOG.md).
+
 ---
 
 ## 4. Detailed Model Cards
 
-### 4.0 Active Central LLM: `Qwen/Qwen2.5-32B-Instruct-AWQ`
+### 4.0 Active Central LLM: `Qwen/Qwen3.5-0.8B`
 * **Status:** **LIVE / CURRENTLY SERVED** via `k8s/vllm-deployment.yaml` at `/v1`.
+* **Architecture:** Multimodal hybrid linear attention (`Qwen3_5ForConditionalGeneration`) with 0.8B total parameters.
+* **Precision:** BF16 weights (safetensors format).
+* **Context Window:** 16,384 tokens configured (`--max-model-len 16384`, native context: 262,144 tokens).
+* **Hardware Sizing (Measured on NVIDIA L40):**
+  * Weights VRAM: **1.72 GiB** (measured by vLLM loader on NVIDIA L40, loaded in 2.51s).
+  * Peak Memory Allocation: **~28.0 GiB** (under `--gpu-memory-utilization 0.65`).
+  * Available KV Cache: **25.08 GiB** (**1,783,641 tokens capacity**, **108.86x concurrency** at 16,384 tokens per request, Mamba `align` prefix caching).
+* **Serving Configuration:** Pinned `vllm/vllm-openai:v0.31.0` image, Traefik Ingress with rate-limiting and inflight request limiting.
+
+### 4.0b Standby Central Baseline: `Qwen/Qwen2.5-32B-Instruct-AWQ`
+* **Status:** **STANDBY / CACHED** on shared NFS storage (`/mnt/storage/models/huggingface/hub`).
 * **Architecture:** Auto-regressive transformer (`Qwen2ForCausalLM`) with 32B total parameters, 4-bit AWQ quantized.
 * **Precision:** INT4-AWQ weights (safetensors format).
 * **Context Window:** 16,384 tokens configured (`--max-model-len 16384`).
@@ -70,7 +85,7 @@ Models in the **Qwen 3.5** family utilize a **3:1 hybrid attention stack** (thre
   * Weights VRAM: **18.14 GiB** (measured by vLLM loader on NVIDIA L40).
   * Peak Memory Allocation: **28.0 GiB** (under `--gpu-memory-utilization 0.65`).
   * Available KV Cache: **8.14 GiB** (~33,312 tokens capacity, FlashInfer sampling enabled).
-* **Serving Configuration:** Pinned `vllm/vllm-openai:v0.31.0` image, Traefik Ingress with rate-limiting and inflight request limiting.
+* **Serving Configuration:** Ready for hot-swap via `./scripts/swap-model.sh --model Qwen/Qwen2.5-32B-Instruct-AWQ`.
 
 ### 4.1 Standby MoE: `Qwen/Qwen3.5-35B-A3B`
 * **Architecture:** Mixture-of-Experts with 35B total parameters and **3B active parameters** per forward pass.

@@ -23,10 +23,22 @@ mkdir -p "$REPO_ROOT/bin"
 export PATH="$REPO_ROOT/bin:$PATH"
 
 DESTRUCTIVE_MODE=0
-for arg in "${@:-}"; do
-    if [ "$arg" == "--destructive" ]; then
-        DESTRUCTIVE_MODE=1
-    fi
+TEST_SWAP_MODEL=""
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --destructive)
+            DESTRUCTIVE_MODE=1
+            shift
+            ;;
+        --test-swap)
+            TEST_SWAP_MODEL="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
 done
 
 echo -e "${CYAN}${BOLD}============================================================${NC}"
@@ -34,8 +46,11 @@ echo -e "${CYAN}${BOLD}🤖 AI Sandbox: LLM Inference & Model Verification Suite
 echo -e "${CYAN}${BOLD}============================================================${NC}"
 echo -e "Timestamp   : $(LC_ALL=C date -u +'%Y-%m-%dT%H:%M:%SZ')"
 echo -e "Context     : $(kubectl config current-context 2>/dev/null || echo 'Unknown')"
-echo -e "Target      : vLLM Service (slurm) & Model Storage (/mnt/storage/models)"
+echo -e "Target      : vLLM Service (services) & Model Storage (/mnt/storage/models)"
 echo -e "Destructive : $DESTRUCTIVE_MODE"
+if [ -n "$TEST_SWAP_MODEL" ]; then
+    echo -e "Test Swap   : $TEST_SWAP_MODEL"
+fi
 echo ""
 
 if ! command -v kubectl &>/dev/null; then
@@ -146,16 +161,16 @@ echo -e "${BOLD}▶ STAGE 2: vLLM Runtime Engine Stabilization (WP3-1-9)${NC}"
 echo -e "${BOLD}============================================================${NC}"
 
 # Check 2.1: Pod Readiness
-VLLM_STATUS=$(kubectl get pods -n slurm -l app=vllm -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+VLLM_STATUS=$(kubectl get pods -n services -l app=vllm -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
 if [ "$VLLM_STATUS" == "true" ]; then
-    report_pass "vLLM Pod Health" "1/1 Ready and serving"
+    report_pass "vLLM Pod Health" "1/1 Ready and serving (services namespace)"
 else
-    VLLM_PHASE=$(kubectl get pods -n slurm -l app=vllm -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
-    report_fail "vLLM Pod Health" "Pod is not Ready (Phase: $VLLM_PHASE)"
+    VLLM_PHASE=$(kubectl get pods -n services -l app=vllm -o jsonpath='{.items[0].status.phase}' 2>/dev/null || echo "NotFound")
+    report_fail "vLLM Pod Health" "Pod is not Ready in services namespace (Phase: $VLLM_PHASE)"
 fi
 
 # Check 2.2: Pinned Image Version
-VLLM_IMAGE=$(kubectl get deploy vllm -n slurm -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "Unknown")
+VLLM_IMAGE=$(kubectl get deploy vllm -n services -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo "Unknown")
 if [[ "$VLLM_IMAGE" == *":v0.31.0"* ]] || [[ "$VLLM_IMAGE" == *"@sha256:"* ]]; then
     report_pass "Image Version Pinning" "Deterministic tag locked ($VLLM_IMAGE)"
 elif [[ "$VLLM_IMAGE" == *":latest"* ]]; then
@@ -165,7 +180,7 @@ else
 fi
 
 # Check 2.3: GPU Deployment Strategy (Recreate enforcement)
-DEPLOY_STRAT=$(kubectl get deploy vllm -n slurm -o jsonpath='{.spec.strategy.type}' 2>/dev/null || echo "Unknown")
+DEPLOY_STRAT=$(kubectl get deploy vllm -n services -o jsonpath='{.spec.strategy.type}' 2>/dev/null || echo "Unknown")
 if [ "$DEPLOY_STRAT" == "Recreate" ]; then
     report_pass "GPU Deployment Strategy" "Recreate (prevents rolling update GPU deadlock)"
 else
@@ -173,7 +188,7 @@ else
 fi
 
 # Check 2.4: Read-Only Shared Model Cache Mount
-WRITE_TEST=$(kubectl exec -n slurm deploy/vllm -- touch /root/.cache/huggingface/.security_probe_test 2>&1 || true)
+WRITE_TEST=$(kubectl exec -n services deploy/vllm -- touch /root/.cache/huggingface/.security_probe_test 2>&1 || true)
 if [[ "$WRITE_TEST" == *"Read-only file system"* ]]; then
     report_pass "Read-Only Model Cache Mount" "Write attempts blocked by container runtime"
 else
@@ -181,7 +196,7 @@ else
 fi
 
 # Check 2.5: Offline Mode Enforcement
-OFFLINE_ENV=$(kubectl get deploy vllm -n slurm -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="HF_HUB_OFFLINE")].value}' 2>/dev/null || echo "")
+OFFLINE_ENV=$(kubectl get deploy vllm -n services -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="HF_HUB_OFFLINE")].value}' 2>/dev/null || echo "")
 if [ "$OFFLINE_ENV" == "1" ]; then
     report_pass "Offline Cache Lockdown" "HF_HUB_OFFLINE=1 strictly enforced"
 else
@@ -189,7 +204,7 @@ else
 fi
 
 # Check 2.6: Node Taint Toleration Tightening
-TOLERATIONS_JSON=$(kubectl get deploy vllm -n slurm -o jsonpath='{.spec.template.spec.tolerations}' 2>/dev/null || echo "[]")
+TOLERATIONS_JSON=$(kubectl get deploy vllm -n services -o jsonpath='{.spec.template.spec.tolerations}' 2>/dev/null || echo "[]")
 if [[ "$TOLERATIONS_JSON" == *"operator\":\"Exists\""* ]]; then
     report_fail "Toleration Tightening" "Deployment still has blanket operator: Exists toleration"
 elif [[ "$TOLERATIONS_JSON" == *"slinky.slurm.net/managed-node"* ]]; then
@@ -199,13 +214,13 @@ else
 fi
 
 # Check 2.7: Internal Service Query
-VLLM_MODEL_LIST=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -s -m 5 http://vllm-service.slurm:8000/v1/models 2>/dev/null || echo "FAIL")
+VLLM_MODEL_LIST=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -s -m 5 http://vllm-service.services.svc.cluster.local:8000/v1/models 2>/dev/null || echo "FAIL")
 if [[ "$VLLM_MODEL_LIST" == *"object\":\"list\""* ]]; then
     SERVED_MODEL=$(echo "$VLLM_MODEL_LIST" | grep -o '"id":"[^"]*' | head -n1 | cut -d'"' -f4)
-    report_pass "Internal Service Endpoint" "vllm-service.slurm:8000 active, serving: $SERVED_MODEL"
+    report_pass "Internal Service Endpoint" "vllm-service.services.svc.cluster.local:8000 active, serving: $SERVED_MODEL"
 else
     SERVED_MODEL="Qwen/Qwen2.5-32B-Instruct-AWQ"
-    report_fail "Internal Service Endpoint" "Could not query /v1/models on vllm-service:8000"
+    report_fail "Internal Service Endpoint" "Could not query /v1/models on vllm-service.services:8000"
 fi
 
 # ==============================================================================
@@ -343,6 +358,29 @@ else
     report_fail "Ingestion Tool Mock Isolation" "Failed mock ingestion test ($INGEST_TEST_OUTPUT)"
 fi
 
+# Check 4.6: Real On-Disk Model Cache Snapshot Integrity
+REAL_CACHE_CHECK=$(kubectl exec -n services deploy/vllm -- python3 -c '
+import os, glob
+cache_dir = "/root/.cache/huggingface/hub"
+models = [d for d in os.listdir(cache_dir) if d.startswith("models--")]
+valid_models = []
+for m in models:
+    snaps = glob.glob(os.path.join(cache_dir, m, "snapshots", "*"))
+    for s in snaps:
+        safetensors = [f for f in glob.glob(os.path.join(s, "*.safetensors")) if os.path.isfile(f) and os.path.getsize(f) > 0]
+        configs = [f for f in glob.glob(os.path.join(s, "config.json")) if os.path.isfile(f) and os.path.getsize(f) > 0]
+        if safetensors and configs:
+            valid_models.append(m.replace("models--", "").replace("--", "/"))
+            break
+print(",".join(valid_models))
+' 2>/dev/null || echo "FAIL")
+
+if [[ "$REAL_CACHE_CHECK" != "FAIL" ]] && [[ "$REAL_CACHE_CHECK" == *"Qwen"* ]]; then
+    report_pass "Real Model Cache Snapshot Integrity" "Verified safetensors snapshots on shared NFS: $REAL_CACHE_CHECK"
+else
+    report_fail "Real Model Cache Snapshot Integrity" "No valid safetensors snapshots found on NFS hub cache ($REAL_CACHE_CHECK)"
+fi
+
 # ==============================================================================
 # STAGE 5: Live Inference, Latency & Boundary Checks
 # ==============================================================================
@@ -404,16 +442,16 @@ if [ "$DESTRUCTIVE_MODE" -eq 1 ]; then
     echo -e "${BOLD}▶ STAGE 6: Engine Failure Recovery & Restart Benchmark (--destructive)${NC}"
     echo -e "${BOLD}============================================================${NC}"
     
-    TARGET_POD=$(kubectl get pod -n slurm -l app=vllm -o jsonpath='{.items[0].metadata.name}')
+    TARGET_POD=$(kubectl get pod -n services -l app=vllm -o jsonpath='{.items[0].metadata.name}')
     echo -e "  Simulating unexpected process crash inside container on $TARGET_POD..."
     
     CRASH_START=$(date +%s)
-    kubectl exec -n slurm "$TARGET_POD" -- kill -9 1 2>/dev/null || true
+    kubectl exec -n services "$TARGET_POD" -- kill -9 1 2>/dev/null || true
     
     RECOVERED="false"
     for i in $(seq 1 120); do
         sleep 2
-        CUR_READY=$(kubectl get pod -n slurm -l app=vllm -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
+        CUR_READY=$(kubectl get pod -n services -l app=vllm -o jsonpath='{.items[0].status.containerStatuses[0].ready}' 2>/dev/null || echo "false")
         if [ "$CUR_READY" == "true" ]; then
             RECOVERED="true"
             break
@@ -426,6 +464,25 @@ if [ "$DESTRUCTIVE_MODE" -eq 1 ]; then
         report_pass "In-Place Container Crash Recovery" "Container restarted in-place & Ready in ${RECOVERY_SEC}s"
     else
         report_fail "In-Place Container Crash Recovery" "Engine failed to recover after 240 seconds"
+    fi
+fi
+
+# ==============================================================================
+# STAGE 7: Automated Live Model Swap Verification (Optional / --test-swap)
+# ==============================================================================
+if [ -n "$TEST_SWAP_MODEL" ]; then
+    echo -e "\n${BOLD}============================================================${NC}"
+    echo -e "${BOLD}▶ STAGE 7: Automated Live Model Swap Verification (--test-swap)${NC}"
+    echo -e "${BOLD}============================================================${NC}"
+    
+    echo -e "  Executing automated model swap to ${BOLD}$TEST_SWAP_MODEL${NC}..."
+    SWAP_TEST_START=$(date +%s)
+    if bash "$REPO_ROOT/scripts/swap-model.sh" --model "$TEST_SWAP_MODEL"; then
+        SWAP_TEST_END=$(date +%s)
+        SWAP_DUR=$((SWAP_TEST_END - SWAP_TEST_START))
+        report_pass "Live Model Swap Execution" "Successfully swapped active engine to $TEST_SWAP_MODEL (${SWAP_DUR}s)"
+    else
+        report_fail "Live Model Swap Execution" "Failed to swap active engine to $TEST_SWAP_MODEL"
     fi
 fi
 

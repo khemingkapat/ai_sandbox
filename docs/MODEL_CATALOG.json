@@ -32,7 +32,7 @@
       "attention_stack": "Standard Grouped-Query Attention (FlashInfer / FlashAttention-2)",
       "recommended_partition": "batch-gpu",
       "slurm_gres": "gpu:1",
-      "central_serving": true,
+      "central_serving": false,
       "estimate_source": "measured",
       "license": "Qwen Research License",
       "description": "Production central baseline model for AI Sandbox. 4-bit AWQ quantized instruction-tuned model served by vLLM engine at 0.65 GPU memory utilization with continuous batching."
@@ -202,16 +202,16 @@
       "precision": "BF16",
       "format": "safetensors",
       "disk_size_gb": 1.74,
-      "est_vram_weights_gb": 1.6,
-      "est_vram_peak_gb": 2.5,
-      "max_context_window": 32768,
-      "attention_stack": "Standard Grouped-Query Attention",
+      "vram_weights_gb": 1.72,
+      "vram_peak_gb": 28.0,
+      "max_context_window": 16384,
+      "attention_stack": "3:1 Hybrid Gated DeltaNet + Gated Full Attention (Mamba align cache)",
       "recommended_partition": "interactive",
       "slurm_gres": "gpu:1",
-      "central_serving": false,
-      "estimate_source": "estimated",
+      "central_serving": true,
+      "estimate_source": "measured",
       "license": "Apache-2.0",
-      "description": "Ultra-lightweight multimodal instruction model ingested via scripts/ingest-model.sh for low-latency edge testing and student coursework."
+      "description": "Ultra-lightweight multimodal instruction model with 3:1 Hybrid Gated DeltaNet linear attention. Measured on NVIDIA L40 (1.72 GiB weights, 25.08 GiB KV cache with 108x concurrency at 16K context)."
     }
   ]
 }

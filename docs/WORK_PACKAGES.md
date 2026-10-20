@@ -19,9 +19,9 @@
 | 6 | Container Environment & Image Pipeline | 🧩 Services | 🟢 Done |
 | 7 | Shared Storage, Datasets & Model Repository | 🧩 Services | 🟢 Done |
 | 8 | Network & Security Baseline | 🧩 Services | 🟡 Partial |
-| 9 | LLM Inference Server Deployment | 🧩 Services | 🔴 Not started |
-| 10 | Open-Source Model Curation & Evaluation | 🧩 Services | 🔴 Not started |
-| 11 | Experiment Tracking Tools Setup | 🧩 Services | 🔴 Not started |
+| 9 | LLM Inference Server Deployment | 🧩 Services | 🟢 Done |
+| 10 | Open-Source Model Curation & Evaluation | 🧩 Services | 🟢 Done |
+| 11 | Experiment Tracking Tools Setup | 🧩 Services | 🟢 Done |
 | 12 | Web Portal Enhancements | 🎨 UX | 🟡 Partial |
 | 13 | Monitoring & Observability | 🎨 UX | 🔴 Not started |
 | 14 | Starter Lab Notebook Development | 🎨 UX | 🔴 Not started |
@@ -108,12 +108,14 @@ Central LLM service (vLLM) with Traefik API protection and hardware time-slicing
 - ✅ **API gateway protection & rate limiting** — Traefik `/v1` ingress router with `vllm-ratelimit` (10 req/s, burst 20) and `vllm-inflight` (max 15 concurrent) middlewares in [`k8s/traefik-security-configmap.yaml`](file:///home/khemi/workspace/ai_sandbox/k8s/traefik-security-configmap.yaml).
 - ✅ **Dual-tenancy GPU allocation** — NVIDIA L40 (46GB) virtual time-slicing verified with vLLM (`0.65` utilization, 16.8GB free for Slurm GRES GPU dispatch).
 - ✅ **Runtime hardening & verification** — 22-test automated verification suite in [`scripts/verify-llm.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/verify-llm.sh) validating in-place crash recovery, 429 throttling, and context window rejection.
-- 🟡 **Portal integration** — Web UI model catalog and student API token generator staged (tracked under WP3-1-12).
+- 🟡 **Student API Token Authentication** — Staged for WP3-1-12 (Central Services API Authorization).
 
 ### WP3-1-10: Open-Source Model Curation & Evaluation
-Curated model catalog and ingestion pipeline focusing on Qwen 3.5, Qwen 2.5, and Gemma 4.
-- ✅ **Curated model matrix & catalog manifest** — Created [`docs/MODEL_CATALOG.json`](file:///home/khemi/workspace/ai_sandbox/docs/MODEL_CATALOG.json) and [`docs/MODEL_CATALOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/MODEL_CATALOG.md) specifying served `Qwen/Qwen2.5-32B-Instruct-AWQ` (measured), `Qwen/Qwen3.5-0.8B`, Qwen 3.5 (MoE 35B-A3B & Dense 9B), Gemma 4 (E4B & 12B), EmbeddingGemma 2, and BGE-M3.
-- ✅ **Hardware profiling & memory sizing guide** — Documented measured VRAM footprints (18.14 GiB weights, 28.0 GiB peak) and KV cache capacities.
+Curated model catalog, candidate backlog, and ingestion pipeline focusing on Qwen 3.5, Qwen 2.5, and Gemma 4.
+- ✅ **Curated model matrix & catalog manifest** — Created [`docs/MODEL_CATALOG.json`](file:///home/khemi/workspace/ai_sandbox/docs/MODEL_CATALOG.json) and [`docs/MODEL_CATALOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/MODEL_CATALOG.md) specifying served `Qwen/Qwen3.5-0.8B` (measured), `Qwen/Qwen2.5-32B-Instruct-AWQ` (measured), Qwen 3.5 (MoE 35B-A3B & Dense 9B), Gemma 4 (E4B & 12B), EmbeddingGemma 2, and BGE-M3.
+- ✅ **Candidate models backlog** — Created [`docs/CANDIDATE_MODELS_BACKLOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/CANDIDATE_MODELS_BACKLOG.md) covering Mistral, Phi, Gemma, Smol, and Qwen hardware sizing.
+- ✅ **Deterministic model swap operator CLI** — Created [`scripts/swap-model.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/swap-model.sh) with offline pre-flight verification, comment-preserving manifest updates, and auto-rollback.
+- ✅ **Hardware profiling & memory sizing guide** — Documented measured VRAM footprints (1.72 GiB weights, 25.08 GiB KV cache on L40) and token capacities.
 - ✅ **Student offline developer runbook** — Provided copy-paste snippets for zero-download `local_files_only=True` loading and batch PEFT/LoRA fine-tuning.
 - ✅ **Automated ingestion & evaluation pipeline** — Hardened [`scripts/ingest-model.sh`](file:///home/khemi/workspace/ai_sandbox/scripts/ingest-model.sh) with safetensors enforcement gates, jinja template caching, and verified offline tokenizer execution.
 
