@@ -28,14 +28,14 @@ To prevent student experimentation or shared service load from compromising clus
 ```mermaid
 flowchart TD
     subgraph Client ["Client Entrypoint"]
-        Browser["Student Web Browser / API Client"] -->|"HTTPS / Port 443"| Traefik["Traefik Reverse Proxy & Gateway<br/>(ai-control)"]
+        Browser["Student Web Browser / API Client"] -->|"HTTPS / Port 443"| Traefik["Traefik Reverse Proxy and Gateway<br/>ai-control"]
     end
 
     subgraph Tier1 ["Tier 1: Control Plane (namespace: slurm)"]
         direction TB
         Slurmctld["slurmctld (Scheduler)"]
         Slurmdbd["slurmdbd (Accounting)"]
-        MariaDB[("MariaDB (slurm_acct_db)<br/>ai-control")]
+        MariaDB[("MariaDB slurm_acct_db<br/>ai-control")]
         Slurmdbd --- MariaDB
         Slurmctld --- Slurmdbd
     end
@@ -44,7 +44,7 @@ flowchart TD
         direction TB
         vLLM["vLLM OpenAI Server (Port 8000)<br/>Qwen2.5-32B-Instruct-AWQ<br/>Node: ai-sandbox-gpu-vm (RTX 4090)"]
         MLflow["MLflow Server (Port 5000)<br/>Proxied Artifact Destination<br/>Node: ai-worker1"]
-        Postgres[("PostgreSQL 16 StatefulSet<br/>mlflow-postgres (Port 5432)<br/>Node: ai-worker1")]
+        Postgres[("PostgreSQL 16 StatefulSet<br/>mlflow-postgres Port 5432<br/>Node: ai-worker1")]
         MLflow --> Postgres
     end
 
@@ -54,12 +54,12 @@ flowchart TD
         SlurmBatch["Slurm Batch Jobs (Apptainer SIF)<br/>Node: ai-worker1 / ai-sandbox-gpu-vm"]
     end
 
-    Traefik -->|/v1 API Gateway| vLLM
-    Traefik -->|/mlflow UI & REST| MLflow
-    Traefik -->|/proxy/session| JupyterLab
-    JupyterLab -.->|MLflow Logging (TCP 5000)| MLflow
-    JupyterLab -.->|OpenAI Inference API (HTTPS 443)| Traefik
-    SlurmBatch -.->|MLflow Logging (TCP 5000)| MLflow
+    Traefik -->|"/v1 API Gateway"| vLLM
+    Traefik -->|"/mlflow UI and REST"| MLflow
+    Traefik -->|"/proxy/session"| JupyterLab
+    JupyterLab -.->|"MLflow Logging: TCP 5000"| MLflow
+    JupyterLab -.->|"OpenAI Inference API: HTTPS 443"| Traefik
+    SlurmBatch -.->|"MLflow Logging: TCP 5000"| MLflow
 ```
 
 ### Resource Placement Matrix
