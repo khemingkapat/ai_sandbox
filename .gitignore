@@ -30,6 +30,7 @@ traefik-dynamic/*
 
 # Ignore compiled portal binary
 portal/portal
+portal/hpc-portal
 /storage/projects/**/.jupyter/
 /storage/projects/**/.npm/
 /storage/projects/**/.local/

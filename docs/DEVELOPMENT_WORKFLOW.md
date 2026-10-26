@@ -1,223 +1,116 @@
 # AI Sandbox Development Workflow Guide
 
-This guide establishes the continuous development loop for the human lead (**Khem**), the interactive AI pair programmer (**Antigravity**), and the asynchronous coding agent (**Jules**).
+**Status:** ACTIVE  
+**Updated:** 2026-10-25  
+**Core Model:** Interactive Pair Engineering (Human Lead + AI Co-Architect & Implementor)
 
-> **Design Principles:** Event-driven cycles (no fixed sprints), sequential execution (one thing at a time), architecture-level human review, automated test gates for everything else.
+> **Architectural Shift Notice (Retirement of Asynchronous Jules):**  
+> We no longer hand off tasks to an external asynchronous developer agent (Jules). Because the AI Sandbox operates on low-level systems (Proxmox hypervisors, K3s networking, Flannel CNI, Slurm GRES schedulers, and physical NVIDIA L40 hardware), code cannot be developed in an isolated cloud VM without live cluster access. Speculative YAML/code generation without empirical verification produced high failure rates. All design, implementation, and cluster verification are now executed interactively by **Antigravity** in direct partnership with **Khem**.
 
 ---
 
-## 1. Roles & Architecture
+## 1. Roles & Collaboration Model
 
 ```mermaid
-graph TB
-    subgraph "🧑 Human Layer"
-        PO["🧑 Khem — Product Owner<br/>Architecture review, goal alignment"]
+graph TD
+    subgraph "🧑 Human Lead"
+        PO["🧑 Khem — Lead Architect & Product Owner<br/>Sets direction, makes design decisions, approves merges"]
     end
 
-    subgraph "🌌 Interactive Layer (Antigravity)"
-        PM["📋 Project Manager<br/>State tracking, task breakdown,<br/>GitHub Issue creation"]
-        ARCH["🏗️ Architect<br/>Design decisions during<br/>interactive sessions"]
-        RES["🔍 Researchers<br/>Parallel subagents exploring<br/>competing options"]
+    subgraph "🌌 Interactive Co-Pilot (Antigravity)"
+        direction TB
+        ARCH["🏗️ Co-Architect & Planner<br/>Designs architecture, checks boundaries, maintains state"]
+        DEV["⚙️ Live Implementor<br/>Writes Go code, K8s manifests, and shell operators"]
+        TEST["🧪 Cluster Verifier<br/>Applies configs and tests directly on live K3s / Slurm cluster"]
     end
 
-    subgraph "🤖 Async Layer (Jules)"
-        DEV["⚙️ Developer<br/>Implements medium-sized tasks<br/>from GitHub Issues"]
+    subgraph "🤖 Specialized pro Subagents"
+        AUDIT["🛡️ audit-spec (Model: pro)<br/>Pre-implementation architectural audit & anti-bloat check"]
+        VERIFY["🔍 verify (Model: pro)<br/>Post-implementation architectural drift & boundary audit"]
     end
 
-    PO -->|"Priorities & decisions"| PM
-    PM -->|"Triggers"| RES
-    RES -->|"Comparison tables"| ARCH
-    ARCH -->|"Approved design"| PM
-    PM -->|"gh issue create --label jules"| DEV
-    DEV -->|"Pull Requests"| PO
+    PO <-->|"Interactive Dialogue & Decisions"| ARCH
+    ARCH -->|"Draft Spec"| AUDIT
+    AUDIT -->|"Ping-Pong Critique"| ARCH
+    ARCH -->|"Approved Spec"| DEV
+    DEV -->|"Live Deploy"| TEST
+    TEST -->|"Empirical Test Results"| VERIFY
+    VERIFY -->|"Hardened Implementation"| PO
 ```
 
-### 🧑 Khem — Product Owner (Human)
-*   **When active:** Start of every cycle + PR review gate
-*   **Does:** Set priorities, make architecture decisions, review Jules PRs (architecture level), physical testing, final merge authority.
-*   **Does NOT:** Write code, review every line of code, manage git branches, chase formatting/lint issues.
+### 🧑 Khem — Lead Architect & Product Owner
+*   **Responsibilities:** Sets strategic priorities, decides on technical trade-offs, evaluates plain-English mental models, and retains final authority on architecture and merges.
+*   **Focus:** Strategic systems decisions and curriculum goals without getting bogged down in boilerplate code.
 
-### 📋 Antigravity — Project Manager (Primary Mode)
-*   **When active:** During every interactive session.
-*   **Responsibilities:** Track state across sessions ("where were we?"), break work packages into medium-sized tasks, identify blockers and dependencies, create Jules handoff issues via `gh` CLI, maintain [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md) and [WORK_PACKAGES.md](file:///home/khemi/workspace/ai_sandbox/docs/WORK_PACKAGES.md).
+### 🌌 Antigravity — Senior Co-Architect & Live Implementor
+*   **Interactive Sessions:** Operates directly inside the cluster environment with full workspace access.
+*   **Responsibilities:**
+    1. **Architectural Design:** Structures data flows, defines component boundaries, and challenges unverified assumptions.
+    2. **Direct Implementation:** Writes the production Go portal code, Kubernetes manifests, NetworkPolicies, and automation CLIs.
+    3. **Live Cluster Verification:** Directly applies manifests to the live K3s cluster, triggers test scripts (e.g. `scripts/verify-llm.sh`, `scripts/verify-mlflow.sh`), and inspects pod logs in real time to guarantee functionality.
+    4. **State Maintenance:** Updates [`docs/INCREMENT_LOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md) and [`docs/WORK_PACKAGES.md`](file:///home/khemi/workspace/ai_sandbox/docs/WORK_PACKAGES.md).
 
-### 🏗️ Antigravity — Architect (Design Mode)
-*   **When active:** When a task involves non-trivial design choices.
-*   **Responsibilities:** Identify design decisions, spawn parallel researcher subagents for competing options, compile comparison tables, ensure consistency with overall architecture, define acceptance criteria and test requirements.
-
-### 🔍 Antigravity — Researcher (Subagents)
-*   **When active:** Spawned by Architect when there's a fork-in-the-road decision.
-*   **Responsibilities:** Deep-dive one specific option, read docs, check compatibility, return structured findings.
-*   **Constraint:** Multiple researchers run in parallel for competing choices (e.g., Researcher A explores vLLM, Researcher B explores Ollama). Bounded to a single option each. Question-driven, not open-ended.
-
-### ⚙️ Jules — Developer (Async)
-*   **When active:** Automatically picks up GitHub Issues labeled `jules`.
-*   **Responsibilities:** Implement the task per Issue specification, run automated checks (build, lint, vet), create PR referencing `closes #issue_number`, update INCREMENT_LOG.md.
-*   **Workflow:** Operates on Google Cloud VMs via `jules.google.com`. PRs target the `development` branch.
+### 🤖 Independent `pro` Model Subagents
+*   **`audit-spec` (Pre-Implementation):** Spawns an independent `pro` auditor to attack draft designs for boundary violations, over-engineering, and conceptual misalignment before writing code.
+*   **`verify` (Post-Implementation):** Spawns an independent `pro` auditor to inspect the git diff and live test logs for silent architectural drift, boundary leaks, or unapproved runtime dependencies.
 
 ---
 
-## 2. The Development Cycle
+## 2. The Interactive Engineering Lifecycle
 
-Six phases, executed **sequentially**, triggered when Khem is available (**event-driven**, no fixed sprints):
+Every work package follows a structured, continuous 5-phase loop:
 
 ```
- ┌──────────────────────────────────────────────────────────┐
- │               ONE DEVELOPMENT CYCLE                      │
- │                                                          │
- │  ① ORIENT ──▶ ② DESIGN ──▶ ③ HANDOFF ──▶ ④ BUILD       │
- │    (sync)      (sync)       (sync)       (async)        │
- │      ▲                                     │             │
- │      │         ⑥ REVIEW ◀── ⑤ VERIFY  ◀───┘             │
- │      │          (sync)      (automated)                  │
- │      └──────────────┘                                    │
- │                 next cycle                                │
- └──────────────────────────────────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                   CONTINUOUS ENGINEERING LIFECYCLE                     │
+│                                                                        │
+│  ① ORIENT ──▶ ② DESIGN & AUDIT ──▶ ③ APPROVE ──▶ ④ IMPLEMENT & TEST   │
+│   (State)       (audit-spec pro)     (Khem)          (Live Cluster)    │
+│      ▲                                                      │          │
+│      │                  ⑤ VERIFY & CLOSE ◀──────────────────┘          │
+│      │                     (verify pro)                                │
+│      └──────────────────────────┘                                      │
+│                               next package                             │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-### ① ORIENT — "Where were we? What's next?"
-**Who:** Khem + Antigravity (PM mode) | **Trigger:** Khem opens an interactive session.
+### ① ORIENT — "Where are we? What is the goal?"
+*   Antigravity reviews [`docs/WORK_PACKAGES.md`](file:///home/khemi/workspace/ai_sandbox/docs/WORK_PACKAGES.md) and [`docs/INCREMENT_LOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md).
+*   Khem and Antigravity agree on the immediate work package and target deliverable.
 
-1.  PM runs the **Context Recovery Protocol** (see Section 4).
-2.  Check: any open Jules PRs to review first?
-3.  Check: any blockers from last cycle?
-4.  Khem states what they want to focus on.
-5.  PM proposes the next actionable task.
-6.  **Output:** Agreement on what this cycle tackles.
+### ② DESIGN & AUDIT — "How do we build the right foundation?"
+*   Antigravity sketches the draft architecture and component boundaries.
+*   Antigravity invokes the [`audit-spec`](file:///home/khemi/workspace/ai_sandbox/.agents/skills/audit-spec/SKILL.md) skill (`Model: pro`):
+    - Attacks the draft for 3-tier boundary leaks, unnecessary daemons, or tech-stack drift.
+    - Ping-pongs with Antigravity to simplify the design.
+*   Outputs a concise Plain-English Mental Model and Component Responsibility Matrix.
 
-### ② DESIGN — "How should we build this?"
-**Who:** Khem + Antigravity (Architect mode + Researcher subagents) | **Trigger:** Orient phase identifies a task.
+### ③ APPROVE — "Is the mental model clear?"
+*   Khem reviews the plain-English data path and approves the design decisions.
 
-1.  Architect identifies design decisions needed.
-2.  For fork-in-the-road decisions: spawn parallel researcher subagents.
-3.  Researchers return → Architect compiles comparison table.
-4.  Khem makes the call.
-5.  Architect defines: files/functions to create or modify, acceptance criteria (tests), architecture boundaries (what NOT to touch).
-6.  **Output:** Approved design with clear scope.
+### ④ IMPLEMENT & LIVE TEST — "Build and prove it on the cluster"
+*   Antigravity creates/modifies the code, manifests, and scripts.
+*   Antigravity immediately applies changes to the local development environment or production K3s cluster.
+*   Runs live cluster verification probes to prove real hardware behavior.
 
-### ③ HANDOFF — "Create the Jules task"
-**Who:** Antigravity (PM mode) creates, Khem approves | **Trigger:** Design phase complete.
-
-1.  PM drafts a GitHub Issue using the template (see Section 3).
-2.  Khem reviews the issue body.
-3.  PM runs: `gh issue create --label "jules" --title "..." --body "..."`
-4.  **Output:** GitHub Issue ready for Jules.
-
-### ④ BUILD — "Jules implements"
-**Who:** Jules (async, on cloud VM) | **Trigger:** Jules detects new issue with `jules` label.
-
-1.  Jules works autonomously on its cloud VM.
-2.  Creates a PR referencing `closes #issue_number`.
-3.  Runs automated checks.
-4.  **Meanwhile:** Khem is free. No waiting required.
-5.  **Output:** PR targeting `development` branch.
-
-### ⑤ VERIFY — "Do the tests pass?"
-**Who:** Automated (CI / Jules self-check) | **Trigger:** PR created.
-
-1.  Automated tests run (build, lint, vet, verification suite).
-2.  Jules confirms acceptance criteria from the Issue.
-3.  **Output:** Pass/fail status on the PR.
-
-### ⑥ REVIEW — "Is the architecture right?"
-**Who:** Khem + Antigravity (PM mode) | **Trigger:** Khem returns to an interactive session and sees a PR.
-
-1.  Khem reviews PR at **architecture level only** (not line-by-line).
-2.  Antigravity helps analyze: "does this match what we designed?"
-3.  If good → merge, update WORK_PACKAGES.md status.
-4.  If not → comment on PR, Jules revises (or fix interactively).
-5.  Update INCREMENT_LOG.md.
-6.  **Output:** Merged code or revision request → next cycle.
+### ⑤ VERIFY & CLOSE — "Does it pass QA and architectural audit?"
+*   Antigravity executes the [`verify`](file:///home/khemi/workspace/ai_sandbox/.agents/skills/verify/SKILL.md) skill:
+    - Functional QA (`go build`, lint, test scripts).
+    - Architectural Result Audit (`Model: pro`) checking the diff for clean boundaries and zero bloat.
+*   Antigravity logs the completion in [`docs/INCREMENT_LOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md) and updates package status.
 
 ---
 
-## 3. GitHub Issue Template for Jules
+## 3. Git & Branching Strategy
 
-Every Jules task is a **medium-sized logical function** — one clear unit of work per Issue:
-
-```markdown
-## Context
-[Which work package this belongs to, and why we're doing it now]
-
-## Task
-[One logical function — clear description of what to build]
-
-## Specification
-### Create
-- `path/to/file.go` — [what it should contain and do]
-
-### Modify
-- `path/to/existing.go`
-  - [ ] Specific change 1
-  - [ ] Specific change 2
-
-### Do NOT Touch
-- [files out of scope — architecture boundaries]
-
-## Acceptance Criteria
-- [ ] `go build ./...` passes
-- [ ] `go vet ./...` clean
-- [ ] [Specific functional test]
-- [ ] INCREMENT_LOG.md updated
-
-## Design Context
-[Brief rationale — why this approach over alternatives]
-
-## Branch
-- Branch from: `development`
-- PR target: `development`
-```
+*   **`main` (Production Branch):** Production-ready, verified state. Only Khem merges to `main`.
+*   **`development` (Integration Branch):** Active staging branch.
+*   **Feature Branches (`feature/*` or `feat/*`):** Created for discrete work packages. All tests must pass before merging into `development`.
+*   **No Unverified Commits:** Code is committed only after automated or empirical verification succeeds.
 
 ---
 
-## 4. Context Recovery Protocol
+## 4. Documentation & Traceability
 
-Since cycles are **event-driven** (Khem may return after days or weeks), every interactive session starts with PM running this check (~30 seconds):
-
-1.  **WORK_PACKAGES.md** — current status of all work packages.
-2.  **Open PRs** — did Jules finish anything while we were away? (`gh pr list`)
-3.  **Open Issues** — is Jules still working on something? (`gh issue list --label "jules"`)
-4.  **INCREMENT_LOG.md** — what was the last thing completed?
-5.  **Summarize to Khem** — "Here's where we are, here's what I recommend."
-
----
-
-## 5. Git & Branching Strategy
-
-### Branch Naming Conventions
-*   **`main` (Production Branch):** Stable, production-ready. Only Khem merges here.
-*   **`development` (Integration Branch):** Active staging. Feature branches merge here.
-*   **Feature Branches (`feature/*`):** Active development. Branch from `development`, merge back via PR.
-*   **Jules' Branches (`agent/jules/*`):** Created by Jules for tasks from GitHub Issues. PRs target `development`.
-*   **Antigravity's Branches (`agent/antigravity/*`):** For larger interactive changes.
-
-### Pull Request Rules
-1.  **No direct push** to `main` or `development` by any agent.
-2.  **Verification required** before requesting review (build, lint, tests).
-3.  **Detailed PR descriptions:** What changed, why, how to verify, linked Issue number.
-
----
-
-## 6. The Increment Log Protocol
-
-After completing a task or merging a PR, the active agent **must** append a new entry to [INCREMENT_LOG.md](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md).
-
-### Rules:
-1.  **Mandatory** after every task completion or PR merge.
-2.  **Focus on "why" and "how to test"**, not just "what."
-3.  **Include clickable file links** using the `file://` scheme.
-
----
-
-## 7. Jules Automated Routine Tasks
-
-In addition to Issue-driven development tasks, Jules runs these recurring maintenance tasks via `jules.google.com`:
-
-### 🔄 Weekly Infrastructure Stability Check
-> *"Run `./scripts/verify-infrastructure.sh`. If it fails, inspect logs, fix configuration, verify the script succeeds, and open a PR."*
-
-### 🔄 Weekly Code Formatting and Linting
-> *"Run `go fmt ./portal/...` and `go vet ./portal/...`. Resolve issues and commit in a PR."*
-
-### 🔄 Repository Cleanup
-> *"Analyze git branches. Archive merged branches as tags with `archive/` prefix, prune stale references, clean up the branch list."*
+1. **Mandatory Increment Logging:** After any package or fix is verified, record the "why", "how it works", and "empirical verification evidence" in [`docs/INCREMENT_LOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md).
+2. **File Linking:** Always provide clickable `file://` markdown links for modified files, configs, and documentation.

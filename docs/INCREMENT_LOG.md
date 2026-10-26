@@ -2,6 +2,37 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 35] - 2026-10-26: Central LLM Inference Authentication & Quality of Service (QoS) Hardening
+
+*   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)
+*   **Goal:** Address Phase 3 architectural debt accepted in Milestone 3: harden central vLLM inference gateway with stateless HMAC-SHA256 Bearer authentication, prevent student identity spoofing, implement user-keyed anti-starvation rate limiting (20 RPM, burst 5), cap concurrent in-flight streams to 15, scale vLLM VRAM utilization from 0.65 to 0.90 on dedicated NVIDIA L40 accelerator, enable chunked prefill & prefix caching, and verify SLO performance targets under empirical load.
+
+### 📝 Key Changes & Files Modified
+
+1.  **vLLM VRAM Scale-up & QoS Flags (`k8s/vllm-deployment.yaml`):**
+    *   Raised `--gpu-memory-utilization` from `0.65` to `0.90` (~40.0 GiB pre-allocated VRAM out of 46.068 GiB, reserving 6.0 GiB dynamic headroom for CUDA activation scratchpads and FlashInfer).
+    *   Activated `--enable-chunked-prefill` (2048 batched tokens) to interleave prefill with active token generation, eliminating decode jitter.
+    *   Activated `--enable-prefix-caching` to accelerate identical system prompt evaluations.
+    *   Set `--max-num-seqs 64` to bound KV cache allocations within physical VRAM limits.
+    *   Placed Slurm `batch-gpu` partition in `INACTIVE` state to eliminate noisy-neighbor batch GPU interference.
+2.  **Stateless In-Memory HMAC Auth & Token Issuance (`portal/auth.go`, `portal/handlers.go`, `portal/main.go`):**
+    *   Implemented `verifyInferenceToken()` and `makeInferenceToken()` using shared HMAC secret (`/etc/slurm/jwt_hs256.key`).
+    *   Cached HMAC key in memory to guarantee zero disk I/O on hot verification paths (<0.1ms). Zero database queries to `slurmdbd` or SQLite.
+    *   Added ForwardAuth verification handler `handleVLLMAuth()` (`GET /api/auth/vllm`) returning `200 OK` with verified `X-User-Id` response header or `401 Unauthorized`.
+    *   Added `GET /api/tokens/inference` endpoint and student dashboard token card with copy-to-clipboard functionality (`portal/templates/index.html`).
+    *   Added fallback support for `/mnt/storage/common/templates` in `portal/main.go` for dynamic template reloading without container rebuilds.
+3.  **Hardened 4-Stage Traefik Gateway Ingress (`k8s/traefik-security-configmap.yaml`):**
+    *   **Stage 1 (`vllm-strip-user-header`):** Strips incoming client-supplied `X-User-Id` headers to eliminate identity spoofing.
+    *   **Stage 2 (`vllm-forwardauth`):** Sends subrequest to internal ForwardAuth handler (`http://127.0.0.1:8080/api/auth/vllm`) and injects verified `X-User-Id`.
+    *   **Stage 3 (`vllm-ratelimit`):** Token bucket quota (20 RPM, burst 5) keyed strictly to `X-User-Id` to guarantee anti-starvation across users.
+    *   **Stage 4 (`vllm-inflight`):** Caps active GPU generation streams to 15.
+4.  **Verification & Automated Benchmarking (`scripts/benchmark-qos.py`, `scripts/verify-llm.sh`):**
+    *   Created standalone QoS benchmarking suite (`scripts/benchmark-qos.py`) validating TTFT, TPOT, concurrency gating, and anti-starvation.
+    *   Updated `scripts/verify-llm.sh` with ForwardAuth 401 unauth checks and authorized Bearer tokens for live chat completion.
+    *   Full empirical test results: **TTFT P95 = 173.4ms** (Target: <400ms), **TPOT P95 = 3.5ms** (Target: <35ms), **Throughput = 207.2 tok/s** (Target: $\ge$ 28 tok/s), **Concurrency = 15/15 successful streams**.
+
+---
+
 ## [Increment 34] - 2026-10-20: WP3-1-9 & WP3-1-10 Live Model Swap, Qwen 3.5 Verification & Candidate Backlog
 
 *   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)

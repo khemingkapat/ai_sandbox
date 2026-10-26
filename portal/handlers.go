@@ -69,6 +69,68 @@ func logoutAction(c echo.Context) error {
 	return c.Redirect(http.StatusSeeOther, "/login")
 }
 
+// handleVLLMAuth handles Traefik ForwardAuth subrequests for central LLM inference.
+// It verifies the HMAC Bearer token in CPU memory (<0.1ms) and responds with
+// X-User-Id header if valid, or 401 Unauthorized if invalid or missing.
+func handleVLLMAuth(c echo.Context) error {
+	authHeader := c.Request().Header.Get("Authorization")
+	if authHeader == "" {
+		return c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": "Missing Authorization header",
+		})
+	}
+
+	parts := strings.SplitN(authHeader, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
+		return c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": "Invalid Authorization header format. Expected 'Bearer <token>'",
+		})
+	}
+
+	tokenStr := strings.TrimSpace(parts[1])
+	uid, err := verifyInferenceToken(tokenStr)
+	if err != nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{
+			"error": fmt.Sprintf("Authentication failed: %v", err),
+		})
+	}
+
+	// Set verified user ID in response header for Traefik to inject into downstream request
+	c.Response().Header().Set("X-User-Id", uid)
+	return c.NoContent(http.StatusOK)
+}
+
+// handleGetInferenceToken generates or returns a 30-day inference API token for the logged-in user.
+func handleGetInferenceToken(c echo.Context) error {
+	userToken, ok := c.Get("user").(*jwt.Token)
+	if !ok || userToken == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+	}
+	claims, ok := userToken.Claims.(jwt.MapClaims)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid session"})
+	}
+	username, ok := claims["sun"].(string)
+	if !ok || username == "" {
+		username, _ = claims["sub"].(string)
+	}
+	if username == "" {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Missing user in session"})
+	}
+
+	token, err := makeInferenceToken(username)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to generate token"})
+	}
+
+	return c.JSON(http.StatusOK, map[string]interface{}{
+		"user":       username,
+		"token":      token,
+		"expires_in": 30 * 86400,
+		"type":       "Bearer",
+	})
+}
+
 // indexPage renders the main dashboard for the logged-in user.
 func indexPage(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
@@ -81,11 +143,15 @@ func indexPage(c echo.Context) error {
 	// Dynamically scan for apps
 	apps := scanApps(project)
 
+	// Generate 30-day inference token for student API access
+	inferenceToken, _ := makeInferenceToken(username)
+
 	return c.Render(http.StatusOK, "index.html", map[string]interface{}{
-		"username":   username,
-		"project":    project,
-		"apps":       apps,
-		"expires_in": expiresIn,
+		"username":        username,
+		"project":         project,
+		"apps":            apps,
+		"expires_in":      expiresIn,
+		"inference_token": inferenceToken,
 	})
 }
 

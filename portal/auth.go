@@ -7,14 +7,25 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 )
 
-// readSlurmKey reads the shared secret key used for signing Slurm JWTs.
+var (
+	cachedJWTKey     []byte
+	cachedJWTKeyOnce sync.Once
+	cachedJWTErr     error
+)
+
+// readSlurmKey reads the shared secret key used for signing Slurm and vLLM JWTs.
+// It caches the key in memory via sync.Once to guarantee thread-safe zero disk I/O on hot auth paths.
 func readSlurmKey() ([]byte, error) {
-	return os.ReadFile(jwtKeyPath)
+	cachedJWTKeyOnce.Do(func() {
+		cachedJWTKey, cachedJWTErr = os.ReadFile(jwtKeyPath)
+	})
+	return cachedJWTKey, cachedJWTErr
 }
 
 // makeSlurmToken generates a signed JWT for the given user and project.
@@ -33,6 +44,60 @@ func makeSlurmToken(username string, project string) (string, error) {
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(key)
+}
+
+// makeInferenceToken generates a long-lived (30 days) HMAC-SHA256 signed Bearer JWT
+// for central vLLM inference API access.
+func makeInferenceToken(username string) (string, error) {
+	key, err := readSlurmKey()
+	if err != nil {
+		return "", err
+	}
+
+	claims := jwt.MapClaims{
+		"sub": username,
+		"aud": "vllm-api",
+		"iss": "ai-sandbox-portal",
+		"iat": time.Now().Unix(),
+		"exp": time.Now().Add(30 * 24 * time.Hour).Unix(),
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(key)
+}
+
+// verifyInferenceToken parses and validates an HMAC-SHA256 Bearer JWT in memory.
+// Returns the verified username/subject (uid) or an error.
+func verifyInferenceToken(tokenString string) (string, error) {
+	key, err := readSlurmKey()
+	if err != nil {
+		return "", fmt.Errorf("failed to read signing key: %w", err)
+	}
+
+	token, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing algorithm: %v", t.Header["alg"])
+		}
+		return key, nil
+	}, jwt.WithAudience("vllm-api"), jwt.WithIssuer("ai-sandbox-portal"))
+
+	if err != nil || !token.Valid {
+		return "", fmt.Errorf("invalid token: %w", err)
+	}
+
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return "", fmt.Errorf("invalid token claims")
+	}
+
+	sub, ok := claims["sub"].(string)
+	if !ok || sub == "" {
+		sub, ok = claims["sun"].(string)
+		if !ok || sub == "" {
+			return "", fmt.Errorf("missing subject in token claims")
+		}
+	}
+
+	return sub, nil
 }
 
 // fetchAccessMatrix retrieves the user-to-project access mapping.

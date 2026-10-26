@@ -29,6 +29,7 @@ Work through these in order, stopping when you have enough to give a clear answe
 4. **Compatibility check** — verify against the current stack (Kubernetes, Go portal, Slinky/Slurm, Kind, Helm)
 
 ### Constraints
+- **Keep It Short & Brief:** Use tight bullet points and concise tables. No walls of text.
 - Stay on topic. Do not explore tangential areas unless they directly affect the answer.
 - Cite your sources. Every claim should trace to something you actually read.
 - Do not recommend a course of action — present what you found, let the user decide.

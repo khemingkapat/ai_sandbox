@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 
@@ -48,14 +49,20 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
 
+	tmplGlob := "templates/*.html"
+	if _, err := os.Stat("/mnt/storage/common/templates/index.html"); err == nil {
+		tmplGlob = "/mnt/storage/common/templates/*.html"
+	}
 	e.Renderer = &TemplateRenderer{
 		templates: template.Must(template.New("").Funcs(template.FuncMap{
 			"upper": strings.ToUpper,
-		}).ParseGlob("templates/*.html")),
+		}).ParseGlob(tmplGlob)),
 	}
 
 	e.POST("/api/internal/allocate-port", handleAllocatePort)
 	e.POST("/api/internal/release-port", handleReleasePort)
+	e.GET("/api/auth/vllm", handleVLLMAuth)
+	e.POST("/api/auth/vllm", handleVLLMAuth)
 
 	e.GET("/login", loginPage)
 	e.POST("/login", loginAction)
@@ -73,6 +80,8 @@ func main() {
 	}))
 
 	ui.GET("/", indexPage)
+	ui.GET("/api/tokens/inference", handleGetInferenceToken)
+	ui.POST("/api/tokens/inference", handleGetInferenceToken)
 	ui.POST("/jobs/submit", submitJob)
 	ui.GET("/jobs/:job_id", jobStatus)
 	ui.GET("/jobs/:job_id/log", jobLog)
