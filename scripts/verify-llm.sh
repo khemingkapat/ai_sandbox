@@ -224,40 +224,54 @@ else
 fi
 
 # ==============================================================================
-# STAGE 3: Traefik Ingress & API Gateway Protection
+# STAGE 3: Traefik Ingress & API Gateway Protection (ForwardAuth & QoS)
 # ==============================================================================
 echo -e "\n${BOLD}============================================================${NC}"
-echo -e "${BOLD}▶ STAGE 3: Traefik Ingress & API Gateway Protection${NC}"
+echo -e "${BOLD}▶ STAGE 3: Traefik Ingress & API Gateway Protection (ForwardAuth & QoS)${NC}"
 echo -e "${BOLD}============================================================${NC}"
 
-# Check 3.1: Gateway HTTPS Routing (/v1/models)
-INGRESS_HTTPS=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -sk -m 5 https://127.0.0.1:443/v1/models 2>/dev/null || echo "FAIL")
-if [[ "$INGRESS_HTTPS" == *"object\":\"list\""* ]]; then
-    report_pass "Traefik HTTPS Gateway (443)" "Successfully routed to /v1/models"
+# Generate test HMAC-SHA256 token for authorized gateway requests
+TEST_TOKEN=$(python3 -c "
+import base64, subprocess, json, time, hmac, hashlib
+cmd = ['kubectl', 'get', 'secret', 'slurm-auth-jwt', '-n', 'slurm', '-o', r'jsonpath={.data.jwt\.key}']
+secret = base64.b64decode(subprocess.run(cmd, capture_output=True, check=True).stdout.strip())
+header = {'alg': 'HS256', 'typ': 'JWT'}
+payload = {'sub': 'verify_user', 'aud': 'vllm-api', 'iss': 'ai-sandbox-portal', 'iat': int(time.time()), 'exp': int(time.time()) + 86400}
+def b64url(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
+h = b64url(json.dumps(header, separators=(',', ':')).encode())
+p = b64url(json.dumps(payload, separators=(',', ':')).encode())
+sig = b64url(hmac.new(secret, f'{h}.{p}'.encode(), hashlib.sha256).digest())
+print(f'{h}.{p}.{sig}')
+" 2>/dev/null || echo "")
+
+# Check 3.1: Gateway Unauthenticated Rejection (ForwardAuth)
+UNAUTH_CODE=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -sk -o /dev/null -w "%{http_code}" -m 5 https://127.0.0.1:443/v1/models 2>/dev/null || echo "FAIL")
+if [ "$UNAUTH_CODE" == "401" ]; then
+    report_pass "Traefik ForwardAuth (Unauthenticated Rejection)" "Unauthenticated request correctly rejected with HTTP 401"
 else
-    report_fail "Traefik HTTPS Gateway (443)" "Failed to reach /v1/models through port 443"
+    report_fail "Traefik ForwardAuth (Unauthenticated Rejection)" "Expected HTTP 401, got $UNAUTH_CODE"
 fi
 
-# Check 3.2: Gateway HTTP Routing (80)
-INGRESS_HTTP=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -s -m 5 http://127.0.0.1:80/v1/models 2>/dev/null || echo "FAIL")
-if [[ "$INGRESS_HTTP" == *"object\":\"list\""* ]]; then
-    report_pass "Traefik HTTP Gateway (80)" "Direct plain HTTP routing functional"
+# Check 3.2: Gateway Authenticated HTTPS Routing (/v1/models)
+INGRESS_HTTPS=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -sk -m 5 -H "Authorization: Bearer $TEST_TOKEN" https://127.0.0.1:443/v1/models 2>/dev/null || echo "FAIL")
+if [[ "$INGRESS_HTTPS" == *"object\":\"list\""* ]]; then
+    report_pass "Traefik HTTPS Gateway (443)" "Successfully routed to /v1/models with verified Bearer token"
 else
-    report_fail "Traefik HTTP Gateway (80)" "Failed to reach /v1/models through port 80"
+    report_fail "Traefik HTTPS Gateway (443)" "Failed to reach /v1/models through port 443 ($INGRESS_HTTPS)"
 fi
 
 # Check 3.3: Protection Middlewares in ConfigMap
 CM_CONFIG=$(kubectl get configmap traefik-security-config -n slurm -o jsonpath='{.data.security\.yaml}' 2>/dev/null || echo "")
-if [[ "$CM_CONFIG" == *"vllm-ratelimit"* ]] && [[ "$CM_CONFIG" == *"vllm-inflight"* ]]; then
-    report_pass "API Protection Middlewares" "vllm-ratelimit (10 req/s, burst 20) & vllm-inflight (15 max) active"
+if [[ "$CM_CONFIG" == *"vllm-forwardauth"* ]] && [[ "$CM_CONFIG" == *"vllm-strip-user-header"* ]] && [[ "$CM_CONFIG" == *"vllm-ratelimit"* ]] && [[ "$CM_CONFIG" == *"vllm-inflight"* ]]; then
+    report_pass "API Protection Middlewares" "vllm-strip-user-header, vllm-forwardauth, vllm-ratelimit & vllm-inflight active"
 else
     report_fail "API Protection Middlewares" "Middlewares missing in traefik-security-config ConfigMap"
 fi
 
 # Check 3.4: Active Rate-Limiting Burst Behavioral Verification
 RATELIMIT_BURST=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- sh -c '
-for i in $(seq 1 60); do
-    curl -sk -o /dev/null -w "%{http_code}\n" -m 5 https://127.0.0.1:443/v1/models &
+for i in $(seq 1 30); do
+    curl -sk -o /dev/null -w "%{http_code}\n" -m 5 -H "Authorization: Bearer '"$TEST_TOKEN"'" https://127.0.0.1:443/v1/models &
 done
 wait
 ' 2>/dev/null | sort | uniq -c || echo "FAIL")
@@ -267,7 +281,7 @@ HAS_429=$(echo "$RATELIMIT_BURST" | grep -c "429" || echo "0")
 
 if [ "$HAS_200" -gt 0 ] && [ "$HAS_429" -gt 0 ]; then
     SUMMARY_429=$(echo "$RATELIMIT_BURST" | grep "429" | tr -d ' ' || echo "429")
-    report_pass "Active Rate-Limiting Behavioral Test" "60-burst triggered 429 throttling ($SUMMARY_429)"
+    report_pass "Active Rate-Limiting Behavioral Test" "Per-user burst triggered 429 throttling ($SUMMARY_429)"
 else
     report_fail "Active Rate-Limiting Behavioral Test" "Expected both 200 and 429 status codes ($RATELIMIT_BURST)"
 fi
@@ -389,8 +403,22 @@ echo -e "${BOLD}▶ STAGE 5: Live Inference, Latency & Boundary Checks${NC}"
 echo -e "${BOLD}============================================================${NC}"
 
 # Check 5.1: Live Chat Completion Benchmark
+CHAT_TOKEN=$(python3 -c "
+import base64, subprocess, json, time, hmac, hashlib
+cmd = ['kubectl', 'get', 'secret', 'slurm-auth-jwt', '-n', 'slurm', '-o', r'jsonpath={.data.jwt\.key}']
+secret = base64.b64decode(subprocess.run(cmd, capture_output=True, check=True).stdout.strip())
+header = {'alg': 'HS256', 'typ': 'JWT'}
+payload = {'sub': 'chat_user', 'aud': 'vllm-api', 'iss': 'ai-sandbox-portal', 'iat': int(time.time()), 'exp': int(time.time()) + 86400}
+def b64url(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
+h = b64url(json.dumps(header, separators=(',', ':')).encode())
+p = b64url(json.dumps(payload, separators=(',', ':')).encode())
+sig = b64url(hmac.new(secret, f'{h}.{p}'.encode(), hashlib.sha256).digest())
+print(f'{h}.{p}.{sig}')
+" 2>/dev/null || echo "")
+
 PROMPT_START=$(date +%s%N)
 CHAT_RESP=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -sk -m 15 -X POST https://127.0.0.1:443/v1/chat/completions \
+  -H "Authorization: Bearer $CHAT_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "'"$SERVED_MODEL"'",
@@ -416,6 +444,19 @@ else
 fi
 
 # Check 5.2: Context Window Boundary Check (Overflow Rejection)
+OVERFLOW_TOKEN=$(python3 -c "
+import base64, subprocess, json, time, hmac, hashlib
+cmd = ['kubectl', 'get', 'secret', 'slurm-auth-jwt', '-n', 'slurm', '-o', r'jsonpath={.data.jwt\.key}']
+secret = base64.b64decode(subprocess.run(cmd, capture_output=True, check=True).stdout.strip())
+header = {'alg': 'HS256', 'typ': 'JWT'}
+payload = {'sub': 'overflow_user', 'aud': 'vllm-api', 'iss': 'ai-sandbox-portal', 'iat': int(time.time()), 'exp': int(time.time()) + 86400}
+def b64url(b): return base64.urlsafe_b64encode(b).decode().rstrip('=')
+h = b64url(json.dumps(header, separators=(',', ':')).encode())
+p = b64url(json.dumps(payload, separators=(',', ':')).encode())
+sig = b64url(hmac.new(secret, f'{h}.{p}'.encode(), hashlib.sha256).digest())
+print(f'{h}.{p}.{sig}')
+" 2>/dev/null || echo "")
+
 OVERFLOW_RESP=$(python3 -c '
 import json
 huge_text = "test " * 18000
@@ -425,6 +466,7 @@ print(json.dumps({
     "max_tokens": 10
 }))
 ' | kubectl exec -i -n slurm deploy/hpc-portal -c portal -- curl -sk -m 15 -X POST https://127.0.0.1:443/v1/chat/completions \
+  -H "Authorization: Bearer $OVERFLOW_TOKEN" \
   -H "Content-Type: application/json" \
   -d @- -o /dev/null -w "%{http_code}\n" 2>/dev/null || echo "FAIL")
 

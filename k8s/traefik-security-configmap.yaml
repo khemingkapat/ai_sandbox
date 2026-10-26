@@ -16,12 +16,13 @@ data:
       routers:
         vllm-api:
           entryPoints:
-            - web
             - websecure
           rule: "PathPrefix(`/v1`)"
           service: vllm-backend
           priority: 100
           middlewares:
+            - vllm-strip-user-header
+            - vllm-forwardauth
             - vllm-ratelimit
             - vllm-inflight
         mlflow:
@@ -68,11 +69,23 @@ data:
             contentTypeNosniff: true
             browserXssFilter: true
             customFrameOptionsValue: "SAMEORIGIN"
+        vllm-strip-user-header:
+          headers:
+            customRequestHeaders:
+              X-User-Id: ""
+        vllm-forwardauth:
+          forwardAuth:
+            address: "http://127.0.0.1:8080/api/auth/vllm"
+            trustForwardHeader: true
+            authResponseHeaders:
+              - "X-User-Id"
         vllm-ratelimit:
           rateLimit:
-            average: 10
-            burst: 20
-            period: 1s
+            average: 20
+            burst: 5
+            period: 1m
+            sourceCriterion:
+              requestHeaderName: "X-User-Id"
         vllm-inflight:
           inFlightReq:
             amount: 15

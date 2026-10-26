@@ -496,6 +496,21 @@
     </div>
   </header>
 
+  <!-- Central LLM API Token Panel -->
+  <section class="llm-token-section" style="margin-bottom: 24px;">
+    <div style="border: 1px solid var(--border); background: var(--surface); padding: 16px 20px; border-radius: 2px; display: flex; flex-direction: column; gap: 10px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="section-label" style="margin: 0; color: var(--accent);">// Central LLM Inference API Token (vLLM)</div>
+        <span style="font-size: 11px; font-family: var(--mono); color: var(--text-dim);">Bearer Auth · 20 RPM Quota · 30-Day Expiry</span>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <input type="password" id="inference-token-input" value="{{ .inference_token }}" readonly style="flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; font-family: var(--mono); font-size: 12px; border-radius: 2px;">
+        <button class="btn-secondary" id="btn-toggle-token" onclick="toggleTokenVisibility()" style="font-size: 12px; padding: 8px 14px;">Show</button>
+        <button class="btn-secondary" onclick="copyInferenceToken()" style="font-size: 12px; padding: 8px 14px; background: var(--accent); color: var(--bg); border-color: var(--accent); font-weight: 600;">Copy Token</button>
+      </div>
+    </div>
+  </section>
+
   <!-- Resource Status Panel -->
   <section class="status-section" style="margin-bottom: 40px; display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
     <div class="status-card" style="border: 1px solid var(--border); background: var(--surface); padding: 20px; border-radius: 2px;">
@@ -888,6 +903,29 @@
       btn.textContent = "Terminate";
       btn.disabled = false;
     }
+  }
+
+  function toggleTokenVisibility() {
+    const input = document.getElementById('inference-token-input');
+    const btn = document.getElementById('btn-toggle-token');
+    if (input.type === 'password') {
+      input.type = 'text';
+      btn.textContent = 'Hide';
+    } else {
+      input.type = 'password';
+      btn.textContent = 'Show';
+    }
+  }
+
+  function copyInferenceToken() {
+    const input = document.getElementById('inference-token-input');
+    navigator.clipboard.writeText(input.value).then(() => {
+      showToast('Inference token copied to clipboard');
+    }).catch(() => {
+      input.select();
+      document.execCommand('copy');
+      showToast('Inference token copied to clipboard');
+    });
   }
 </script>
 </body>
