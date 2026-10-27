@@ -218,9 +218,9 @@ With 46,068 MiB physical VRAM on the NVIDIA L40, allocation is capped at `0.90` 
 
 | Metric | Target SLA / SLO | Operational Definition | Enforcement Layer |
 | :--- | :--- | :--- | :--- |
-| **TTFT (Time To First Token)** | **P95 < 400ms** (prompts $\le$ 2K) | Elapsed time from HTTP request receipt to delivery of the first streamed SSE token. | `--enable-chunked-prefill=true`<br/>`--max-num-batched-tokens 2048` |
+| **TTFT (Cold Prefill)** | **P95 < 400ms** (prompts $\le$ 2K) | Elapsed time from HTTP request receipt to delivery of the first streamed SSE token on uncached prompts. | `--enable-chunked-prefill=true`<br/>`--max-num-batched-tokens 2048` |
+| **TTFT (Warm / Cached)** | **P95 < 30ms** (shared prefixes $\ge$ 512 tokens) | Latency to first token when a request matches an existing prefix in the Radix KV cache (hit rate itself is prompt-dependent and excluded from SLAs). | `--enable-prefix-caching=true` |
 | **TPOT (Time Per Output Token)** | **P95 < 35ms/token** ($\ge$ 28 tok/s) | Inter-token generation latency during decoding. Prevents user-facing stuttering. | PagedAttention backend with FlashInfer kernels |
-| **KV Cache Prefix Reuse** | **$\ge$ 40% hit rate** on shared prompts | Automatic caching of identical system prompts, lab instructions, and assignment prefixes. | `--enable-prefix-caching=true` |
 | **Max Concurrency** | **15 active streams** (gateway cap) | Simultaneous active generation streams before request queuing occurs. | Traefik `vllm-inflight` (amount: 15) |
 | **User Request Rate** | **20 req / min** (burst: 5) | Per-user rate limit bucket enforcing fair-share access across students. | Traefik `vllm-ratelimit` (`sourceCriterion: X-User-Id`) |
 | **Queue Latency & Rejection** | Queue wait **< 2.0s**; reject with **HTTP 429** on backlog | Requests waiting in Traefik or vLLM queue are rejected when in-flight slots are saturated. | Traefik `inFlightReq` + vLLM internal scheduling queue |
@@ -229,8 +229,9 @@ With 46,068 MiB physical VRAM on the NVIDIA L40, allocation is capped at `0.90` 
 
 1. **Chunked Prefill (`--enable-chunked-prefill=true`):**  
    Standard continuous batching prioritizes large prompt prefills, which stalls active decode phases and produces severe TPOT jitter for concurrent users. Chunked prefill breaks long prompt evaluation into 2048-token chunks, interleaving prefill with ongoing token decode batches.
-2. **Prefix Caching (`--enable-prefix-caching=true`):**  
-   In classroom settings, multiple students submit queries sharing identical system prompts or reference documents. Prefix caching prevents redundant attention re-computation, dropping TTFT for cached prefixes from ~500ms to <30ms.
+2. **Prefix Caching & SLA Scoping (`--enable-prefix-caching=true`):**  
+   In classroom settings, multiple students submit queries sharing identical system prompts or reference documents. Prefix caching prevents redundant attention re-computation, dropping TTFT for cached prefixes from ~500ms to <30ms.  
+   *SLA vs. Engine Decoupling:* Cache hit percentage is **not** guaranteed as an infrastructure SLA, because hit rate is non-deterministic and dictated by student prompt entropy. The infrastructure guarantees latency conditionally (Warm TTFT < 30ms upon hit), while the vLLM engine reaps all opportunistic performance gains during multi-turn dialogs and shared lab templates.
 3. **Bounded Context & Concurrency Sizing:**  
    `--max-model-len 16384` paired with `--max-num-seqs 64` prevents the engine from accepting more concurrent sequences than can fit in the physical VRAM KV cache, preventing emergency block swapping to host memory.
 
