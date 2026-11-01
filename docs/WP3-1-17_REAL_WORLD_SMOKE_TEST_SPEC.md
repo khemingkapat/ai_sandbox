@@ -1,57 +1,60 @@
 # Spec: Real-World Student Workflow Validation (Smoke Test)
 
 **Work Package:** WP3-1-17 (Integration Testing & Validation)  
-**Status:** 🟡 Staged for Execution (Scheduled for Tomorrow)  
+**Status:** 🟢 Audited & Approved for Execution  
 **Target Environment:** Proxmox K3s Cluster (`ai-control`, `ai-worker1`, `ai-sandbox-gpu-vm`)  
 **Hardware Profile:** 1x NVIDIA L40 (48GB VRAM), Resource-Constrained CPU/RAM Nodes  
 **Authors:** Khem & Antigravity (Senior Systems Architect & Co-Architect)  
+**Auditor Reconciled:** Principal Platform Architect (Audit Pass: 2026-11-01)
 
 ---
 
 ### Decision
-Execute a sequential, end-to-end "Golden Path" smoke test simulating a single non-root student (`user1`, UID 1001) performing a realistic machine learning workflow across storage, interactive inference, experiment tracking, and batch GPU compute. To eliminate GPU VRAM deadlock on our single physical L40 GPU, inference and batch training will execute sequentially rather than concurrently.
+Execute a sequential, end-to-end "Golden Path" smoke test simulating a single non-root student (`user1`, UID 1001) performing a realistic machine learning workflow across storage, interactive inference, experiment tracking, and batch GPU compute. To eliminate GPU VRAM deadlock on our single physical L40 GPU, inference and batch training will execute sequentially using an automated lifecycle state machine with guaranteed teardown/recovery traps.
 
 ---
 
 ### Scope
 * **In Scope:**
-  * Functional verification of the full student data path:
-    1. Read dataset from `/mnt/storage/datasets/` and write user output to `/mnt/storage/projects/user1/` under UID 1001.
-    2. Prompt completion request from inside a student container to central `vLLM` on `ai-sandbox-gpu-vm` over TCP port 8000.
-    3. Experiment tracking run logging loss metrics and saving an artifact to central `MLflow` on `ai-worker1` over TCP port 5000.
-    4. Minimal Slurm batch job dispatch (`sbatch`) requesting the physical L40 GPU via Apptainer/PyTorch to verify CUDA kernel execution (`torch.cuda.is_available() == True`).
-  * Automated orchestrator runner script: `scripts/test-student-golden-path.sh`.
+  * **Role 1: Test Harness Orchestrator (Admin Context on Host):**
+    * Manages cluster lifecycle state transitions (vLLM scaling, Slurm partition activation, pod provisioning, and emergency rollback traps).
+  * **Role 2: Student Workload Probe (Tenant Context in `workload` Namespace, UID 1001):**
+    1. Read sample dataset from `/mnt/storage/datasets/` and write user output to allocated project storage at `/mnt/storage/projects/project1/smoke_output.json`.
+    2. Execute authenticated OpenAI chat completion against Traefik Ingress (`https://ai-control:443/v1/chat/completions`) using an HMAC-SHA256 Bearer token, passing through ForwardAuth and rate-limiting.
+    3. Log experiment parameters, 3 loss metric steps, and an artifact file (`summary.txt`) to MLflow at `http://mlflow.services.svc.cluster.local:5000`.
+  * **Role 3: Slurm Batch GPU Worker (`ai-sandbox-gpu-vm`):**
+    * Execute a Slurm batch job (`#SBATCH --partition=batch-gpu --gres=gpu:1`) running `apptainer exec --nv` to verify CUDA driver binding and L40 hardware visibility under UID 1001.
+  * Self-contained orchestrator runner script: `scripts/test-student-golden-path.sh`.
 * **Explicitly Out of Scope:**
-  * Stress testing, load testing, or high-throughput concurrency benchmarking.
-  * Multi-user QoS preemption or edge-case failure injections.
+  * Stress testing, load testing, or multi-user QoS concurrency benchmarking.
   * Central Vector Database (Qdrant) deployment (deferred until core pipeline passes).
-  * Central Portal telemetry exporters or remote scraping agents (WP3-1-13).
+  * Remote telemetry scraping agents or Prometheus edge exporters (WP3-1-13).
 
 ---
 
-### Tier 1 — Mental Model: Physical Data & Execution Path
+### Tier 1 — Mental Model: Physical Data & Lifecycle Path
 
 The smoke test validates whether bits physically flow across Linux kernel boundaries, network sockets, and hardware accelerators as a non-privileged student:
 
 ```
-[ Step 1: Storage & POSIX UID ]
-Student Process (UID 1001) ──(read)──► /mnt/storage/datasets/sample.csv (Kernel VFS check)
-Student Process (UID 1001) ──(write)──► /mnt/storage/projects/user1/results.json (Writable check)
+[ Phase 1: Student Interactive Session (workload namespace, UID 1001) ]
+  ├── 1. Storage VFS: Read /mnt/storage/datasets/ -> Write /mnt/storage/projects/project1/
+  ├── 2. Inference: TCP 443 -> Traefik Ingress -> ForwardAuth (:8080) -> vLLM (:8000 on L40)
+  └── 3. Tracking: TCP 5000 -> MLflow WSGI -> PostgreSQL 16 (:5432) & /mnt/storage/mlflow/artifacts
 
-[ Step 2: Central Inference (vLLM on L40) ]
-Student Container ──(TCP Socket :8000 / Traefik Ingress)──► vLLM Engine
-   ├── Sends JSON prompt payload with student Bearer token
-   └── Receives streamed token buffers from Qwen model on L40 GPU
+[ Phase 2: Sequential GPU Transition State Machine (Admin Harness) ]
+  ├── 1. Scale down vLLM: kubectl scale deploy/vllm -n services --replicas=0
+  ├── 2. Wait for pod termination & flush /dev/nvidia* CUDA memory contexts (sleep 5)
+  └── 3. Activate partition: scontrol update PartitionName=batch-gpu State=UP
 
-[ Step 3: Experiment Tracking (MLflow on worker1) ]
-Student Container ──(TCP Socket :5000)──► MLflow WSGI Server
-   ├── Commits hyperparameter & loss rows into PostgreSQL 16
-   └── Streams model artifact binary into /mnt/storage/mlflow/artifacts
+[ Phase 3: Slurm Batch GPU Execution (ai-sandbox-gpu-vm) ]
+  ├── sbatch --partition=batch-gpu --gres=gpu:1
+  └── Apptainer exec --nv -> verifies L40 device access (nvidia-smi / CUDA runtime)
 
-[ Step 4: Batch GPU Execution (Slurm + Apptainer) ]
-Student Session ──(sbatch)──► slurmctld ──(Dispatch)──► slurmd on ai-sandbox-gpu-vm
-   ├── Launches Apptainer container with NVIDIA runtime
-   └── Executes PyTorch: torch.cuda.is_available() & 1000x1000 matrix multiplication
+[ Phase 4: Cluster Recovery & Restoration (Guaranteed via bash trap) ]
+  ├── 1. Deactivate partition: scontrol update PartitionName=batch-gpu State=INACTIVE
+  ├── 2. Restore vLLM: kubectl scale deploy/vllm -n services --replicas=1
+  └── 3. Wait for vLLM Readiness probe (timeout: 300s)
 ```
 
 ---
@@ -60,9 +63,8 @@ Student Session ──(sbatch)──► slurmctld ──(Dispatch)──► slur
 
 | File | Purpose |
 | :--- | :--- |
-| `scripts/test-student-golden-path.sh` | Automated bash runner orchestrating the 4-step student test on the cluster. |
-| `templates/smoke_test_student_workload.py` | Python script executed inside the student container (handles storage read/write, vLLM API call, and MLflow logging). |
-| `templates/smoke_test_gpu_batch.slurm` | Minimal Slurm batch script submitted via `sbatch` allocating 1 GPU and executing PyTorch CUDA check inside Apptainer. |
+| `scripts/test-student-golden-path.sh` | Self-contained, automated test orchestrator with built-in payload heredocs, lifecycle state machine, and unconditional recovery traps. |
+| `k8s/network-policies/allow-workload-traefik-egress.yaml` | CNI NetworkPolicy permitting `workload` interactive pods to reach Traefik on port 443 in `slurm` namespace for authenticated inference. |
 
 ---
 
@@ -81,7 +83,7 @@ Student Session ──(sbatch)──► slurmctld ──(Dispatch)──► slur
 | :--- | :--- |
 | `k8s/values.yaml` | Production Slurm Helm configuration; must remain untouched during functional testing. |
 | `k8s/kind-config.yaml` | Local prototype configuration (archived baseline). |
-| `portal/*` | Web portal backend code; test targets backend services directly first. |
+| `portal/*` | Web portal backend code; test targets existing ForwardAuth and API endpoints directly. |
 | `k8s/vllm-deployment.yaml` | Model configurations are verified; scaled temporarily via `kubectl scale` without editing source manifests. |
 
 ---
@@ -90,24 +92,19 @@ Student Session ──(sbatch)──► slurmctld ──(Dispatch)──► slur
 
 Every criterion must be **objectively pass/fail**:
 
-- [ ] **A1 (Storage Permissions):** `smoke_test_student_workload.py` running as UID 1001 reads `/mnt/storage/datasets/` and creates `/mnt/storage/projects/user1/smoke_output.json` with exit code `0`.
-- [ ] **A2 (Inference Token Generation):** `smoke_test_student_workload.py` receives a valid JSON completion response containing generated text from `http://vllm-service.services.svc.cluster.local:8000` (or Ingress) using the configured model.
-- [ ] **A3 (MLflow Tracking & Artifacts):** MLflow run registers with `status: FINISHED`, 3 logged metric steps for `loss`, and artifact `summary.txt` verifiable via `GET http://mlflow.services.svc.cluster.local:5000/api/2.0/mlflow/runs/get`.
-- [ ] **A4 (Slurm Batch GPU Execution):** `smoke_test_gpu_batch.slurm` submitted via `sbatch` completes with Slurm state `COMPLETED` (exit code `0:0`), with job output proving `CUDA available: True` and printing the L40 GPU device name.
-- [ ] **A5 (No Manifest Degradation):** No persistent edits made to files in "Files NOT to Touch".
-- [ ] **A6 (Log Entry):** `docs/INCREMENT_LOG.md` updated with empirical test output and execution timestamps.
+- [ ] **A1 (Storage Permissions):** Test probe executing as UID 1001 reads `/mnt/storage/datasets/` and creates `/mnt/storage/projects/project1/smoke_output.json` with exit code `0`.
+- [ ] **A2 (Inference ForwardAuth & Completion):** Test probe successfully calls `https://ai-control:443/v1/chat/completions` with valid HMAC Bearer token, passes ForwardAuth, and receives valid token generation response.
+- [ ] **A3 (MLflow Tracking & Artifact List):** MLflow run registers with `status: FINISHED`, 3 logged metric steps for `loss`, and artifact `summary.txt` verifiable via `GET http://mlflow.services.svc.cluster.local:5000/api/2.0/mlflow/artifacts/list?run_id=<RUN_ID>`.
+- [ ] **A4 (Slurm Batch GPU Execution):** Slurm batch job submitted via `sbatch` completes with Slurm state `COMPLETED` (exit code `0:0`), with job output proving `CUDA/NVIDIA driver binding` on the physical L40 GPU.
+- [ ] **A5 (Clean Teardown & Cluster Restoration):** Ephemeral probe pod deleted, Slurm `batch-gpu` returned to `State=INACTIVE`, and vLLM restored to `1/1 Ready` on `ai-sandbox-gpu-vm`.
+- [ ] **A6 (No Manifest Degradation):** No changes made to files in "Files NOT to Touch".
+- [ ] **A7 (Log Entry):** `docs/INCREMENT_LOG.md` updated with empirical test output and execution timestamps.
 
 ---
 
-### Design Rationale: Managing Hardware Realities
+### Design Rationale: Architectural Hardening from Audit
 
-1. **Why Ignore the Low-Spec CPU:**
-   The Linux CFS scheduler and glibc runtime function identically whether a machine possesses 4 cores or 64 cores. CPU bottlenecks affect latency and concurrent throughput, not functional instruction execution.
-2. **Why Sequential GPU Allocation:**
-   The cluster currently possesses exactly **one physical NVIDIA L40 (48GB)**. vLLM by default claims 90% of VRAM (43.2 GB) for static model weights and KV-cache pools. Attempting to run a concurrent student PyTorch batch job will trigger an unrecoverable CUDA Out-Of-Memory panic. 
-   Running Stage 2 (Inference API) and then safely scaling vLLM down to run Stage 4 (Batch GPU Slurm job) provides 100% test fidelity without destabilizing the node.
-
----
-
-### Open Questions
-* **Open Question 1:** For Stage 4 batch execution, does the student's Apptainer `.sif` image already exist on `/mnt/storage/` (e.g. `images/pytorch.sif`), or will the batch job execute PyTorch using the cached containerd OCI runtime on `ai-sandbox-gpu-vm`? *(To be resolved at start of testing tomorrow).*
+1. **Elimination of ClusterIP Backdoor:** Accessing vLLM via ClusterIP on port 8000 bypasses Increment 35 ForwardAuth. Golden Path testing must traverse Traefik Ingress (:443) using student Bearer auth, enforced by `allow-workload-traefik-egress.yaml`.
+2. **Correct POSIX Path:** Testing against `/mnt/storage/projects/project1` matches existing directory ownership (`1001:1001, chmod 700`), avoiding `EACCES` permission traps on `/mnt/storage/projects/user1`.
+3. **Single L40 GPU Lifecycle State Machine:** Dynamic scaling of vLLM guarantees zero VRAM thrashing with batch jobs, while bash `EXIT` traps ensure vLLM is restored even if the batch test fails.
+4. **Self-Cleaning Harness:** All test payloads are embedded into `scripts/test-student-golden-path.sh` as heredocs, preventing repository bloat in `templates/`.
