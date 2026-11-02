@@ -201,42 +201,31 @@ spec:
           print(f"  [PASS] vLLM generated completion tokens: '{answer}'")
 
       print("\n=== 3. Testing Central Experiment Tracking (MLflow :5000) ===")
+      import mlflow
       mlflow_base = os.environ["MLFLOW_TRACKING_URI"]
-      # Create Run
-      create_req = urllib.request.Request(
-          f"{mlflow_base}/api/2.0/mlflow/runs/create",
-          data=json.dumps({"experiment_id": "0", "user_id": "user1"}).encode("utf-8"),
-          headers={"Content-Type": "application/json"}
-      )
-      with urllib.request.urlopen(create_req, timeout=10) as r:
-          run_data = json.loads(r.read().decode("utf-8"))
-          run_id = run_data["run"]["info"]["run_id"]
+      mlflow.set_tracking_uri(mlflow_base)
+      mlflow.set_experiment("default")
+      with mlflow.start_run(run_name="smoke-student-run") as run:
+          run_id = run.info.run_id
           print(f"  [PASS] Registered MLflow run ID: {run_id}")
+          mlflow.log_param("student_user", "user1")
+          for step, loss_val in enumerate([0.5, 0.3, 0.1]):
+              mlflow.log_metric("loss", loss_val, step=step)
+          print("  [PASS] Logged 3 loss metric steps to MLflow backend.")
+          
+          summary_path = "/tmp/summary.txt"
+          with open(summary_path, "w") as f:
+              f.write("AI Sandbox: WP3-1-17 Student Golden Path Verification Artifact")
+          mlflow.log_artifact(summary_path)
+          print("  [PASS] Uploaded artifact summary.txt to MLflow proxied storage.")
 
-      # Log Metrics
-      for step, loss_val in enumerate([0.5, 0.3, 0.1]):
-          log_req = urllib.request.Request(
-              f"{mlflow_base}/api/2.0/mlflow/runs/log-metric",
-              data=json.dumps({
-                  "run_id": run_id,
-                  "key": "loss",
-                  "value": loss_val,
-                  "timestamp": int(time.time() * 1000),
-                  "step": step
-              }).encode("utf-8"),
-              headers={"Content-Type": "application/json"}
-          )
-          urllib.request.urlopen(log_req, timeout=10)
-      print("  [PASS] Logged 3 loss metric steps to MLflow backend.")
-
-      # Finish Run
-      end_req = urllib.request.Request(
-          f"{mlflow_base}/api/2.0/mlflow/runs/update",
-          data=json.dumps({"run_id": run_id, "status": "FINISHED", "end_time": int(time.time() * 1000)}).encode("utf-8"),
-          headers={"Content-Type": "application/json"}
-      )
-      urllib.request.urlopen(end_req, timeout=10)
-      print("  [PASS] Updated MLflow run status to FINISHED.")
+      # Verify Artifact via MLflow REST API
+      list_url = f"{mlflow_base}/api/2.0/mlflow/artifacts/list?run_id={run_id}"
+      with urllib.request.urlopen(list_url, timeout=10) as r:
+          artifacts = json.loads(r.read().decode("utf-8"))
+          files = [item["path"] for item in artifacts.get("files", [])]
+          assert "summary.txt" in files, f"summary.txt not found in artifacts: {files}"
+          print(f"  [PASS] Verified artifact summary.txt listed in MLflow run: {files}")
 
       print("\n✨ Student Interactive Workflow completed successfully!")
 EOF
