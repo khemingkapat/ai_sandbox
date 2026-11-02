@@ -2,6 +2,76 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 37] - 2026-11-02: WP3-1-17 Part B "De-Utopia" Production Hardening & Fault Isolation
+
+*   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)
+*   **Goal:** Address advisor's skepticism regarding "textbook-only" architectures by resolving three physical production traps (Scoped subPath Isolation, Root-Squash & Collaborative Permissions, and Concurrent GPU Time-Slicing Context Isolation) and empirically validating all 8 gates on the live Proxmox cluster.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Scoped subPath VFS Isolation (`portal/session_manager.go`, `portal/session_manager_test.go`):**
+    *   Eliminated the monolithic `/mnt/storage` mount. Injected 5 granular `subPath` targets (`projects/<project>`, `scratch` [sticky 1777], `datasets` [RO], `models` [RO], `common/etc` -> `/var/lib/extrausers` [RO]).
+    *   Completely hides sensitive cluster service directories (e.g., `/mnt/storage/mlflow`) and peer student projects from the student container VFS.
+    *   Kernel enforces `EROFS` (Read-only file system) on datasets.
+2.  **Root-Squash & Collaborative Team Permissions (`portal/session_manager.go`, `scripts/init-storage.sh`):**
+    *   Dynamically reads `/var/lib/extrausers/passwd` and `/var/lib/extrausers/group` to inject `PodSecurityContext` (`runAsUser: <uid>`, `runAsGroup: <project_gid>`, `supplementalGroups`, `fsGroup`), surviving NFS `root_squash` by booting directly as non-root.
+    *   Configured shared project workspaces to `mode 2770` (setgid) and injected `umask 0002` into sessions, allowing team members (e.g., `user2` in `project1`) to edit shared artifacts while strictly denying unauthorized tenants (`user3`).
+3.  **Hardware GPU Time-Slicing & Fault Isolation (`k8s/nvidia-device-plugin.yaml`, `docs/SYSTEM_ASSESSMENT_AND_PLANNING_REPORT.md`):**
+    *   Rejected NVIDIA MPS due to catastrophic blast radius (shared CUDA context crashes all clients upon an unhandled exception or `kill -9`).
+    *   Updated Kubernetes NVIDIA Device Plugin time-slicing from `replicas: 2` to `replicas: 4` to accommodate the continuous Slinky Slurm worker daemon (`slurmd-gpu-0`) alongside multiple concurrent GPU pods.
+    *   Documented fault isolation mechanisms and Slurm GRES temporal batch exclusivity in §4.8 of the planning report.
+4.  **End-to-End Test Harness & Specification (`scripts/test-student-golden-path.sh`, `docs/WP3-1-17_REAL_WORLD_SMOKE_TEST_SPEC.md`):**
+    *   Updated the smoke test harness and audited specification to validate all 8 gates (A1 through A8).
+
+### 💡 Why This Design?
+*   **VFS-Level Zero-Trust:** SubPath scoping guarantees that even if a student gets a shell, they cannot traverse outside their assigned project, preventing token/credential theft or raw database tampering.
+*   **Kernel-Level Fault Boundaries:** In multi-tenant GPU environments without MIG (such as Ada Lovelace L40), time-slicing maintains hardware driver-level CUDA context boundaries per process. A misbehaving or crashed student job cannot corrupt peer memory spaces.
+*   **Unix-Native Group Collaboration:** Setting SGID (`2770`) with cooperative `umask 0002` ensures seamless collaboration among teammates without needing complex out-of-band file permission management.
+
+### 🛠️ Verification Steps & Empirical Evidence
+Ran `scripts/test-student-golden-path.sh` against live Proxmox cluster:
+*   ✅ **A1 (Storage Permissions):** UID 1001 read datasets and wrote output to `/mnt/storage/projects/project1/smoke_output.json`.
+*   ✅ **A2 (Inference ForwardAuth):** Authenticated via Traefik HTTPS port 443; ForwardAuth verified `user1` and vLLM generated tokens (`'4'`).
+*   ✅ **A3 (MLflow Tracking & Artifacts):** Registered run, logged 3 metric loss steps, uploaded `summary.txt`, and verified REST API listing.
+*   ✅ **A4 (Slurm Batch GPU):** Activated `batch-gpu`, dispatched `sbatch --gres=gpu:1`, and bound physical L40 inside Apptainer.
+*   ✅ **A5 (Clean Teardown):** Deactivated `batch-gpu`, restored vLLM to 1 replica, verified rollout completion, and cleaned probe pods.
+*   ✅ **A6 (Scoped subPath Isolation):** Confirmed `/mnt/storage/mlflow` and peer projects are completely absent from VFS; kernel enforced `EROFS` on datasets; sticky scratch (1777) write verified.
+*   ✅ **A7 (Root-Squash & Collaboration):** Booted as non-root UID 1001 / GID 2001; teammate `user2` successfully appended to collaborative file; unauthorized `user3` received `Permission denied`.
+*   ✅ **A8 (GPU Context Fault Isolation):** Deployed 2 concurrent GPU time-sliced pods on L40; force-killing Pod A (`SIGKILL`) left Pod B's CUDA context and memory allocation (`42.96 GiB free`) completely intact.
+
+---
+
+## [Increment 36] - 2026-11-02: WP3-1-17 Real-World Student "Golden Path" End-to-End Validation
+
+*   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)
+*   **Goal:** Break out of the "architecture safe zone" per advisor guidance and execute a complete, real-world smoke test validating the full non-root student (UID 1001) data path across storage, authenticated LLM inference via Traefik Ingress, central MLflow experiment tracking, and batch GPU computation under physical single-L40 hardware constraints.
+
+### 📝 Key Changes & Files Modified
+
+1.  **Workload Egress NetworkPolicy (`k8s/network-policies/allow-workload-traefik-egress.yaml`):**
+    *   Added egress policy allowing pods in `workload` namespace to access Traefik Gateway on TCP port 443 in `slurm` namespace (`app: hpc-portal`).
+    *   Enforces zero-trust boundary while allowing student interactive sessions to authenticate against central LLM inference endpoints via Traefik ForwardAuth.
+2.  **Automated Smoke Test Harness (`scripts/test-student-golden-path.sh`):**
+    *   Created self-contained, end-to-end test runner validating all 5 acceptance criteria under non-root student context (UID 1001).
+    *   Implemented an automated single-L40 GPU transition state machine (`vllm` scaled to 0, kernel CUDA memory context flush, `batch-gpu` Slurm partition activated to `State=UP`, batch execution, Slurm partition reset to `State=INACTIVE`, and `vllm` rollout restoration) protected by an unconditional bash `EXIT` recovery trap.
+3.  **Audited Specification & Implementation Plan (`docs/WP3-1-17_REAL_WORLD_SMOKE_TEST_SPEC.md`):**
+    *   Formalized the test design through an independent `pro` architectural audit pass, fixing auth bypass vulnerabilities, path ownership mismatches (`project1` vs `user1`), and single-GPU race conditions.
+
+### 💡 Why This Design?
+*   **Real-World Student Fidelity:** Synthetic admin scripts pinging loopbacks do not prove student usability. Running as UID 1001 under POSIX permissions and zero-trust CNI policies proves the actual student pipe functions from disk to token generation.
+*   **Zero-Thrash Single-L40 Lifecycle:** vLLM pre-allocates 40 GB of the 48 GB VRAM. Sequential scaling avoids CUDA OOM panics while allowing verification of both LLM token serving and Slurm batch Apptainer CUDA binding on the same physical accelerator.
+*   **Zero-Debris Self-Cleaning:** Embeds test payloads directly in the runner script as heredocs, ensuring no leftover test artifacts in global templates.
+
+### 🛠️ Verification Steps & Empirical Evidence
+Ran `scripts/test-student-golden-path.sh` against live Proxmox K3s cluster:
+*   ✅ **A1 (Storage Permissions):** Probe running as UID 1001 successfully read `/mnt/storage/datasets/nlp/imdb` and wrote `/mnt/storage/projects/project1/smoke_output.json`.
+*   ✅ **A2 (Inference ForwardAuth):** Called `https://portal.slurm.svc.cluster.local:443/v1/chat/completions` with HMAC Bearer token; ForwardAuth verified `user1` and vLLM generated completion tokens (`'4'`).
+*   ✅ **A3 (MLflow Tracking):** Created run `20637cec1c9d44c8a332b597c4517c85`, logged 3 metric loss steps (`0.5, 0.3, 0.1`), and finalized run with `status: FINISHED`.
+*   ✅ **A4 (Slurm Batch GPU):** Scaled vLLM to 0 (VRAM dropped from 40,076 MiB to 14 MiB), activated partition, dispatched `sbatch --gres=gpu:1` (Job ID: 152), and successfully executed `apptainer exec --nv` binding physical `NVIDIA L40`.
+*   ✅ **A5 (Clean Teardown):** Deactivated `batch-gpu`, scaled up vLLM to 1 replica, verified rollout completion (`1/1 Ready`), and deleted ephemeral probe pods.
+
+---
+
 ## [Increment 35] - 2026-10-26: Central LLM Inference Authentication & Quality of Service (QoS) Hardening
 
 *   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)

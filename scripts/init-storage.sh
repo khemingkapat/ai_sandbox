@@ -65,21 +65,18 @@ chmod 755 "$STORAGE_ROOT/registry"
 chown 0:0 "$STORAGE_ROOT/scratch"
 chmod 1777 "$STORAGE_ROOT/scratch"
 
-# Private student project directories (700)
-# project1 -> UID 1001
-chown -R 1001:1001 "$STORAGE_ROOT/projects/project1"
-chmod 700 "$STORAGE_ROOT/projects/project1"
-chmod u=rwx,g=,o=,u-s,g-s "$STORAGE_ROOT/projects/project1"
+# Collaborative student project directories (2770, setgid)
+# project1 -> Owner 1001:2001 (user1, user2)
+chown -R 1001:2001 "$STORAGE_ROOT/projects/project1"
+chmod 2770 "$STORAGE_ROOT/projects/project1"
 
-# project2 -> UID 1002
-chown -R 1002:1002 "$STORAGE_ROOT/projects/project2"
-chmod 700 "$STORAGE_ROOT/projects/project2"
-chmod u=rwx,g=,o=,u-s,g-s "$STORAGE_ROOT/projects/project2"
+# project2 -> Owner 1002:2002 (user2, user3)
+chown -R 1002:2002 "$STORAGE_ROOT/projects/project2"
+chmod 2770 "$STORAGE_ROOT/projects/project2"
 
-# project3 -> UID 1004 (shared team account)
-chown -R 1004:1004 "$STORAGE_ROOT/projects/project3"
-chmod 700 "$STORAGE_ROOT/projects/project3"
-chmod u=rwx,g=,o=,u-s,g-s "$STORAGE_ROOT/projects/project3"
+# project3 -> Owner 1004:2003 (user4)
+chown -R 1004:2003 "$STORAGE_ROOT/projects/project3"
+chmod 2770 "$STORAGE_ROOT/projects/project3"
 
 # MLflow Central Service Storage
 # Postgres: Directory permissions for container pgdata creation over NFS4

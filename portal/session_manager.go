@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -19,7 +20,7 @@ import (
 // SessionManager handles the lifecycle of interactive OCI-based sessions in Kubernetes.
 type SessionManager struct {
 	// client is the Kubernetes clientset used for API operations.
-	client *kubernetes.Clientset
+	client kubernetes.Interface
 	// namespace is the Kubernetes namespace where session resources are created.
 	namespace string
 	// traefikDir is the directory where dynamic Traefik YAML configuration files are written.
@@ -68,6 +69,8 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 
 	falseVal := false
 
+	secContext := resolveUserSecurityContext(username, project)
+
 	// 1. Create Pod
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
@@ -84,6 +87,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 		},
 		Spec: corev1.PodSpec{
 			AutomountServiceAccountToken: &falseVal,
+			SecurityContext:              secContext,
 			Containers: []corev1.Container{
 				{
 					Name:            "session",
@@ -101,14 +105,45 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 						{Name: "TRANSFORMERS_OFFLINE", Value: "0"},
 						{Name: "KAGGLE_CONFIG_DIR", Value: fmt.Sprintf("%s/.kaggle", workspace)},
 						{Name: "KAGGLEHUB_CACHE", Value: fmt.Sprintf("%s/.cache/kagglehub", workspace)},
-						{Name: "TMPDIR", Value: fmt.Sprintf("/mnt/storage/scratch/%s", username)},
+						{Name: "TMPDIR", Value: "/mnt/storage/scratch"},
 						{Name: "MLFLOW_TRACKING_URI", Value: "http://mlflow.services.svc.cluster.local:5000"},
+						{Name: "NB_UMASK", Value: "0002"},
+						{Name: "UMASK", Value: "0002"},
 					},
 					Ports: []corev1.ContainerPort{
 						{ContainerPort: 8888},
 					},
 					VolumeMounts: []corev1.VolumeMount{
-						{Name: "storage", MountPath: "/mnt/storage"},
+						{
+							Name:      "storage",
+							MountPath: fmt.Sprintf("/mnt/storage/projects/%s", project),
+							SubPath:   fmt.Sprintf("projects/%s", project),
+							ReadOnly:  false,
+						},
+						{
+							Name:      "storage",
+							MountPath: "/mnt/storage/scratch",
+							SubPath:   "scratch",
+							ReadOnly:  false,
+						},
+						{
+							Name:      "storage",
+							MountPath: "/mnt/storage/datasets",
+							SubPath:   "datasets",
+							ReadOnly:  true,
+						},
+						{
+							Name:      "storage",
+							MountPath: "/mnt/storage/models",
+							SubPath:   "models",
+							ReadOnly:  true,
+						},
+						{
+							Name:      "storage",
+							MountPath: "/var/lib/extrausers",
+							SubPath:   "common/etc",
+							ReadOnly:  true,
+						},
 					},
 					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{},
@@ -292,4 +327,89 @@ func (sm *SessionManager) DeleteSession(ctx context.Context, sessionID string) e
 		return fmt.Errorf("failed to delete session: %s", strings.Join(errs, ", "))
 	}
 	return nil
+}
+
+// resolveUserSecurityContext resolves student UID, primary GID, and supplemental project GIDs.
+func resolveUserSecurityContext(username, project string) *corev1.PodSecurityContext {
+	if username == "root" {
+		zero := int64(0)
+		return &corev1.PodSecurityContext{
+			RunAsUser:  &zero,
+			RunAsGroup: &zero,
+		}
+	}
+
+	// Defaults for standard student accounts
+	var uid int64 = 1001
+	var gid int64 = 2001
+	var suppGids []int64
+
+	if strings.HasPrefix(username, "user") {
+		suffixStr := strings.TrimPrefix(username, "user")
+		if suffix, err := strconv.ParseInt(suffixStr, 10, 64); err == nil {
+			uid = 1000 + suffix
+		}
+	}
+
+	// Try reading /mnt/storage/common/etc/passwd for exact UID and primary GID
+	if data, err := os.ReadFile("/mnt/storage/common/etc/passwd"); err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 4 && parts[0] == username {
+				if parsedUID, err := strconv.ParseInt(parts[2], 10, 64); err == nil {
+					uid = parsedUID
+				}
+				if parsedGID, err := strconv.ParseInt(parts[3], 10, 64); err == nil {
+					gid = parsedGID
+				}
+				break
+			}
+		}
+	}
+
+	// Try reading /mnt/storage/common/etc/group for supplemental project groups
+	if data, err := os.ReadFile("/mnt/storage/common/etc/group"); err == nil {
+		lines := strings.Split(string(data), "\n")
+		for _, line := range lines {
+			parts := strings.Split(line, ":")
+			if len(parts) >= 4 {
+				grpName := parts[0]
+				if parsedGID, err := strconv.ParseInt(parts[2], 10, 64); err == nil {
+					members := strings.Split(parts[3], ",")
+					isMember := false
+					for _, m := range members {
+						if strings.TrimSpace(m) == username {
+							isMember = true
+							break
+						}
+					}
+					if isMember || grpName == username || grpName == project {
+						if parsedGID != gid {
+							suppGids = append(suppGids, parsedGID)
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// Ensure user's own UID is in supplemental groups if distinct from primary project GID
+	hasUserGID := false
+	for _, sg := range suppGids {
+		if sg == uid {
+			hasUserGID = true
+			break
+		}
+	}
+	if !hasUserGID && uid != gid {
+		suppGids = append(suppGids, uid)
+	}
+
+	return &corev1.PodSecurityContext{
+		RunAsUser:          &uid,
+		RunAsGroup:         &gid,
+		SupplementalGroups: suppGids,
+		FSGroup:            &gid,
+	}
 }

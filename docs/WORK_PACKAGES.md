@@ -176,12 +176,16 @@ Ops documentation for long-term maintainability.
 
 ## Phase 4: Validation ✅
 
-### WP3-1-17: Integration Testing
+### WP3-1-17: Integration Testing 🟢
 End-to-end tests covering the full student journey.
-- E2E test suite (extending verify-infrastructure.sh)
-- Portal integration tests
-- GPU and inference pipeline tests
-- Performance benchmarks under concurrent users
+- ✅ **Real-World Student "Golden Path" Smoke Test (`scripts/test-student-golden-path.sh`):** Verified non-root student (UID 1001) reading `/mnt/storage/datasets/` and writing to `/mnt/storage/projects/project1/`.
+- ✅ **Authenticated LLM Inference via Ingress:** Verified HMAC Bearer token authentication through Traefik ForwardAuth on port 443 into vLLM with token generation on NVIDIA L40.
+- ✅ **Central MLflow Telemetry & Artifact Tracking:** Verified experiment run creation, metric logging, and artifact upload (`summary.txt`) to `http://mlflow.services.svc.cluster.local:5000` with REST API verification.
+- ✅ **Sequential Single-L40 Lifecycle & Batch GPU Dispatch:** Validated automated vLLM scale-down, CUDA memory flush, Slurm `batch-gpu` partition activation, `sbatch --gres=gpu:1` execution with Apptainer (`--nv`), and automatic vLLM service restoration.
+- ✅ **Scoped subPath VFS Isolation (De-Utopia Trap 2):** Scoped interactive container mounts to 5 subPaths (`projects/<project>`, `scratch` [sticky 1777], `datasets` [RO / EROFS], `models` [RO], `common/etc` -> `/var/lib/extrausers` [RO]), completely hiding central service storage (`/mnt/storage/mlflow`) and peer projects.
+- ✅ **Root-Squash & Multi-User Collaboration (De-Utopia Trap 3):** Dynamically injects `PodSecurityContext` (UID 1001, GID 2001, supplementalGroups, fsGroup) ensuring pods boot directly as non-root; enforced `mode 2770` with `umask 0002` enabling teammate collaboration while blocking unauthorized tenants.
+- ✅ **Concurrent GPU Time-Slicing Fault Isolation (De-Utopia Trap 1):** Configured NVIDIA Device Plugin time-slicing (`replicas: 4`); verified concurrent hardware execution where force-killing peer Pod A (`SIGKILL`) preserved Pod B's CUDA context and VRAM allocation intact.
+- 🟡 Performance benchmarks under concurrent users (Milestone 4)
 
 ### WP3-1-18: Pilot with Early Adopters
 Real students use it. Observe, collect feedback, iterate.
