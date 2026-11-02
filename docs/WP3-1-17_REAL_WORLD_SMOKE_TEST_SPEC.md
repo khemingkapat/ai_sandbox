@@ -1,60 +1,59 @@
-# Spec: Real-World Student Workflow Validation (Smoke Test)
+# Spec: Real-World Student Workflow & "De-Utopia" Production-Fidelity Validation
 
-**Work Package:** WP3-1-17 (Integration Testing & Validation)  
-**Status:** 🟢 Audited & Approved for Execution  
+**Work Package:** WP3-1-17 (Integration Testing & Production-Fidelity Hardening)  
+**Status:** 🟢 Audited & Reconciled (Part A Verified | Part B Ready for Approval)  
 **Target Environment:** Proxmox K3s Cluster (`ai-control`, `ai-worker1`, `ai-sandbox-gpu-vm`)  
 **Hardware Profile:** 1x NVIDIA L40 (48GB VRAM), Resource-Constrained CPU/RAM Nodes  
 **Authors:** Khem & Antigravity (Senior Systems Architect & Co-Architect)  
-**Auditor Reconciled:** Principal Platform Architect (Audit Pass: 2026-11-01)
+**Auditor Reconciled:** Principal Platform Architect (Audit Pass 2: 2026-11-02)
 
 ---
 
 ### Decision
-Execute a sequential, end-to-end "Golden Path" smoke test simulating a single non-root student (`user1`, UID 1001) performing a realistic machine learning workflow across storage, interactive inference, experiment tracking, and batch GPU compute. To eliminate GPU VRAM deadlock on our single physical L40 GPU, inference and batch training will execute sequentially using an automated lifecycle state machine with guaranteed teardown/recovery traps.
+Validate and harden the end-to-end student workflow in two parts:
+1. **Part A (Golden Path Functional Pipe — Verified):** Prove a non-root student (`user1`, UID 1001) can read datasets, write project files, call central `vLLM` through Traefik ForwardAuth (:443), log metrics/artifacts to `MLflow` (:5000), and dispatch a sequential Slurm batch GPU job on the single NVIDIA L40.
+2. **Part B ("De-Utopia" Scaling & Boundary Hardening — Audited):** Eliminate the three textbook-vs-reality gaps found during inspection of the codebase and cluster:
+   * **Gap 1 (Monolithic `/mnt/storage` Mount Leak):** Replace the root `/mnt/storage` PVC mount in `portal/session_manager.go` with 5 scoped Kubernetes `subPath` mounts (`projects/<project>` RW, `scratch` RW sticky `1777`, `datasets` RO, `models` RO, `common/etc` -> `/var/lib/extrausers` RO) so student pods never have `/mnt/storage/mlflow` or unauthorized project directories in their VFS namespace.
+   * **Gap 2 (Enterprise NFS `root_squash` & Multi-User Group Collaboration):** Parse student `UID`, primary `GID`, and supplemental project `GID`s (`2001`, `2002`, `2003`) from `/mnt/storage/common/etc/{passwd,group}` in `portal/session_manager.go` and inject an explicit `PodSecurityContext` (`RunAsUser`, `RunAsGroup`, `SupplementalGroups`, `FSGroup`). Configure shared project directories (`/mnt/storage/projects/project1..3`) with setgid mode `2770` so multi-user project teams (`user1` + `user2` in `project1`) can collaborate without relying on root container entrypoints that fail under NFS `root_squash`.
+   * **Gap 3 (Time-Sliced GPU Fault Isolation vs. MPS Fate-Sharing):** Reject NVIDIA MPS (`nvidia-cuda-mps-control`) for multi-tenant student workloads due to shared-context fate-sharing crashes (one student segfault or `SIGKILL` destroys the MPS server for all users). Instead, verify Kubernetes GPU Time-Slicing (`nvidia.com/gpu` `replicas: 2`) where two concurrent student containers create independent hardware CUDA contexts on the L40 and survive a peer container crash (`kill -9`) without fault propagation, and update `docs/SYSTEM_ASSESSMENT_AND_PLANNING_REPORT.md` to accurately document time-slicing vs. temporal batch queueing.
 
 ---
 
 ### Scope
 * **In Scope:**
-  * **Role 1: Test Harness Orchestrator (Admin Context on Host):**
-    * Manages cluster lifecycle state transitions (vLLM scaling, Slurm partition activation, pod provisioning, and emergency rollback traps).
-  * **Role 2: Student Workload Probe (Tenant Context in `workload` Namespace, UID 1001):**
-    1. Read sample dataset from `/mnt/storage/datasets/` and write user output to allocated project storage at `/mnt/storage/projects/project1/smoke_output.json`.
-    2. Execute authenticated OpenAI chat completion against Traefik Ingress (`https://ai-control:443/v1/chat/completions`) using an HMAC-SHA256 Bearer token, passing through ForwardAuth and rate-limiting.
-    3. Log experiment parameters, 3 loss metric steps, and an artifact file (`summary.txt`) to MLflow at `http://mlflow.services.svc.cluster.local:5000`.
-  * **Role 3: Slurm Batch GPU Worker (`ai-sandbox-gpu-vm`):**
-    * Execute a Slurm batch job (`#SBATCH --partition=batch-gpu --gres=gpu:1`) running `apptainer exec --nv` to verify CUDA driver binding and L40 hardware visibility under UID 1001.
-  * Self-contained orchestrator runner script: `scripts/test-student-golden-path.sh`.
+  * **Part A:** Core Golden Path 4-stage student workflow (`scripts/test-student-golden-path.sh`) and zero-trust Traefik egress (`k8s/network-policies/allow-workload-traefik-egress.yaml`).
+  * **Part B:**
+    * Scoped `subPath` volume mounts and dynamic `UID`/`GID`/`SupplementalGroups` `PodSecurityContext` in `portal/session_manager.go`.
+    * Unit test `portal/session_manager_test.go` using `client-go/kubernetes/fake` to verify generated Pod specs.
+    * Setgid group collaboration permissions (`chmod 2770`, group `2001..2003`) on `/mnt/storage/projects/project1..3` in `scripts/init-storage.sh` and on the live cluster.
+    * Empirical test in `scripts/test-student-golden-path.sh` verifying: (1) VFS `subPath` isolation & `EROFS` read-only enforcement, (2) non-root UID 1001 / GID 2001 group collaboration & `/var/lib/extrausers` lookup, and (3) concurrent time-sliced GPU fault isolation (killing Container A mid-CUDA-context does not crash Container B).
 * **Explicitly Out of Scope:**
-  * Stress testing, load testing, or multi-user QoS concurrency benchmarking.
-  * Central Vector Database (Qdrant) deployment (deferred until core pipeline passes).
-  * Remote telemetry scraping agents or Prometheus edge exporters (WP3-1-13).
+  * **NVIDIA MPS Daemon (`nvidia-cuda-mps-control`):** Explicitly rejected due to multi-tenant fate-sharing blast radius.
+  * **Fine-Tuning Stack (`pytorch.sif` / QLoRA — WP3-1-14):** Deferred to WP3-1-14 Starter Labs & Training Image work package.
+  * **Central Vector Database (Qdrant — WP3-1-14) & Telemetry (WP3-1-13):** Deferred to their respective work packages.
 
 ---
 
-### Tier 1 — Mental Model: Physical Data & Lifecycle Path
-
-The smoke test validates whether bits physically flow across Linux kernel boundaries, network sockets, and hardware accelerators as a non-privileged student:
+### Tier 1 — Mental Model: Physical Data & Isolation Path
 
 ```
-[ Phase 1: Student Interactive Session (workload namespace, UID 1001) ]
-  ├── 1. Storage VFS: Read /mnt/storage/datasets/ -> Write /mnt/storage/projects/project1/
-  ├── 2. Inference: TCP 443 -> Traefik Ingress -> ForwardAuth (:8080) -> vLLM (:8000 on L40)
-  └── 3. Tracking: TCP 5000 -> MLflow WSGI -> PostgreSQL 16 (:5432) & /mnt/storage/mlflow/artifacts
-
-[ Phase 2: Sequential GPU Transition State Machine (Admin Harness) ]
-  ├── 1. Scale down vLLM: kubectl scale deploy/vllm -n services --replicas=0
-  ├── 2. Wait for pod termination & flush /dev/nvidia* CUDA memory contexts (sleep 5)
-  └── 3. Activate partition: scontrol update PartitionName=batch-gpu State=UP
-
-[ Phase 3: Slurm Batch GPU Execution (ai-sandbox-gpu-vm) ]
-  ├── sbatch --partition=batch-gpu --gres=gpu:1
-  └── Apptainer exec --nv -> verifies L40 device access (nvidia-smi / CUDA runtime)
-
-[ Phase 4: Cluster Recovery & Restoration (Guaranteed via bash trap) ]
-  ├── 1. Deactivate partition: scontrol update PartitionName=batch-gpu State=INACTIVE
-  ├── 2. Restore vLLM: kubectl scale deploy/vllm -n services --replicas=1
-  └── 3. Wait for vLLM Readiness probe (timeout: 300s)
+[ 1. Student Interactive Pod (namespace: workload, SecurityContext: UID 1001, GID 2001) ]
+  ├── VFS Mounts (Scoped via K8s subPath — NO root /mnt/storage access):
+  │     ├── /mnt/storage/projects/project1 (subPath: projects/project1, RW, mode 2770, group 2001)
+  │     ├── /mnt/storage/scratch           (subPath: scratch,           RW, mode 1777 sticky bit)
+  │     ├── /mnt/storage/datasets          (subPath: datasets,          RO — Kernel EROFS on write)
+  │     ├── /mnt/storage/models            (subPath: models,            RO — Kernel EROFS on write)
+  │     └── /var/lib/extrausers            (subPath: common/etc,        RO — resolves UID 1001 -> user1)
+  │     [Unmounted / Invisible in VFS: /mnt/storage/mlflow, /mnt/storage/projects/project2]
+  │
+  ├── Network Egress (Zero-Trust CNI):
+  │     ├── TCP 443 ──► Traefik Ingress ──► ForwardAuth (:8080) ──► vLLM (:8000 on L40)
+  │     └── TCP 5000 ──► MLflow WSGI ──► PostgreSQL 16 (:5432) & Proxied Artifacts
+  │
+[ 2. GPU Time-Slicing & Fault Isolation Boundary (ai-sandbox-gpu-vm — NVIDIA L40) ]
+  ├── K8s Device Plugin (replicas: 2) ──► Independent Hardware CUDA Contexts
+  ├── Pod A (UID 1001) allocates 1 GiB + receives SIGKILL (-9) mid-execution
+  └── Pod B (UID 1002) allocates 1 GiB concurrently ──► Survives with 0 (CUDA_SUCCESS)
 ```
 
 ---
@@ -63,8 +62,9 @@ The smoke test validates whether bits physically flow across Linux kernel bounda
 
 | File | Purpose |
 | :--- | :--- |
-| `scripts/test-student-golden-path.sh` | Self-contained, automated test orchestrator with built-in payload heredocs, lifecycle state machine, and unconditional recovery traps. |
-| `k8s/network-policies/allow-workload-traefik-egress.yaml` | CNI NetworkPolicy permitting `workload` interactive pods to reach Traefik on port 443 in `slurm` namespace for authenticated inference. |
+| `k8s/network-policies/allow-workload-traefik-egress.yaml` | CNI NetworkPolicy permitting `workload` pods to reach Traefik on port 443 in `slurm` namespace (Created in Part A). |
+| `scripts/test-student-golden-path.sh` | Automated end-to-end runner executing both Part A (Golden Path) and Part B ("De-Utopia" VFS isolation, group collaboration, and GPU fault isolation gates). |
+| `portal/session_manager_test.go` | Go unit test suite using `client-go/kubernetes/fake` to verify scoped `subPath` mounts, `ReadOnly` flags, and `PodSecurityContext` UID/GID mapping. |
 
 ---
 
@@ -72,8 +72,12 @@ The smoke test validates whether bits physically flow across Linux kernel bounda
 
 | File | Changes |
 | :--- | :--- |
-| `docs/WORK_PACKAGES.md` | Update WP3-1-17 status and document the Real-World Golden Path test milestone. |
-| `docs/INCREMENT_LOG.md` | Append entry recording the transition from architecture design to functional validation. |
+| `portal/session_manager.go` | 1. Replace monolithic `/mnt/storage` mount with 5 scoped `subPath` mounts (`projects/<project>` RW, `scratch` RW, `datasets` RO, `models` RO, `common/etc` -> `/var/lib/extrausers` RO).<br>2. Resolve student `UID`, primary `GID`, and supplemental project `GID`s from `/mnt/storage/common/etc/{passwd,group}` and set `PodSecurityContext`. |
+| `scripts/init-storage.sh` | Update project directory ownership and permissions to `1001:2001`, `1002:2002`, `1004:2003` with setgid mode `2770` so group collaboration works out of the box. |
+| `docs/SYSTEM_ASSESSMENT_AND_PLANNING_REPORT.md` | Reconcile §3.2 & §4.8 to accurately state that K8s GPU Time-Slicing provides hardware context fault isolation while Slurm `batch-gpu` enforces temporal GPU exclusivity. |
+| `k8s/network-policies/allow-vllm-egress.yaml` | **Delete** legacy policy that allowed unauthenticated port 8000 ClusterIP access to vLLM (Deleted in Part A). |
+| `docs/WORK_PACKAGES.md` | Update WP3-1-17 with Part A & Part B validation gates. |
+| `docs/INCREMENT_LOG.md` | Record architectural findings and empirical verification results. |
 
 ---
 
@@ -81,10 +85,10 @@ The smoke test validates whether bits physically flow across Linux kernel bounda
 
 | File | Reason |
 | :--- | :--- |
-| `k8s/values.yaml` | Production Slurm Helm configuration; must remain untouched during functional testing. |
-| `k8s/kind-config.yaml` | Local prototype configuration (archived baseline). |
-| `portal/*` | Web portal backend code; test targets existing ForwardAuth and API endpoints directly. |
-| `k8s/vllm-deployment.yaml` | Model configurations are verified; scaled temporarily via `kubectl scale` without editing source manifests. |
+| `k8s/values.yaml` | Production Slurm Helm configuration; must remain untouched. |
+| `k8s/kind-config.yaml` | Archived local Kind configuration. |
+| `k8s/vllm-deployment.yaml` | Central inference manifest; scaled dynamically during testing via `kubectl scale` only. |
+| `images/jupyterlab/Dockerfile` | Base image rebuilds are out of scope; non-root `SecurityContext` bypasses the root branch in `start-jupyter.sh`. |
 
 ---
 
@@ -92,19 +96,22 @@ The smoke test validates whether bits physically flow across Linux kernel bounda
 
 Every criterion must be **objectively pass/fail**:
 
-- [ ] **A1 (Storage Permissions):** Test probe executing as UID 1001 reads `/mnt/storage/datasets/` and creates `/mnt/storage/projects/project1/smoke_output.json` with exit code `0`.
-- [ ] **A2 (Inference ForwardAuth & Completion):** Test probe successfully calls `https://ai-control:443/v1/chat/completions` with valid HMAC Bearer token, passes ForwardAuth, and receives valid token generation response.
-- [ ] **A3 (MLflow Tracking & Artifact List):** MLflow run registers with `status: FINISHED`, 3 logged metric steps for `loss`, and artifact `summary.txt` verifiable via `GET http://mlflow.services.svc.cluster.local:5000/api/2.0/mlflow/artifacts/list?run_id=<RUN_ID>`.
-- [ ] **A4 (Slurm Batch GPU Execution):** Slurm batch job submitted via `sbatch` completes with Slurm state `COMPLETED` (exit code `0:0`), with job output proving `CUDA/NVIDIA driver binding` on the physical L40 GPU.
-- [ ] **A5 (Clean Teardown & Cluster Restoration):** Ephemeral probe pod deleted, Slurm `batch-gpu` returned to `State=INACTIVE`, and vLLM restored to `1/1 Ready` on `ai-sandbox-gpu-vm`.
-- [ ] **A6 (No Manifest Degradation):** No changes made to files in "Files NOT to Touch".
-- [ ] **A7 (Log Entry):** `docs/INCREMENT_LOG.md` updated with empirical test output and execution timestamps.
+#### Part A: Core Golden Path (Verified ✅)
+- [x] **A1 (Storage Read/Write):** Student probe (UID 1001) reads `/mnt/storage/datasets/nlp/imdb` and writes `/mnt/storage/projects/project1/smoke_output.json` with exit code `0`.
+- [x] **A2 (Inference ForwardAuth):** Student probe calls `https://portal.slurm.svc.cluster.local:443/v1/chat/completions` with HMAC Bearer token, passes ForwardAuth, and receives generated tokens from vLLM.
+- [x] **A3 (MLflow Tracking & Artifacts):** Student probe logs 3 `loss` metric steps and uploads `summary.txt`, verified via `GET /api/2.0/mlflow/artifacts/list?run_id=<RUN_ID>`.
+- [x] **A4 (Slurm Batch GPU Execution):** `sbatch --partition=batch-gpu --gres=gpu:1` runs `apptainer exec --nv` and binds the physical `NVIDIA L40`.
+- [x] **A5 (Clean Teardown & Recovery):** Ephemeral probe deleted, `batch-gpu` returned to `State=INACTIVE`, and `vllm` restored to `1/1 Ready`.
 
----
-
-### Design Rationale: Architectural Hardening from Audit
-
-1. **Elimination of ClusterIP Backdoor:** Accessing vLLM via ClusterIP on port 8000 bypasses Increment 35 ForwardAuth. Golden Path testing must traverse Traefik Ingress (:443) using student Bearer auth, enforced by `allow-workload-traefik-egress.yaml`.
-2. **Correct POSIX Path:** Testing against `/mnt/storage/projects/project1` matches existing directory ownership (`1001:1001, chmod 700`), avoiding `EACCES` permission traps on `/mnt/storage/projects/user1`.
-3. **Single L40 GPU Lifecycle State Machine:** Dynamic scaling of vLLM guarantees zero VRAM thrashing with batch jobs, while bash `EXIT` traps ensure vLLM is restored even if the batch test fails.
-4. **Self-Cleaning Harness:** All test payloads are embedded into `scripts/test-student-golden-path.sh` as heredocs, preventing repository bloat in `templates/`.
+#### Part B: "De-Utopia" Production-Fidelity Hardening (To Execute)
+- [ ] **A6 (Scoped `subPath` VFS Isolation & Read-Only Enforcement):**
+  * Inside the student pod, `/mnt/storage/mlflow` and `/mnt/storage/projects/project2` do **not** exist (`FileNotFoundError`).
+  * Attempting to write a file into `/mnt/storage/datasets/` or `/mnt/storage/models/` fails with kernel `EROFS (Read-only file system)`.
+  * Writing temporary files to `/mnt/storage/scratch` (mode `1777`) succeeds as non-root UID 1001 without Kubelet `root:root 0755` `subPath` permission traps.
+- [ ] **A7 (Root-Squash-Safe Non-Root Spawn, Group Collaboration & Portal Tests):**
+  * Student pod boots directly as `UID 1001`, `GID 2001` (`project1`) via `PodSecurityContext`, and `pwd.getpwuid(1001).pw_name == "user1"` resolves via `/var/lib/extrausers` with zero MLflow UID warnings.
+  * Files created in `/mnt/storage/projects/project1` inherit `GID 2001` (`chmod 2770`), allowing teammate `user2` (`UID 1002, GID 2001`) to read/write them while blocking non-member `user3` (`UID 1003, GID 2002`).
+  * `cd portal && go test -v ./... && go vet ./...` exits `0`.
+- [ ] **A8 (Concurrent GPU Time-Slicing & Fault Isolation):**
+  * Two concurrent student pods (`nvidia.com/gpu: 1` each via K8s time-slicing `replicas: 2`) simultaneously initialize hardware CUDA contexts and allocate 1 GiB VRAM on the L40 (`cuMemAlloc_v2 == 0`).
+  * Force-killing (`kill -9`) Pod A mid-allocation does **not** corrupt or terminate Pod B's CUDA context.

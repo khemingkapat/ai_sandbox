@@ -398,20 +398,20 @@ How student pods get their software environment determines how fast they can sta
 
 ### 4.8 GPU Sharing Mechanism
 
-**Status: Open — pending University IT license review**
+**Status: Decided — Kubernetes GPU Time-Slicing for Interactive + Slurm Temporal Exclusivity for Batch**
 
 **Important hardware constraint:** The NVIDIA L40 (Ada Lovelace architecture) does NOT support MIG (Multi-Instance GPU) — the hardware-level partitioning available on H100/A100. GPU sharing on the L40 must use a software-level approach.
 
-| Evaluation Criterion | Option A: Kubernetes GPU Time-Slicing | Option B: NVIDIA vGPU (Virtual GPU) |
-| :--- | :--- | :--- |
-| **VRAM Isolation** | **Soft:** VRAM is shared concurrently between jobs. No hard hardware boundary — over-allocation causes OOM crashes, which are mitigated by Slurm GRES limits. | **Strict (Hard):** Each virtual GPU gets a guaranteed slice of VRAM and compute, enforced at the hardware virtualization level. No noisy-neighbor problem. |
-| **Licensing & Cost** | **Free:** Native capability of the open-source NVIDIA GPU Operator for Kubernetes. | **Commercial license required:** Requires paid NVIDIA vGPU enterprise licenses — potentially prohibitive for a university sandbox budget. |
-| **Setup Complexity** | **Low:** Configured via a single Kubernetes ConfigMap in the NVIDIA GPU Operator. Standard Kubernetes resource requests work as normal. | **Extremely High:** Requires hypervisor drivers (ESXi or KVM), a licensing server, and complex VM-to-Pod translation layers. |
-| **Performance Overhead** | **< 1%:** Direct bare-metal container execution. | **2–5%:** Virtualization layer adds slight memory translation overhead. |
+| Evaluation Criterion | Option A: Kubernetes GPU Time-Slicing | Option B: NVIDIA MPS (Multi-Process Server) | Option C: NVIDIA vGPU (Virtual GPU) |
+| :--- | :--- | :--- | :--- |
+| **Fault Isolation & Blast Radius** | **High:** Each container maintains an independent hardware CUDA context. If a student pod crashes or is terminated (`kill -9`), other pods on the GPU survive unaffected. | **Fatal (Zero Isolation):** All clients share a single underlying CUDA context. An unhandled segfault or `SIGKILL` in one container corrupts the shared context and crashes all co-located student jobs. | **Strict (Hard):** Complete hardware virtualization boundary; zero noisy-neighbor impact. |
+| **VRAM Isolation** | **Soft:** Shared physical VRAM. Mitigated by cooperative allocation caps and temporal isolation for heavy batch jobs. | **Soft / Client-Side:** Client environment variable `CUDA_MPS_PINNED_DEVICE_MEM_LIMIT` can be unset by users. | **Hard:** Hardware-enforced VRAM partitioning. |
+| **Licensing & Cost** | **Free:** Native capability of open-source NVIDIA GPU Operator for Kubernetes. | **Free:** Open-source driver component, but introduces operational fragility across container namespaces. | **Commercial License:** Expensive per-GPU enterprise licensing. |
+| **Setup Complexity** | **Low:** Configured via standard ConfigMap (`sharing.timeSlicing.resources[].replicas: 2`). | **High:** Requires running MPS control daemon and sharing `/tmp/nvidia-mps` socket across pod namespaces. | **Extremely High:** Requires hypervisor drivers and license management infrastructure. |
 
-**Recommendation:** Kubernetes GPU Time-Slicing (Option A) for student interactive sessions on GPU #2.
+**Decision:** Adopt **Option A: Kubernetes GPU Time-Slicing** for interactive sessions, paired with **Slurm GRES Temporal Exclusivity** for batch training jobs.
 
-**Justification:** The zero licensing cost and simple deployment make Option A the practical choice for a university environment. The lack of hard VRAM isolation is compensated by strictly capping all student interactive jobs to 8GB VRAM slices via Slurm's `MaxTRESPerJob` configuration. GPU #1 is reserved entirely for the central LLM inference service and is not time-sliced.
+**Justification:** NVIDIA MPS is rejected for multi-tenant educational clusters because shared CUDA context failure destroys cross-student isolation. Under Kubernetes Time-Slicing, pods hold isolated driver contexts. To protect long-running batch training runs from interactive VRAM contention on physical hardware, heavy training runs are submitted via Slurm's `batch-gpu` partition (`Gres=gpu:1`), ensuring dedicated, temporal single-job GPU execution. Single-GPU development nodes use automated lifecycle management to coordinate between inference and batch GPU execution.
 
 **References:**
 1. NVIDIA Corporation, *NVIDIA L40 GPU Datasheet*, 2023. [NVIDIA L40](https://www.nvidia.com/en-us/data-center/l40/)
