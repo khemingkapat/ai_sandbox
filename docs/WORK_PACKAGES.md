@@ -176,12 +176,13 @@ Ops documentation for long-term maintainability.
 
 ## Phase 4: Validation ✅
 
-### WP3-1-17: Integration Testing
+### WP3-1-17: Integration Testing 🟢
 End-to-end tests covering the full student journey.
-- E2E test suite (extending verify-infrastructure.sh)
-- Portal integration tests
-- GPU and inference pipeline tests
-- Performance benchmarks under concurrent users
+- ✅ **Real-World Student "Golden Path" Smoke Test (`scripts/test-student-golden-path.sh`):** Verified non-root student (UID 1001) reading `/mnt/storage/datasets/` and writing to `/mnt/storage/projects/project1/`.
+- ✅ **Authenticated LLM Inference via Ingress:** Verified HMAC Bearer token authentication through Traefik ForwardAuth on port 443 into vLLM with token generation on NVIDIA L40.
+- ✅ **Central MLflow Telemetry:** Verified experiment run creation, metric logging, and status tracking to `http://mlflow.services.svc.cluster.local:5000`.
+- ✅ **Sequential Single-L40 Lifecycle & Batch GPU Dispatch:** Validated automated vLLM scale-down, CUDA memory flush, Slurm `batch-gpu` partition activation, `sbatch --gres=gpu:1` execution with Apptainer (`--nv`), and automatic vLLM service restoration.
+- 🟡 Performance benchmarks under concurrent users (Milestone 4)
 
 ### WP3-1-18: Pilot with Early Adopters
 Real students use it. Observe, collect feedback, iterate.
