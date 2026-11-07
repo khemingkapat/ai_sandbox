@@ -311,10 +311,10 @@ else
 fi
 
 # Check 4.3: Catalog Manifest Schema & Parity Validation
-CATALOG_AUDIT=$(python3 - <<'EOF'
+CATALOG_AUDIT=$(python3 - "$REPO_ROOT/docs/MODEL_CATALOG.json" <<'EOF'
 import json, sys
 
-path = "docs/MODEL_CATALOG.json"
+path = sys.argv[1] if len(sys.argv) > 1 else "docs/MODEL_CATALOG.json"
 try:
     with open(path, "r") as f:
         data = json.load(f)

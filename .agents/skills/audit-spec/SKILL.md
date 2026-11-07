@@ -14,7 +14,7 @@ You are conducting a pre-implementation architectural audit. Your goal is to eli
 
 The user will provide:
 - A draft **design spec**, architectural proposal, or work package plan.
-- Relevant reference documents (e.g., [`docs/TECH_STACK_DECISION.md`](file:///home/khemi/workspace/ai_sandbox/docs/TECH_STACK_DECISION.md), [`docs/ENVIRONMENT_ASSESSMENT.md`](file:///home/khemi/workspace/ai_sandbox/docs/ENVIRONMENT_ASSESSMENT.md)).
+- Relevant reference documents (e.g., [`docs/aidlc/PROJECT_CONTEXT.md`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md), [`docs/aidlc/decisions/`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/)).
 
 ---
 
@@ -37,7 +37,7 @@ Define and invoke the Auditor subagent using the `pro` model tier:
   Instruct the auditor to ruthlessly critique the draft design against **4 Foundation Pillars**:
   1. **3-Tier Boundary Integrity:** Does the design strictly isolate `slurm` (control plane), `services` (shared AI tools), and `workload` (untrusted student pods)? Are components taking on responsibilities that belong elsewhere?
   2. **Anti-Bloat & Simplicity:** Is this the simplest structural way to solve the problem? Are we adding custom code/sidecars where native Traefik, Kubernetes, or Slurm features already exist?
-  3. **Tech Stack Consistency:** Does it adhere to locked-in decisions in [`docs/TECH_STACK_DECISION.md`](file:///home/khemi/workspace/ai_sandbox/docs/TECH_STACK_DECISION.md) (pre-baked images, read-only cache mounts, stateless portal)?
+  3. **Tech Stack Consistency:** Does it adhere to locked-in decisions in [`docs/aidlc/PROJECT_CONTEXT.md`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md) and [`docs/aidlc/decisions/`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/) (pre-baked images, read-only cache mounts, stateless portal)?
   4. **Clarity & Mental Model:** Is the data flow explained in concrete computer engineering terms (sockets, processes, files) so the Lead Architect (Khem) can make a confident decision?
 
 ---

@@ -28,9 +28,11 @@ traefik-dynamic/*
 
 *.ignore.*
 
-# Ignore compiled portal binary
+# Ignore compiled portal binary and runtime logs
 portal/portal
 portal/hpc-portal
+portal/*.log
+*.log
 /storage/projects/**/.jupyter/
 /storage/projects/**/.npm/
 /storage/projects/**/.local/

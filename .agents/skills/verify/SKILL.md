@@ -55,7 +55,7 @@ Verify the PR didn't touch files it shouldn't have:
 
 ## Step 4: Architectural Result Audit (`Model: pro`)
 
-Spawn an Auditor subagent using `Model: pro` to inspect the full diff against [`docs/TECH_STACK_DECISION.md`](file:///home/khemi/workspace/ai_sandbox/docs/TECH_STACK_DECISION.md):
+Spawn an Auditor subagent using `Model: pro` to inspect the full diff against [`docs/aidlc/PROJECT_CONTEXT.md`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md) and [`docs/aidlc/decisions/`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/):
 
 - **Role:** `Principal Systems Integrator & Result Auditor`
 - **Model:** `pro`
@@ -71,9 +71,10 @@ Capture the Auditor's verdict:
 
 ---
 
-## Step 5: Log Check
+## Step 5: Context & Units Check
 
-- Confirm [`INCREMENT_LOG.md`](file:///home/khemi/workspace/ai_sandbox/docs/INCREMENT_LOG.md) has a new entry at the top following the standard format.
+- Confirm that the unit spec under `docs/aidlc/units/<unit>.md` has its `## Bolt log` updated at the bottom.
+- Confirm that `docs/aidlc/UNITS.md` has the unit status updated.
 
 ---
 
@@ -95,7 +96,7 @@ Present your verification to the user in this structure:
 | Lint clean (`go vet ./...`) | ✅ / ❌ | |
 | [Functional criteria from spec] | ✅ / ❌ | |
 | No out-of-scope file edits | ✅ / ❌ | [list violations] |
-| INCREMENT_LOG.md updated | ✅ / ❌ | |
+| Unit Bolt log & UNITS.md updated | ✅ / ❌ | |
 
 ### 2. Architectural Result Audit (pro Model Review)
 - **Boundary Integrity:** [Clean / Details on boundary leak]

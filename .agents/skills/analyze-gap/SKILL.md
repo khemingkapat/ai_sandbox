@@ -18,9 +18,9 @@ The user will give you:
 
 When this skill is invoked, you MUST execute the following steps to gather context:
 
-1. **Read `docs/WORK_PACKAGES.md`**: Understand the overall project scope, what has been completed, and what is planned.
-2. **Read `docs/INCREMENT_LOG.md`**: Check the most recent completed increments to understand the immediate state of the codebase.
-3. **Explore `docs/`**: Review any other relevant architecture or specification documents in the `docs/` directory that relate to the goal (e.g., capacity planning, architecture diagrams).
+1. **Read `docs/aidlc/PROJECT_CONTEXT.md` & `docs/aidlc/UNITS.md`**: Understand the overall project scope, what has been completed, and what is planned.
+2. **Review relevant decisions in `docs/aidlc/decisions/`**: Check the architectural invariants and constraints.
+3. **Explore `docs/aidlc/` & `docs/reports/`**: Review any relevant context files or formal milestone reports that relate to the goal.
 4. **Analyze**: Compare the current state against the stated goal. Identify the missing technical pieces.
 5. **Identify Blockers**: What dependencies do we lack? Are there structural or architectural limitations preventing this?
 6. **Formulate Decisions**: What architectural choices need to be made before we can write a concrete implementation specification?

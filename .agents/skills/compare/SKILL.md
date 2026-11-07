@@ -28,7 +28,7 @@ Before spawning anything, define:
 
 ## Step 2: Spawn Parallel Researchers
 
-Read [.agents/agents/researcher/agent.json](file:///home/khemi/workspace/ai_sandbox/.agents/agents/researcher/agent.json) to get the authoritative Researcher configuration, then:
+Spawn parallel `research` subagents (or define a subagent with read-only tools):
 
 1. Call `define_subagent` with those parameters
 2. Call `invoke_subagent` — one instance **per option**, all at the same time (parallel)
