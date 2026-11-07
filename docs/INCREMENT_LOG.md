@@ -2,6 +2,25 @@
 
 This file tracks every discrete increment made during the Slinky migration. Its goal is to keep the human lead (**Khem**) fully informed of design choices, modified files, and verification steps.
 
+## [Increment 38] - 2026-11-07: Specifications Tracking for WP3-1-13 (Telemetry) and WP3-1-14 (Qdrant & Starter Labs)
+
+*   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)
+*   **Goal:** Formally integrate and track the audited implementation specifications for WP3-1-13 (Monitoring & Slurm Incident Telemetry) and WP3-1-14 (Central Vector Service Qdrant and Starter Lab Curricula), aligning with Tech Stack decisions and live cluster state.
+
+### 📝 Key Changes & Files Modified
+
+1.  **WP3-1-13 Telemetry Implementation Specification (`docs/slurm_info_exchange_research.md`):**
+    *   Added Section 8 detailing the non-blocking Slurm epilog hook architecture (`scripts/slurm_epilog_webhook.sh`) and Go portal in-memory ring buffer (`portal/telemetry.go`, max 200 incidents).
+    *   Reconciled egress endpoints (`/api/v1/telemetry/incidents` and `/api/v1/telemetry/snapshot`) for Central Portal and Prometheus scraping.
+2.  **WP3-1-14 Qdrant & Starter Lab Specification (`docs/WP3-1-14_STARTER_LABS_AND_VECTOR_DB.md`):**
+    *   Authored the comprehensive specification for deploying the Central Qdrant Vector DB StatefulSet in the `services` namespace (`ai-worker1`), along with network policies, Traefik ingress, and persistent volume provisioning.
+    *   Specified the 5-part starter curriculum notebooks (Hello Sandbox, Polars ETL, MLflow tracking, Qdrant+vLLM RAG, and single-GPU LoRA fine-tuning).
+3.  **Work Package & Tech Stack Alignment (`docs/WORK_PACKAGES.md`, `docs/TECH_STACK_DECISION.md`):**
+    *   Reconciled WP3-1-14 scope in `WORK_PACKAGES.md`.
+    *   Documented container layer pre-caching via the in-cluster registry (`localhost:5000`) in `TECH_STACK_DECISION.md` Section 4.4.
+
+---
+
 ## [Increment 37] - 2026-11-02: WP3-1-17 Part B "De-Utopia" Production Hardening & Fault Isolation
 
 *   **Author:** Antigravity & Khem (Interactive / Co-Architect Implementation)

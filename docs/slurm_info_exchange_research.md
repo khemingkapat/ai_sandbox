@@ -135,7 +135,85 @@ When Central Prometheus scrapes our sandbox, the following recommended alerting 
 
 ---
 
-## 7. References
+## 8. Audited Implementation Specification (WP3-1-13)
+
+Following the post-meeting requirements from the Central Portal administration (prioritizing fast incident/crash reporting, queue depth, and pod status) and the architectural audit, the following design is locked in for implementation:
+
+### 8.1 Plain-English Mental Model & Physical Data Flow
+
+```mermaid
+flowchart TD
+    subgraph ComputeNode ["Physical Compute Node (ai-worker-X)"]
+        Slurmd["slurmd daemon"] -->|1. Executes on job exit| Epilog["slurm_epilog_webhook.sh<br/>(Background subshell, exits 0 immediately)"]
+        Epilog -->|2. Reads log tail (max 4KB)| Storage[("/mnt/storage/projects/.../logs/*_${JOB_ID}.out")]
+    end
+
+    subgraph ControlPlane ["AI Sandbox Control Plane (ai-control)"]
+        Epilog -->|3. HTTP POST (Bearer TELEMETRY_SECRET)| Ingest["POST /api/internal/telemetry/event"]
+        
+        subgraph PortalPod ["Pod: hpc-portal (slurm namespace)"]
+            Ingest --> RingBuffer[("In-Memory Circular Ring Buffer<br/>(Last 200 incidents, < 2MB RAM)")]
+            SnapshotEngine["Stateless Snapshot Resolver<br/>(10s in-memory TTL)"]
+        end
+
+        SlurmClient["slurmClient (slurmrestd)"] --> SnapshotEngine
+        K8sWorkload["K8s client-go (workload namespace)"] --> SnapshotEngine
+    end
+
+    subgraph CentralAdmin ["University Central Portal"]
+        CentralNOC["Central Dashboard & Error Tracker"]
+        CentralProm["Central Prometheus"]
+    end
+
+    CentralNOC -->|"PULL (every 30s): GET /api/v1/telemetry/incidents"| RingBuffer
+    CentralProm -->|"PULL (every 15-30s): GET /api/v1/telemetry/snapshot"| SnapshotEngine
+```
+
+### 8.2 Component Specifications
+
+#### 1. Asynchronous Slurm Epilog Hook (`scripts/slurm_epilog_webhook.sh`)
+* **Trigger:** Invoked automatically by `slurmd` upon completion of any batch or interactive job.
+* **Safety Contract (Never Block Slurmd):** Slurm will mark an entire physical node as `DRAINED` / `DOWN` if the epilog script hangs. Therefore, the webhook runs inside a detached subshell `( ... ) &` with `--max-time 2` and exits immediately with return code `0`.
+* **Dynamic Log Path Discovery:** Matches `/mnt/storage/projects/*/logs/*_${SLURM_JOB_ID}.out`.
+* **Sanitization:** Extracts `tail -n 50`, strips non-printable control characters, and caps size to 4KB.
+* **Authentication:** Authenticates to the Go Portal using `Authorization: Bearer ${TELEMETRY_SECRET}`.
+
+#### 2. In-Memory Ring Buffer (`portal/telemetry.go`)
+* **No Database File Dependency:** Eliminates SQLite file locking, container restart wipes on ephemeral overlayfs, and NFS `SQLITE_BUSY` corruption.
+* **Storage Structure:** Circular ring buffer (`container/ring` with `sync.RWMutex`) storing the **last 200 incidents** in Go process memory.
+* **Incident Payload Schema:**
+  ```json
+  {
+    "incident_id": "inc-1042-1729934400",
+    "timestamp": "2026-10-26T15:40:00Z",
+    "source_type": "slurm_job",
+    "entity_id": "1042",
+    "user": "student01",
+    "account": "nlp-project",
+    "partition": "gpu",
+    "exit_code": 137,
+    "status": "FAILED",
+    "summary": "Job terminated with non-zero exit code (137)",
+    "log_tail": "torch.cuda.OutOfMemoryError: CUDA out of memory..."
+  }
+  ```
+
+#### 3. Egress Endpoints (`portal/handlers.go` & `portal/main.go`)
+* **`GET /api/v1/telemetry/incidents?since=<timestamp>&limit=50`**:
+  * Returns recent caught error events with sanitized log snippets so admins can triage errors immediately.
+* **`GET /api/v1/telemetry/snapshot`**:
+  * Cached for 10 seconds.
+  * Queries `slurmrestd` for current `queue_depth`, `running_jobs`, `pending_jobs`, and node states.
+  * Queries K8s `workload` namespace for active vs. failed interactive sessions.
+
+### 8.3 Security & Boundary Compliance
+* **Least-Privilege RBAC Intact:** `portal-sa` remains strictly confined to `slurm` and `workload`. It does not require cluster-wide privileges or cross-namespace polling.
+* **Shared Service Monitoring:** Central services (`vllm`, `qdrant`, `mlflow`) are monitored via standard `kube-state-metrics` endpoints (`/metrics/k8s`) scraped directly by Central Prometheus.
+* **Access Control:** All egress endpoints require bearer token authentication or ForwardAuth validation.
+
+---
+
+## 9. References
 
 1. **SchedMD Slurm REST API & OpenMetrics:** [Official Documentation](https://slurm.schedmd.com/rest_api.html)
 2. **Kubernetes Monitoring Architecture (cAdvisor & KSM):** [Kubernetes Documentation](https://kubernetes.io/docs/concepts/cluster-administration/system-metrics/)

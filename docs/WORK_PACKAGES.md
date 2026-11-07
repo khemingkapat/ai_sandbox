@@ -149,13 +149,27 @@ Prometheus, Grafana, slurm-exporter. Dashboards for admins and students.
 - Student-facing usage metrics in portal
 - Alerting rules (node down, GPU OOM, queue full)
 
-### WP3-1-14: Starter Lab Notebook Development
-Template notebooks for the "first 5 minutes" experience.
-- "Hello Sandbox" — submit a job, see results
-- GPU training — fine-tune a small model
-- LLM inference — call the API, build a RAG chain
-- Experiment tracking — log a run to MLflow
-- All pre-loaded in default workspace
+### WP3-1-14: Starter Lab Notebooks & Central Vector Service (Qdrant)
+Comprehensive curriculum templates and remaining application-tier central services connecting the full AI Sandbox stack (vLLM, Qdrant, MLflow, Storage).
+- **Spec / Reference:** See [WP3-1-14 Starter Labs & Vector DB Specification](./WP3-1-14_STARTER_LABS_AND_VECTOR_DB.md) and [Tech Stack Decision §§4.3–4.6](./TECH_STACK_DECISION.md).
+- 🔴 **Central Vector Database (Qdrant - §4.3)**:
+  - Deploy Qdrant StatefulSet in `services` namespace on `ai-worker1` with 3–6 GB RAM allocation (in-memory HNSW index).
+  - Provision persistent storage for vector snapshots (`qdrant-data-pvc` on `/mnt/storage/qdrant`).
+  - Configure Traefik gateway routing (`/qdrant`) and internal service DNS (`http://qdrant.services.svc.cluster.local:6333`).
+  - Implement CNI NetworkPolicy `allow-qdrant-egress.yaml` allowing `workload` pods to reach `services` on TCP ports 6333 (HTTP REST) and 6334 (gRPC).
+- 🔴 **Client Runtime Image & SDK Pre-Baking (§§4.4–4.6)**:
+  - **§4.4 ML Training/Fine-Tuning Stack**: Build dedicated GPU training image or Apptainer `.sif` on top of NVIDIA NGC PyTorch (`nvcr.io/nvidia/pytorch`) bundling `peft`, `bitsandbytes`, and `flash-attn` (cached in containerd/local registry).
+  - **§4.5 Data Pipeline Framework**: Pre-install `polars` and `dask` in `images/jupyterlab/Dockerfile` for single-node out-of-core data engineering.
+  - **§4.6 RAG Orchestration Framework**: Pre-install `llama-index-core`, `llama-index-llms-openai-like`, and `llama-index-vector-stores-qdrant` in `images/jupyterlab/Dockerfile`.
+- 🔴 **Starter Lab Notebook Suite (Default Workspace Pre-load)**:
+  - `01_hello_sandbox.ipynb`: Interactive session orientation, hardware check (CPU/L40 GPU), Slurm batch submission via `sbatch`.
+  - `02_data_processing_polars.ipynb`: Single-node out-of-core ETL, cleaning, and tokenization using Polars & Dask over `/mnt/storage/datasets`.
+  - `03_experiment_tracking_mlflow.ipynb`: End-to-end experiment logging, hyperparameter tracking, and proxied artifact streaming to central MLflow.
+  - `04_llm_inference_and_rag.ipynb`: LlamaIndex RAG pipeline querying central Qdrant vector store and generating completions via central vLLM with student Bearer auth.
+  - `05_gpu_lora_finetuning.ipynb`: Single-GPU QLoRA PEFT fine-tuning using local model weights (`/mnt/storage/models`) and saving checkpoints to MLflow.
+- 🔴 **Verification & Automated Test Suite**:
+  - Create `scripts/verify-qdrant.sh` validating pod health, network isolation, vector ingestion, and HNSW search latency.
+  - End-to-end automated smoke test executing all 5 notebooks headlessly via `nbconvert` / `papermill`.
 
 ### WP3-1-15: Student Documentation & Onboarding Guide
 The docs students actually read. Practical, concise, example-heavy.
