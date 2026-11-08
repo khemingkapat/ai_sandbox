@@ -1,165 +1,138 @@
-# AI Sandbox — Slinky HPC Kubernetes Prototype
+# AI Sandbox — Turnkey Educational AI Engineering Platform
 
-A self-contained, multi-node Slurm HPC cluster running on a local Kubernetes (**Kind**) cluster using **Slinky** (SchedMD's official Slurm-on-Kubernetes suite). Designed for local development, testing, and platform design work for the AI Sandbox, without requiring physical compute nodes.
+The **AI Sandbox** provides students with a turnkey, browser-accessible platform for hands-on AI engineering. It offers pre-installed developer tools, managed GPU/CPU compute, curated local LLMs, and centralized experiment tracking—eliminating the need for students to navigate low-level cluster infrastructure, SSH tunnels, or custom CUDA environments.
 
-This prototype implements a **Kubernetes-native storage isolation** pattern, mapping the host-level `storage/` directory directly to compute pods via PersistentVolume (PV) and PersistentVolumeClaim (PVC) configurations. It bypasses complex LDAP/SSSD directory synchronization setups in favor of native Kubernetes directory-level mount isolation.
-
----
-
-## Project Structure
-
-*   [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/kind-config.yaml) — Defines the multi-node Kind cluster and mounts host-level storage.
-*   [pv-pvc.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/pv-pvc.yaml) — Configures the PersistentVolume and claim to link the mounted host storage.
-*   [values.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/values.yaml) — Helm configuration values for Slinky components (operator, controller, NodeSets).
-*   [flake.nix](file:///home/khemi/workspace/ai_sandbox/flake.nix) — Nix environment defining local tools (`kind`, `kubectl`, `helm`) and shell helpers.
-*   [scripts/start-slinky.sh](file:///home/khemi/workspace/ai_sandbox/scripts/start-slinky.sh) — Automates Slinky CRDs, Operator, and Slurm cluster installation.
-*   [storage/projects/project1](file:///home/khemi/workspace/ai_sandbox/storage/projects/project1) — Shared storage mock project directory containing test workloads.
-*   [M2_BACKEND_DEPLOYMENT_REPORT.md](file:///home/khemi/workspace/ai_sandbox/docs/reports/M2_BACKEND_DEPLOYMENT_REPORT.md) — Technical report on Slinky architecture and backend deployment.
-*   [WORKING_AGREEMENT.md](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/WORKING_AGREEMENT.md) — AI-DLC development workflow and working agreement.
-*   [PROJECT_CONTEXT.md](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md) — Current architecture, constraints, and test conventions.
+Rather than managing isolated VMs or local containers, learners access interactive IDEs and batch HPC compute via a unified web portal backed by a multi-node Kubernetes cluster.
 
 ---
 
 ## Architecture Overview
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                       Kind Cluster (Kubernetes)                 │
-│                                                                 │
-│   Control Plane Pods            Slurm Compute Pods (NodeSet)    │
-│  ┌──────────────────┐          ┌─────────────────────────────┐  │
-│  │  slurm-operator  │          │   slurm-worker-0 (slurmd)   │  │
-│  │  (SchedMD CRDs)  │          │   slurm-worker-1 (slurmd)   │  │
-│  └────────┬─────────┘          └──────────────┬──────────────┘  │
-│           │                                   │                 │
-│           ▼                                   ▼                 │
-│  ┌──────────────────┐          ┌─────────────────────────────┐  │
-│  │ slurm-controller │◄────────►│        /mnt/storage         │  │
-│  │  (slurmctld)     │          │  (ReadWriteMany PVC Mount)  │  │
-│  └──────────────────┘          └──────────────┬──────────────┘  │
-└───────────────────────────────────────────────┼─────────────────┘
-                                                │
-                                                ▼
-                                     ┌────────────────────┐
-                                     │   Host Storage     │
-                                     │  (./storage/)      │
-                                     └────────────────────┘
-```
+The platform uses a **Two-Path Workload Dispatcher** architecture ([ADR 0001](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0001-two-path-workload-execution.md)) that separates interactive web-based sessions from scheduled batch HPC compute jobs while sharing storage and central services:
 
-The system runs SchedMD's official `slurm-operator` in the `slinky` namespace to orchestrate the Slurm controller (`slurm-controller-0`) and worker NodeSets as Kubernetes pods in the `slurm` namespace. 
+```mermaid
+flowchart TD
+    Student["Student Browser"] -->|HTTPS / WSS| Traefik["Traefik Ingress (TLS + ForwardAuth)"]
+    Traefik -->|Auth Verification| Portal["Web Portal (Go Echo Service)"]
 
-Rather than relying on complex SSSD/LDAP user and group synchronizations, directories are isolated natively by mapping the host's [storage/](file:///home/khemi/workspace/ai_sandbox/storage) directory to the Kind nodes, which is then exposed to Slurm pods via a `ReadWriteMany` PV and PVC mount at `/mnt/storage`.
+    subgraph Compute["K3s Cluster Compute Infrastructure"]
+        subgraph Interactive["Interactive Workspaces ('workload' namespace)"]
+            Jupyter["JupyterLab Pod"]
+            VSCode["VS Code Pod"]
+            Bash["Bash TTYD Pod"]
+        end
 
----
+        subgraph HPC["Batch HPC Workloads ('slurm' namespace)"]
+            Slinky["SchedMD Slinky (Slurmctld)"]
+            WorkerCPU["Slurm Worker (CPU NodeSet)"]
+            WorkerGPU["Slurm Worker (NVIDIA L40 NodeSet)"]
+            Apptainer["Apptainer (.sif) Containers"]
+        end
 
-## Design Choices
+        subgraph Central["Central AI Services ('services' namespace)"]
+            vLLM["vLLM Inference Server (Qwen / Gemma)"]
+            MLflow["MLflow Tracking + Postgres 16"]
+            Registry["Local OCI Image Registry"]
+        end
+    end
 
-### Slinky (Slurm-on-Kubernetes)
-We migrated from manual Rocky Linux 9 containers in Docker Compose to Slinky (SchedMD's official Kubernetes suite). Slinky deploys Slurm daemons (`slurmctld`, `slurmd`, `slurmrestd`) as native Kubernetes pods managed via CRDs. This transition enables:
-*   **Elastic NodeSets:** Workers are defined as Kubernetes pools that can autoscale.
-*   **Kubernetes Schedulers:** Allows co-scheduling jobs natively under both Kubernetes and Slurm control.
+    Traefik -->|Proxy Web Sessions| Interactive
+    Portal -->|Dynamic Pod Lifecycle| Interactive
+    Portal -->|sbatch Dispatch| Slinky
+    Slinky --> WorkerCPU
+    Slinky --> WorkerGPU
+    WorkerCPU --- Apptainer
+    WorkerGPU --- Apptainer
 
-### Kubernetes-Native Storage Isolation
-We deliberately discarded the complex SSSD and OpenLDAP configuration. Configuring LDAP servers and client SSSD daemons on container runtimes adds high configuration drift risk and runtime overhead. Instead, we mount the host [storage/](file:///home/khemi/workspace/ai_sandbox/storage) directory to Kind nodes and provision a manual PersistentVolume mapping. Compute pods mount this PVC at `/mnt/storage`, allowing workspace files and execution directories to be read and written directly with simple path-based separation.
+    Interactive -.->|Inference Queries| vLLM
+    Interactive -.->|Experiment Telemetry| MLflow
+    Apptainer -.->|Inference Queries| vLLM
+    Apptainer -.->|Experiment Telemetry| MLflow
 
-### Shared Host Directory Simulation
-To simulate a multi-host network filesystem (like NFS or Lustre), we mount the local host's `./storage` folder to `/mnt/storage` on all Kind nodes (control-plane and workers) via `extraMounts` in [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/kind-config.yaml). The `pv-pvc.yaml` defines a PersistentVolume (`slinky-storage-pv`) using the `hostPath` driver targeting `/mnt/storage`, which is bound by `slinky-storage-pvc` inside the `slurm` namespace.
-
-### Nix Flake Environment
-A Nix configuration ([flake.nix](file:///home/khemi/workspace/ai_sandbox/flake.nix)) packages the correct versions of `kind`, `kubectl`, and `kubernetes-helm`, eliminating manual environment setups and configuration conflicts. It loads shell helpers automatically upon activation.
-
----
-
-## Setup & Usage
-
-### 1. Initialize the Environment
-Ensure you have Nix installed, then load the developer environment shell:
-```bash
-nix develop
-```
-*This loads the required CLI tools and exposes shell aliases (`kup`, `kdown`, `kstat`, `slurm-shell`).*
-
-### 2. Boot the Cluster & Install Slinky
-To create the Kind cluster and deploy the entire Slinky stack automatically, run:
-```bash
-kup
-```
-*This command creates the cluster using [kind-config.yaml](file:///home/khemi/workspace/ai_sandbox/k8s/kind-config.yaml) and runs [scripts/start-slinky.sh](file:///home/khemi/workspace/ai_sandbox/scripts/start-slinky.sh) to deploy Slinky charts and the storage PV/PVC.*
-
-### 3. Verify the Deployment
-Confirm that your PV and PVC are correctly created and bound:
-```bash
-kubectl get pv,pvc -n slurm
-```
-Ensure both `slinky-storage-pv` and `slinky-storage-pvc` show status `Bound`.
-
-Verify that the Slurm compute pods are running:
-```bash
-kstat
+    Storage[("Shared Clustered Storage (/mnt/storage)")]
+    Storage --- Interactive
+    Storage --- HPC
+    Storage --- Central
 ```
 
 ---
 
-## Submitting Jobs (Rapid Prototype)
+## Core Architectural Pillars
 
-### 1. Access the Slurm Shell
-Enter the Slurm controller container to run scheduling commands:
-```bash
-slurm-shell
-```
+### 1. Two-Path Workload Model ([ADR 0001](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0001-two-path-workload-execution.md))
+Workloads are split by operational characteristics:
+* **Interactive Path:** Long-running web environments (JupyterLab, VS Code, Bash TTYD) execute as native Kubernetes OCI Pods in the `workload` namespace. The portal dynamically handles Pod/Service creation and Traefik Ingress routing with token-based ForwardAuth.
+* **Batch Path:** Non-interactive, queued, multi-node compute jobs run through SchedMD Slinky (Slurm-on-Kubernetes) in the `slurm` namespace. Batch jobs run rootless Apptainer (`.sif`) containers directly off shared storage, retaining Slurm's multi-factor priority and fairshare scheduling.
 
-### 2. Run Test Jobs
-Once inside the controller shell, run standard Slurm commands to schedule and manage jobs:
-```bash
-# Check cluster partition status
-sinfo
+### 2. Centralized AI Services ([ADR 0004](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0004-central-services-architecture.md))
+To eliminate redundant resource usage and heavyweight local downloads, shared foundational services run in the `services` namespace:
+* **vLLM Inference Server:** High-throughput OpenAI-compatible API serving curated models (e.g., Qwen 2.5/3.5, Gemma) with time-sliced GPU sharing.
+* **MLflow Tracking Server:** Central experiment and metric logging backed by PostgreSQL 16.
+* **Internal OCI Registry:** Cluster-local container distribution for fast image pulling.
 
-# Run a job interactively across 2 nodes
-srun -N2 hostname
+### 3. Kubernetes-Native Storage & Identity Isolation ([ADR 0002](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0002-storage-and-uid-isolation.md))
+The architecture eliminates complex, error-prone LDAP/SSSD configurations:
+* Storage is mapped to `/mnt/storage` and scoped per workspace via Kubernetes `subPath` mounts (`projects/<project>`, `scratch`, read-only `datasets`, `models`, and `common/etc`).
+* User isolation is enforced via unprivileged `PodSecurityContext` (UID `1001`, GID `2001`, `mode 2770`, `umask 0002`) and `libnss-extrausers`, preventing cross-student file pollution.
 
-# Check the queue
-squeue
-
-# Submit a batch job pointing to the shared storage workspace
-sbatch --wrap="sleep 2 && hostname" -N2 --job-name=test_job
-```
-
-### 3. Verify Mount Access inside a Compute Pod
-To confirm the storage mount is active inside a compute container:
-```bash
-kubectl exec -n slurm -it <pod-name-from-kstat> -c slurmd -- ls -la /mnt/storage
-```
-Ensure you can see [projects/project1](file:///home/khemi/workspace/ai_sandbox/storage/projects/project1) and other files mapped from your local workspace.
+### 4. GPU Hardware Governance & QoS ([ADR 0003](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0003-single-l40-gpu-sharing-and-qos.md))
+* A dedicated NVIDIA L40 (46GB) GPU on `ai-worker1` is partitioned using NVIDIA K8s Device Plugin time-slicing (`replicas: 4`).
+* vLLM utilizes up to `0.65` VRAM (~28GB) for interactive chat and notebook queries.
+* Exclusive batch GPU Slurm training runs coordinate with central services to yield GPU resources when needed.
 
 ---
 
-## Troubleshooting
+## Repository Structure
 
-**PVC Status is Stuck in `Pending`**
-Verify the PersistentVolume exists and matches the storage class:
-```bash
-kubectl describe pvc -n slurm slinky-storage-pvc
-kubectl get pv
 ```
-Ensure `pv-pvc.yaml` was applied. If needed, re-apply it manually:
-```bash
-kubectl apply -f k8s/pv-pvc.yaml
-```
-
-**Slurmd Compute Pods Fail to Register**
-Verify the pods status and inspect logs for error outputs:
-```bash
-kstat
-kubectl logs -n slurm <worker-pod-name> -c slurmd
-```
-
-**Full Environment Reset**
-To completely wipe the cluster and start fresh:
-```bash
-kdown
-kup
+.
+├── portal/            # Go 1.26 Echo web portal, authentication engine, and session dispatcher
+├── k8s/               # Kubernetes manifests (vLLM, MLflow, Traefik, Slinky, NetworkPolicies)
+├── helm/              # Helm chart configurations and Slinky release values
+├── scripts/           # Cluster verification probes, smoke tests, and build utilities
+├── docs/              # Comprehensive platform documentation
+│   ├── aidlc/         # AI-DLC lifecycle, working agreement, units, and ADRs
+│   │   ├── decisions/ # Architectural Decision Records (0001 - 0005)
+│   │   └── units/     # Active and completed work unit specifications
+│   └── reports/       # Technical milestone assessment and deployment reports
+├── images/            # Container definition files (OCI and Apptainer)
+└── storage/           # Mock / target directory layout for shared cluster storage
 ```
 
 ---
 
-*For detailed comparisons of the Compose vs Kubernetes design, see [M2_BACKEND_DEPLOYMENT_REPORT.md](file:///home/khemi/workspace/ai_sandbox/docs/reports/M2_BACKEND_DEPLOYMENT_REPORT.md).*
+## Target Infrastructure & Verification
+
+The platform is designed to run against a multi-node **K3s** cluster hosted on **Proxmox / Bare-Metal** with attached physical compute and storage hardware. 
+
+### Testing & Verification Pipeline
+
+Testing follows a strict **Dual-Path Strategy** ([ADR 0005](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0005-dual-path-ci-and-runner-architecture.md)):
+
+1. **Stage 1: Fast Static & Unit Verification (Local & Cloud CI)**
+   * **Portal Unit Tests:**
+     ```bash
+     cd portal && go test -v -race ./...
+     ```
+   * **Manifest & Script Validation:**
+     ```bash
+     python3 scripts/lint-mermaid.py
+     bash -n scripts/*.sh
+     bash scripts/lint-k8s.sh
+     ```
+
+2. **Stage 2: Live In-Cluster Hardware Verification**
+   Automated integration probes run directly against the live cluster to validate real hardware, GPU time-slicing, and isolation boundaries:
+   * **Student Golden Path Smoke Test:** `bash scripts/test-student-golden-path.sh`
+   * **LLM Inference Server Probe:** `bash scripts/verify-llm.sh`
+   * **MLflow Tracking Server Probe:** `bash scripts/verify-mlflow.sh`
+   * **Network & Storage Isolation Probe:** `bash scripts/verify-security.sh`
+
+---
+
+## Documentation & Roadmap
+
+* [PROJECT_CONTEXT.md](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md) — Live platform status, constraints, conventions, and problem areas.
+* [UNITS.md](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/UNITS.md) — Work package roadmap, active units, and completion status.
+* [WORKING_AGREEMENT.md](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/WORKING_AGREEMENT.md) — AI-DLC developer agreements and execution lifecycle.
+* [Architectural Decision Records (ADRs)](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/) — Accepted architectural choices and trade-offs.
