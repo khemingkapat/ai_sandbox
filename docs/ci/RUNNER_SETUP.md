@@ -43,7 +43,7 @@ An architectural security audit demonstrated that running a self-hosted runner d
 Log in to the container console and install the test runner dependencies:
 ```bash
 apt-get update && apt-get install -y \
-  curl git jq sudo ca-certificates tar bzip2 libicu-dev
+  curl git jq sudo ca-certificates tar bzip2 libicu-dev golang-go
 
 # Install kubectl
 curl -LO "https://dl.k8s.io/release/$(curl -L -s https://dl.k8s.io/release/stable.txt)/bin/linux/amd64/kubectl"
@@ -72,8 +72,8 @@ Switch to the `github-runner` user and register the daemon:
 su - github-runner
 mkdir -p ~/actions-runner && cd ~/actions-runner
 
-# Download runner package (check GitHub repo Settings -> Actions -> Runners for latest URL)
-curl -o actions-runner-linux-x64-latest.tar.gz -L https://github.com/actions/runner/releases/download/v2.321.0/actions-runner-linux-x64-2.321.0.tar.gz
+# Download runner package (GitHub requires runner version >= 2.329.0)
+curl -o actions-runner-linux-x64-latest.tar.gz -L https://github.com/actions/runner/releases/download/v2.338.2/actions-runner-linux-x64-2.338.2.tar.gz
 tar xzf ./actions-runner-linux-x64-latest.tar.gz
 
 # Configure runner
