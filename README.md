@@ -14,7 +14,7 @@ This prototype implements a **Kubernetes-native storage isolation** pattern, map
 *   [flake.nix](file:///home/khemi/workspace/ai_sandbox/flake.nix) — Nix environment defining local tools (`kind`, `kubectl`, `helm`) and shell helpers.
 *   [scripts/start-slinky.sh](file:///home/khemi/workspace/ai_sandbox/scripts/start-slinky.sh) — Automates Slinky CRDs, Operator, and Slurm cluster installation.
 *   [storage/projects/project1](file:///home/khemi/workspace/ai_sandbox/storage/projects/project1) — Shared storage mock project directory containing test workloads.
-*   [slinky_migration_report.md](file:///home/khemi/workspace/ai_sandbox/docs/reports/M2_BACKEND_DEPLOYMENT_REPORT.md) — Technical report on Slinky architecture and backend deployment.
+*   [M2_BACKEND_DEPLOYMENT_REPORT.md](file:///home/khemi/workspace/ai_sandbox/docs/reports/M2_BACKEND_DEPLOYMENT_REPORT.md) — Technical report on Slinky architecture and backend deployment.
 *   [WORKING_AGREEMENT.md](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/WORKING_AGREEMENT.md) — AI-DLC development workflow and working agreement.
 *   [PROJECT_CONTEXT.md](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md) — Current architecture, constraints, and test conventions.
 

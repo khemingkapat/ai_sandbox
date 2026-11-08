@@ -101,7 +101,7 @@ Present your verification to the user in this structure:
 ### 2. Architectural Result Audit (pro Model Review)
 - **Boundary Integrity:** [Clean / Details on boundary leak]
 - **Bloat & Dependency Check:** [Zero new bloat / Flagged runtime dependencies]
-- **Stack Alignment:** [Matches TECH_STACK_DECISION.md / Notes on shortcuts]
+- **Stack Alignment:** [Matches docs/aidlc/PROJECT_CONTEXT.md & decisions/ / Notes on shortcuts]
 
 ### 3. Issues & Required Actions
 [List any functional bugs or architectural changes required before merge. If clean: "None — ready to merge."]

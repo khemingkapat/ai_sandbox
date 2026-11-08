@@ -33,7 +33,7 @@ Present your findings to the user using the following markdown structure:
 ## Gap Analysis: [Goal]
 
 ### 1. Current State
-[Brief summary of where we are right now, referencing the WORK_PACKAGES and INCREMENT_LOG. Highlight existing infrastructure that relates to the goal.]
+[Brief summary of where we are right now, referencing docs/aidlc/PROJECT_CONTEXT.md and UNITS.md. Highlight existing infrastructure that relates to the goal.]
 
 ### 2. The Gap
 [What is currently missing? Break down the technical distance between the current state and the goal into logical components (e.g., Infrastructure, API, Frontend, Data).]
