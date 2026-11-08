@@ -1,0 +1,19 @@
+annotations:
+  license: Apache-2.0
+apiVersion: v2
+appVersion: "26.05"
+description: Slurm Cluster
+home: https://slurm.schedmd.com/
+icon: https://raw.githubusercontent.com/SlinkyProject/docs/refs/heads/main/docs/_static/images/slurm-square-500.png
+kubeVersion: '>= 1.29.0-0'
+maintainers:
+- email: slinky@schedmd.com
+  name: SchedMD LLC.
+  url: https://support.schedmd.com/
+name: slurm
+sources:
+- https://github.com/SchedMD/slurm
+- https://github.com/SlinkyProject/containers
+- https://github.com/SlinkyProject/slurm-operator
+type: application
+version: 1.2.1

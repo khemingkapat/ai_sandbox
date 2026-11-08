@@ -1,0 +1,30 @@
+name: Stage 2 — In-Cluster Hardware Verification
+
+on:
+  push:
+    branches: ["main", "chore/*", "feat/*"]
+  workflow_dispatch:
+    inputs:
+      force_full_suite:
+        description: "Force execution of full suite regardless of maintenance flag"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: cluster-hardware-verification
+  cancel-in-progress: false
+
+jobs:
+  cluster-hardware-verification:
+    name: Cluster Hardware & Pre-Flight Probe
+    runs-on: [self-hosted, local-cluster]
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Verify Cluster State and Hardware
+        env:
+          CLUSTER_GPU_MAINTENANCE: ${{ vars.CLUSTER_GPU_MAINTENANCE || 'false' }}
+        run: |
+          bash scripts/verify-ci-hardware.sh

@@ -1,0 +1,72 @@
+{{- if .Values.accounting.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "slurm.fullname" . }}-slurmdbd-config
+  namespace: {{ include "slurm.namespace" . }}
+data:
+  slurmdbd.conf: |
+    AuthType=auth/munge
+    DbdHost={{ include "slurm.fullname" . }}-slurmdbd
+    DbdPort=6819
+    StorageType=accounting_storage/mysql
+    StorageHost={{ .Values.accounting.storageConfig.host }}
+    StoragePort={{ .Values.accounting.storageConfig.port }}
+    StorageUser={{ .Values.accounting.storageConfig.username }}
+    StoragePass=slurmpassword
+    StorageLoc={{ .Values.accounting.storageConfig.database }}
+    LogFile=/var/log/slurm/slurmdbd.log
+    PidFile=/var/run/slurmdbd.pid
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "slurm.fullname" . }}-slurmdbd
+  namespace: {{ include "slurm.namespace" . }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: {{ include "slurm.fullname" . }}-slurmdbd
+  template:
+    metadata:
+      labels:
+        app: {{ include "slurm.fullname" . }}-slurmdbd
+    spec:
+      containers:
+      - name: slurmdbd
+        image: "{{ .Values.accounting.slurmdbd.image.repository }}:{{ .Values.accounting.slurmdbd.image.tag }}"
+        ports:
+        - containerPort: 6819
+          name: slurmdbd
+        volumeMounts:
+        - name: config-volume
+          mountPath: /etc/slurm/slurmdbd.conf
+          subPath: slurmdbd.conf
+        - name: munge-key
+          mountPath: /etc/munge/munge.key
+          subPath: {{ include "slurm.authSlurmRef.key" . }}
+          readOnly: true
+      volumes:
+      - name: config-volume
+        configMap:
+          name: {{ include "slurm.fullname" . }}-slurmdbd-config
+          defaultMode: 0600
+      - name: munge-key
+        secret:
+          secretName: {{ include "slurm.authSlurmRef.name" . }}
+          defaultMode: 0400
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "slurm.fullname" . }}-slurmdbd
+  namespace: {{ include "slurm.namespace" . }}
+spec:
+  ports:
+  - port: 6819
+    targetPort: 6819
+    name: slurmdbd
+  selector:
+    app: {{ include "slurm.fullname" . }}-slurmdbd
+{{- end }}

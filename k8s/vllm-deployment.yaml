@@ -1,0 +1,123 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vllm
+  namespace: services
+  labels:
+    app: vllm
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: central-services
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: vllm
+  template:
+    metadata:
+      labels:
+        app: vllm
+        app.kubernetes.io/name: vllm
+        app.kubernetes.io/part-of: central-services
+    spec:
+      runtimeClassName: nvidia
+      terminationGracePeriodSeconds: 10
+      nodeSelector:
+        kubernetes.io/hostname: ai-sandbox-gpu-vm
+      tolerations:
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Equal"
+        value: "slurm-bridge-scheduler"
+        effect: "NoExecute"
+      containers:
+      - name: vllm
+        image: vllm/vllm-openai:v0.31.0
+        imagePullPolicy: IfNotPresent
+        args:
+        - "--model"
+        - "Qwen/Qwen3.5-0.8B"
+        - "--gpu-memory-utilization"
+        # 0.90 utilization on dedicated L40 (10% dynamic headroom reserved for CUDA activations & FlashInfer)
+        - "0.90"
+        - "--max-model-len"
+        - "16384"
+        - "--max-num-seqs"
+        - "64"
+        - "--max-num-batched-tokens"
+        - "2048"
+        - "--enable-chunked-prefill"
+        - "--enable-prefix-caching"
+        - "--port"
+        - "8000"
+        env:
+        - name: HUGGINGFACE_HUB_CACHE
+          value: /root/.cache/huggingface/hub
+        - name: HF_HOME
+          value: /root/.cache/huggingface
+        - name: HF_HUB_OFFLINE
+          value: "1"
+        ports:
+        - containerPort: 8000
+          name: http
+        resources:
+          limits:
+            nvidia.com/gpu: "1"
+            memory: "32Gi"
+            cpu: "8"
+          requests:
+            nvidia.com/gpu: "1"
+            memory: "16Gi"
+            cpu: "4"
+        startupProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          initialDelaySeconds: 30
+          periodSeconds: 10
+          failureThreshold: 60
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 10
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8000
+          periodSeconds: 15
+          failureThreshold: 3
+        volumeMounts:
+        - name: model-cache
+          mountPath: /root/.cache/huggingface
+          readOnly: true
+        - name: dshm
+          mountPath: /dev/shm
+      volumes:
+      - name: model-cache
+        hostPath:
+          path: /mnt/storage/models/huggingface
+          type: DirectoryOrCreate
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: 4Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vllm-service
+  namespace: services
+  labels:
+    app: vllm
+    app.kubernetes.io/name: vllm
+    app.kubernetes.io/part-of: central-services
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: vllm
+  ports:
+  - name: http
+    port: 8000
+    targetPort: 8000

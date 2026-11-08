@@ -1,0 +1,5 @@
+# Slinky Migration: Repository Code Ownership
+# This file configures code owners who must review and approve pull requests before they can be merged.
+
+# By default, @khemingkapat must approve all changes to any file in the repository.
+*       @khemingkapat

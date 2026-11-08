@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-node-cp
+  namespace: slurm
+spec:
+  nodeName: ai-control
+  restartPolicy: Never
+  volumes:
+  - name: shared-vol
+    persistentVolumeClaim:
+      claimName: slinky-storage-pvc
+  containers:
+  - name: writer
+    image: busybox
+    command: ["sh", "-c", "echo cp-storage-verified-$(date +%s) > /mnt/storage/cross_pod.txt && sleep 3600"]
+    volumeMounts:
+    - mountPath: /mnt/storage
+      name: shared-vol
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-node-worker
+  namespace: slurm
+spec:
+  nodeName: ai-worker1
+  restartPolicy: Never
+  volumes:
+  - name: shared-vol
+    persistentVolumeClaim:
+      claimName: slinky-storage-pvc
+  containers:
+  - name: reader
+    image: busybox
+    command: ["sh", "-c", "sleep 3 && cat /mnt/storage/cross_pod.txt && sleep 3600"]
+    volumeMounts:
+    - mountPath: /mnt/storage
+      name: shared-vol

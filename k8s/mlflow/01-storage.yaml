@@ -1,0 +1,60 @@
+# Storage for MLflow Central Service (PostgreSQL & Proxied Artifacts)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mlflow-postgres-pv
+  labels:
+    app.kubernetes.io/name: mlflow-postgres
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /mnt/storage/mlflow/postgres
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-postgres-pvc
+  namespace: services
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  volumeName: mlflow-postgres-pv
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: mlflow-artifacts-pv
+  labels:
+    app.kubernetes.io/name: mlflow-artifacts
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteMany
+  hostPath:
+    path: /mnt/storage/mlflow/artifacts
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: mlflow-artifacts-pvc
+  namespace: services
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteMany
+  resources:
+    requests:
+      storage: 50Gi
+  volumeName: mlflow-artifacts-pv

@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hpc-portal
+  namespace: slurm
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hpc-portal
+  template:
+    metadata:
+      labels:
+        app: hpc-portal
+    spec:
+      serviceAccountName: portal-sa
+      nodeSelector:
+        kubernetes.io/hostname: ai-control
+      tolerations:
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Exists"
+        effect: "NoExecute"
+      containers:
+      - name: portal
+        image: hpc-portal:local
+        imagePullPolicy: IfNotPresent
+        command: ["/mnt/storage/common/bin/hpc-portal"]
+        workingDir: /app
+        ports:
+        - containerPort: 8080
+          name: ui
+        env:
+        - name: SLURMRESTD_URL
+          value: "http://slurm-restapi:6820"
+        - name: JWT_KEY_PATH
+          value: "/etc/slurm/jwt_hs256.key"
+        - name: TRAEFIK_CONFIG_DIR
+          value: "/etc/traefik/dynamic"
+        - name: PORT_DB_PATH
+          value: "/var/lib/portal/leases.db"
+        volumeMounts:
+        - name: storage
+          mountPath: /mnt/storage
+        - name: jwt-key
+          mountPath: /etc/slurm/jwt_hs256.key
+          subPath: jwt.key
+          readOnly: true
+        - name: traefik-dynamic
+          mountPath: /etc/traefik/dynamic
+      - name: traefik
+        image: traefik:v3.1
+        args:
+        - --providers.file.directory=/etc/traefik/dynamic
+        - --providers.file.watch=true
+        - --providers.kubernetesingress=true
+        - --providers.kubernetesingress.namespaces=slurm,workload
+        - --providers.kubernetesingress.disableclusterscoperesources=true
+        - --entrypoints.web.address=:80
+        - --entrypoints.websecure.address=:443
+        - --entrypoints.websecure.http.tls=true
+        - --entrypoints.websecure.http.middlewares=security-headers@file
+        ports:
+        - containerPort: 80
+          name: proxy
+        - containerPort: 443
+          name: websecure
+        volumeMounts:
+        - name: traefik-dynamic
+          mountPath: /etc/traefik/dynamic
+        - name: traefik-certs
+          mountPath: /etc/traefik/certs
+          readOnly: true
+        - name: traefik-security
+          mountPath: /etc/traefik/dynamic/security.yaml
+          subPath: security.yaml
+          readOnly: true
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
+      - name: jwt-key
+        secret:
+          secretName: slurm-auth-jwt
+      - name: traefik-dynamic
+        emptyDir: {}
+      - name: traefik-certs
+        secret:
+          secretName: traefik-tls-cert
+      - name: traefik-security
+        configMap:
+          name: traefik-security-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: portal
+  namespace: slurm
+spec:
+  selector:
+    app: hpc-portal
+  ports:
+  - name: ui
+    port: 8080
+    targetPort: 8080
+  - name: proxy
+    port: 80
+    targetPort: 80
+  - name: https
+    port: 443
+    targetPort: 443

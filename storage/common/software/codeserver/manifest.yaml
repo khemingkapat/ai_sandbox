@@ -1,0 +1,12 @@
+id: "codeserver"
+name: "VS Code Server"
+description: "Full Visual Studio Code IDE running directly in the browser."
+icon: "💻"
+type: "interactive"
+image: "localhost:5000/interactive-codeserver:latest"
+exec_command: "code-server --auth none --bind-addr 0.0.0.0:8888 $WORKSPACE"
+slurm_args:
+  nodes: "1"
+  ntasks: "1"
+  cpus-per-task: "2"
+  mem: "2G"

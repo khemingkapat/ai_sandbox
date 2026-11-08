@@ -1,0 +1,428 @@
+nameOverride: null
+fullnameOverride: null
+namespaceOverride: null
+asciiArt: true
+imagePullSecrets: []
+imagePullPolicy: IfNotPresent
+priorityClass:
+  enabled: false
+  create: false
+  name: slurm-system-critical
+  description: null
+  value: 1000000000
+  preemptionPolicy: PreemptLowerPriority
+slurmKey:
+  create: true
+  annotations: {}
+  secretRef: {}
+jwtKey:
+  create: true
+  annotations: {}
+  secretRef: {}
+jwksKeys:
+  enabled: false
+  configMapRef: {}
+clusterName: null
+configFiles:
+  cgroup.conf: 'CgroupPlugin=cgroup/v2
+
+    IgnoreSystemd=yes
+
+    ConstrainCores=yes
+
+    ConstrainRAMSpace=yes
+
+    ConstrainDevices=yes
+
+    ConstrainSwapSpace=yes
+
+    '
+prologSlurmctldScripts: {}
+epilogSlurmctldScripts: {}
+prologScripts: {}
+epilogScripts:
+  01-webhook.sh: "#!/bin/bash\n# Slurm Epilog script to send job metrics to the central\
+    \ portal\n# Try reaching the host machine using host.minikube.internal or a known\
+    \ docker bridge IP.\n# Usually in kind/minikube, 10.0.2.2 or host.minikube.internal\
+    \ works, or the actual node IP.\nCENTRAL_PORTAL_URL=\"http://172.17.0.1:8080/api/webhook/slurm\"\
+    \n# or just try reaching the portal container if the python server runs on the\
+    \ host?\n# Actually, we can use the k8s node IP or host machine IP. Let's use\
+    \ the env variables.\n\nJOB_ID=${SLURM_JOB_ID:-unknown}\nUSER_ID=${SLURM_JOB_USER:-unknown}\n\
+    ACCOUNT=${SLURM_JOB_ACCOUNT:-unknown}\nPARTITION=${SLURM_JOB_PARTITION:-unknown}\n\
+    NODELIST=${SLURM_JOB_NODELIST:-unknown}\n\nPAYLOAD=$(cat <<EOF\n{\n  \"job_id\"\
+    : \"$JOB_ID\",\n  \"user\": \"$USER_ID\",\n  \"account\": \"$ACCOUNT\",\n  \"\
+    partition\": \"$PARTITION\",\n  \"nodelist\": \"$NODELIST\",\n  \"event\": \"\
+    job_completed\",\n  \"timestamp\": \"$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")\"\n}\n\
+    EOF\n)\n\ncurl -X POST -H \"Content-Type: application/json\" -d \"$PAYLOAD\" \"\
+    http://host.k3d.internal:8080/api/webhook/slurm\" --max-time 5 || true\ncurl -X\
+    \ POST -H \"Content-Type: application/json\" -d \"$PAYLOAD\" \"http://host.minikube.internal:8080/api/webhook/slurm\"\
+    \ --max-time 5 || true\ncurl -X POST -H \"Content-Type: application/json\" -d\
+    \ \"$PAYLOAD\" \"http://172.17.0.1:8080/api/webhook/slurm\" --max-time 5 || true\n\
+    curl -X POST -H \"Content-Type: application/json\" -d \"$PAYLOAD\" \"http://localhost:8080/api/webhook/slurm\"\
+    \ --max-time 5 || true\n"
+controller:
+  external: false
+  externalConfig:
+    host: slurmctld.example.com
+    port: null
+  slurmctld:
+    image:
+      repository: slurmctld-custom
+      tag: latest
+    args:
+    - -i
+    resources: {}
+    volumeMounts:
+    - name: extrausers-vol
+      mountPath: /var/lib/extrausers
+      subPath: common/etc
+  reconfigure:
+    image:
+      repository: slurmctld-custom
+      tag: latest
+    volumeMounts:
+    - name: extrausers-vol
+      mountPath: /var/lib/extrausers
+      subPath: common/etc
+    resources: {}
+  logfile:
+    image:
+      repository: docker.io/library/alpine
+      tag: latest
+    resources: {}
+  persistence:
+    enabled: true
+    existingClaim: ''
+    storageClassName: null
+    accessModes:
+    - ReadWriteOnce
+    resources:
+      requests:
+        storage: 4Gi
+  extraConf: |
+    SlurmdParameters=config_overrides
+    PriorityWeightFairShare=10000
+    AccountingStorageEnforce=limits,qos
+    DefMemPerCPU=2048
+    GresTypes=gpu
+    AccountingStorageTRES=cpu,mem,energy,node,billing,fs/disk,vmem,pages,gres/gpu
+    NodeName=ai-sandbox-gpu-vm Gres=gpu:1
+
+    PartitionName=batch-cpu Nodes=slurmd-cpu,ai-worker1 MaxTime=1-00:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=1 State=UP
+    PartitionName=batch-gpu Nodes=slurmd-cpu,slurmd-gpu,ai-worker1,ai-sandbox-gpu-vm MaxTime=7-00:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=1 State=UP
+    PartitionName=inference Nodes=slurmd-gpu,ai-sandbox-gpu-vm MaxTime=12:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=3 State=UP
+    PartitionName=interactive Nodes=slurmd-cpu,slurmd-gpu,ai-worker1,ai-sandbox-gpu-vm Default=YES MaxTime=02:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=2 State=UP
+  extraConfMap: {}
+  metadata: {}
+  podSpec:
+    resources: {}
+    initContainers: []
+    nodeSelector:
+      kubernetes.io/hostname: ai-control
+    affinity: {}
+    tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
+    volumes:
+    - name: extrausers-vol
+      persistentVolumeClaim:
+        claimName: slinky-storage-pvc
+  service:
+    metadata: {}
+    spec: {}
+  metrics:
+    enabled: false
+    serviceMonitor:
+      enabled: false
+      annotations: {}
+      labels: {}
+      interval: 30s
+      scrapeTimeout: 25s
+      endpoints:
+      - path: /metrics/jobs
+      - path: /metrics/nodes
+      - path: /metrics/partitions
+      - path: /metrics/scheduler
+restapi:
+  replicas: 1
+  slurmrestd:
+    image:
+      repository: slurmrestd-custom
+      tag: latest
+    env: []
+    args: []
+    resources: {}
+    volumeMounts:
+    - name: extrausers-vol
+      mountPath: /var/lib/extrausers
+      subPath: common/etc
+  metadata: {}
+  podSpec:
+    resources: {}
+    initContainers: []
+    nodeSelector:
+      kubernetes.io/hostname: ai-control
+    affinity: {}
+    tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
+    volumes:
+    - name: extrausers-vol
+      persistentVolumeClaim:
+        claimName: slinky-storage-pvc
+  service:
+    metadata: {}
+    spec: {}
+accounting:
+  enabled: true
+  external: false
+  externalConfig:
+    host: slurmdbd.example.com
+    port: null
+  slurmdbd:
+    image:
+      repository: ghcr.io/slinkyproject/slurmdbd
+      tag: 25.11-ubuntu24.04
+    args: []
+    resources: {}
+  storageConfig:
+    host: mariadb
+    port: 3306
+    database: slurm_acct_db
+    username: slurm
+    passwordKeyRef:
+      name: mariadb-password
+      key: password
+  extraConf: null
+  extraConfMap: {}
+  metadata: {}
+  podSpec:
+    resources: {}
+    initContainers: []
+    nodeSelector:
+      kubernetes.io/hostname: ai-control
+    affinity: {}
+    tolerations:
+    - key: "slinky.slurm.net/managed-node"
+      operator: "Exists"
+      effect: "NoExecute"
+  service:
+    metadata: {}
+    spec: {}
+sssd: {}
+loginsets:
+  slinky:
+    enabled: false
+    replicas: 1
+    strategy: {}
+    login:
+      image:
+        repository: ghcr.io/slinkyproject/login
+        tag: 25.11-ubuntu24.04
+      env: []
+      securityContext:
+        privileged: false
+      resources: {}
+      volumeMounts: []
+    initconf:
+      image:
+        repository: docker.io/library/alpine
+        tag: latest
+      resources: {}
+    rootSshAuthorizedKeys: null
+    extraSshdConfig: null
+    metadata: {}
+    podSpec:
+      resources: {}
+      initContainers: []
+      nodeSelector:
+        kubernetes.io/os: linux
+      affinity: {}
+      tolerations: []
+      volumes: []
+    service:
+      metadata: {}
+      spec:
+        type: LoadBalancer
+nodesets:
+  slurmd-cpu:
+    enabled: true
+    scalingMode: StatefulSet
+    replicas: 2
+    oversubscribeNode: true
+    taintKubeNodes: false
+    workloadDisruptionProtection: true
+    ordinalPadding: 0
+    slurmd: &id001
+      image:
+        repository: slurmd-custom
+        tag: latest
+      args: []
+      env: []
+      securityContext:
+        privileged: false
+        capabilities:
+          add:
+            - SYS_ADMIN
+            - DAC_OVERRIDE
+            - DAC_READ_SEARCH
+      resources: {}
+      volumeMounts:
+      - name: slinky-storage
+        mountPath: /mnt/storage
+      - name: extrausers-vol
+        mountPath: /var/lib/extrausers
+        subPath: common/etc
+        readOnly: true
+    logfile: &id002
+      image:
+        repository: docker.io/library/alpine
+        tag: latest
+      resources: {}
+    extraConf: null
+    extraConfMap: &id003 {}
+    partition: &id004
+      enabled: false
+      config: null
+      configMap: {}
+    ssh: &id005
+      enabled: false
+      extraSshdConfig: null
+    updateStrategy: &id006
+      type: RollingUpdate
+      rollingUpdate:
+        maxUnavailable: 25%
+    metadata: &id007 {}
+    podSpec: &id008
+      resources: {}
+      initContainers: []
+      nodeSelector:
+        kubernetes.io/hostname: ai-worker1
+      affinity: {}
+      tolerations:
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Exists"
+        effect: "NoExecute"
+      volumes:
+      - name: slinky-storage
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
+      - name: extrausers-vol
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
+  slurmd-gpu:
+    enabled: true
+    scalingMode: StatefulSet
+    replicas: 1
+    oversubscribeNode: true
+    taintKubeNodes: false
+    workloadDisruptionProtection: true
+    ordinalPadding: 0
+    slurmd:
+      image:
+        repository: slurmd-custom
+        tag: latest
+      args: []
+      env:
+      - name: NVIDIA_DRIVER_CAPABILITIES
+        value: compute,utility,all
+      securityContext:
+        privileged: false
+        capabilities:
+          add:
+            - SYS_ADMIN
+            - DAC_OVERRIDE
+            - DAC_READ_SEARCH
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+        requests:
+          nvidia.com/gpu: 1
+      volumeMounts:
+      - name: slinky-storage
+        mountPath: /mnt/storage
+      - name: extrausers-vol
+        mountPath: /var/lib/extrausers
+        subPath: common/etc
+        readOnly: true
+    logfile: *id002
+    extraConf: "Gres=gpu:1"
+    extraConfMap: *id003
+    partition: *id004
+    ssh: *id005
+    updateStrategy: *id006
+    podSpec:
+      resources: {}
+      runtimeClassName: nvidia
+      initContainers: []
+      nodeSelector:
+        kubernetes.io/hostname: ai-sandbox-gpu-vm
+        kubernetes.io/os: linux
+      affinity: {}
+      tolerations:
+      - key: "slinky.slurm.net/managed-node"
+        operator: "Exists"
+        effect: "NoExecute"
+      volumes:
+      - name: slinky-storage
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
+      - name: extrausers-vol
+        persistentVolumeClaim:
+          claimName: slinky-storage-pvc
+partitions:
+  interactive:
+    enabled: true
+    nodesets:
+    - slurmd-cpu
+    - slurmd-gpu
+    config: null
+    configMap:
+      State: UP
+      Default: 'YES'
+      MaxTime: '02:00:00'
+      OverSubscribe: 'YES'
+      PreemptMode: 'OFF'
+      PriorityTier: '2'
+  batch-cpu:
+    enabled: true
+    nodesets:
+    - slurmd-cpu
+    config: null
+    configMap:
+      State: UP
+      MaxTime: '1-00:00:00'
+      OverSubscribe: 'YES'
+      PreemptMode: 'OFF'
+      PriorityTier: '1'
+  batch-gpu:
+    enabled: true
+    nodesets:
+    - slurmd-cpu
+    - slurmd-gpu
+    config: null
+    configMap:
+      State: UP
+      MaxTime: '7-00:00:00'
+      OverSubscribe: 'YES'
+      PreemptMode: 'OFF'
+      PriorityTier: '1'
+  inference:
+    enabled: true
+    nodesets:
+    - slurmd-gpu
+    config: null
+    configMap:
+      State: UP
+      MaxTime: '12:00:00'
+      OverSubscribe: 'YES'
+      PreemptMode: 'OFF'
+      PriorityTier: '3'
+vendor:
+  nvidia:
+    dcgm:
+      enabled: false
+      jobMappingDir: /var/lib/dcgm-exporter/job-mapping
+      scriptPriority: '90'

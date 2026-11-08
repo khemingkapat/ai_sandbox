@@ -5,14 +5,38 @@ data/examples/*
 jobs/
 
 /storage/*
-!/storage/**/
-!/storage/**/*.def
-!/storage/**/*.yaml
-!/storage/**/*.yml
-/storage/**/*.sif
+!/storage/common/
+*.sif
+
+# Ignore Kaggle cache, registry data, models, datasets, scratch, and general caches
+/storage/registry/
+/storage/models/
+/storage/datasets/
+/storage/scratch/
+/storage/common/kaggle_cache/
+**/__pycache__/
+**/*.pyc
+
+# Projects: Runtime user workspaces are ephemeral & dynamically provisioned
+/storage/projects/
+/storage/**/*.ipynb
 
 storage.bak/
 
 traefik-dynamic/*
 !traefik-dynamic/.gitkeep
 
+*.ignore.*
+
+# Ignore compiled portal binary and runtime logs
+portal/portal
+portal/hpc-portal
+portal/*.log
+*.log
+/storage/projects/**/.jupyter/
+/storage/projects/**/.npm/
+/storage/projects/**/.local/
+/storage/projects/**/.cache/
+/storage/projects/**/.config/
+/storage/projects/**/.kaggle/
+data/models_cache/

@@ -1,0 +1,12 @@
+id: "hello_python_project1"
+name: "My Private Hello Python"
+description: "A simple Python script running natively. This application is private and only visible in project1."
+icon: "🐍"
+type: "batch"
+image_file: "python.sif"
+exec_command: "python3 $WORKSPACE/hello.py"
+slurm_args:
+  partition: "batch-cpu"
+  nodes: "1"
+  ntasks: "2"
+  constraint: "slurmd-cpu"
