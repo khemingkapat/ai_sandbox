@@ -16,7 +16,7 @@ These criteria are a practical synthesis of AI-DLC's principles, adapted for a s
 - [ ] I explicitly approved the combined Spec + Plan (**Gate A+B**).
 
 **Persistent context**
-- [ ] A fresh agent session can understand the project from `docs/aidlc/` without me re-explaining or reading 700 KB of old logs.
+- [ ] A fresh agent session can understand the project from `docs/aidlc/` without me re-explaining.
 - [ ] Decisions and their reasons are recorded in `decisions/`.
 - [ ] Spot-check: `PROJECT_CONTEXT.md` and `UNITS.md` match the current code and cluster state.
 

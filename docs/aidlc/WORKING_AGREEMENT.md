@@ -7,13 +7,13 @@ This is a lightweight, solo adaptation of AI-DLC. Follow it for every unit of wo
 1. **Read context first.** At the start of every session, read `docs/aidlc/PROJECT_CONTEXT.md`, `UNITS.md`, and the relevant unit spec and decision records. Don't rely on chat memory.
 2. **GitHub WP (Epics) ↔ Repo Units (1-Day Bolts):** High-level roadmap and milestone tracking live in GitHub Issues & GitHub Project #6. Inside the repo, each work package is broken down into small, 1-day code bolts in `docs/aidlc/units/`.
 3. **Ask, then build (Gate A+B).** For any new unit, ask clarifying questions and propose a 1-page spec + implementation plan. Don't write production code or modify cluster manifests until I approve.
-4. **Anti-"False Affirmation" rule:** Every unit spec must define: (a) primary happy path, (b) failure/boundary rejection case, and (c) integration verification with existing services so we avoid the 50% rework tax.
+4. **Comprehensive Criteria Rule:** Every unit spec must define: (a) primary happy path, (b) at least one failure/boundary rejection case, and (c) integration verification with existing services.
 5. **Dual-Path Testing (Gate C):**
    - **Stage 1 (Cloud fast checks):** `go test -race`, `golangci-lint`, `bash -n`, `kubeconform`.
    - **Stage 2 (In-Cluster hardware verification):** Locked verification scripts (`scripts/verify-*.sh` or `test-student-golden-path.sh`) run on the live cluster (concurrency = 1 to protect the single NVIDIA L40 GPU).
    Approved Gate C tests/probes are locked; the agent must never weaken, skip, or delete them.
 6. **Stop rule (3-Strike escalation):** If the same failure happens 3 times, stop and ask with hypothesis and options. Do not spiral.
-7. **Keep context true (Gate D):** Finishing a bolt includes updating the unit's Bolt Log in `docs/aidlc/units/<unit>.md`, flipping status in `UNITS.md`, and updating decisions if boundaries changed.
+7. **Keep context true (Gate D):** Finishing a bolt includes updating the unit's Bolt Log in `docs/aidlc/units/<unit>.md`, flipping status in `UNITS.md`, and updating decisions if boundaries changed. *(When auditing or remediating legacy components built prior to AI-DLC adoption, follow [`TRANSFORMATION_PLAYBOOK.md`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/TRANSFORMATION_PLAYBOOK.md)).*
 
 ## The cycle for each unit
 

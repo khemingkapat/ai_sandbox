@@ -1,66 +1,32 @@
-# Intent and Purpose: Why this project adopts AI-DLC
+# Intent and Purpose: AI-Driven Development Life Cycle (AI-DLC)
 
-## Who this is
+## Who we are
 
-A solo developer (Khem) working with a coding agent (Antigravity) on `ai_sandbox`. There is no team, so the agent and I are the whole "mob."
+A solo developer and Lead Architect (Khem) paired with an interactive coding agent and Co-Architect (Antigravity) building `ai_sandbox`. Together, the human and agent form the entire engineering unit.
 
-## Where I am now
+## Core intent
 
-- I've used coding agents mostly for **implementation and testing**, working in loosely planned increments that follow the current plan and situation.
-- That worked while the project was small. The project has now **grown substantially**, and some work feels like a **never-ending loop**: the agent and I go around the same problem repeatedly without converging.
-- I've only learned the basic concepts of AI-DLC so far, and I want to adopt it in a way that fits a solo project, not copy a team ritual.
+- **Decision-maker vs. Executor:** Shift human effort from babysitting implementation to making architectural decisions, resolving trade-offs, and approving verifiable work at explicit gates.
+- **Zero-Amnesia Continuity:** Keep repository context concise and structured so any fresh agent session can resume work immediately from `docs/aidlc/` without relying on chat history.
+- **Small, Verifiable Bolts:** Execute work in bounded units (sized from a few hours to a day) that end in a deterministic pass/fail against locked tests.
+- **Architectural Traceability:** Record *why* key system boundaries and trade-offs were chosen (`docs/aidlc/decisions/`), not just what the code currently does.
 
-## Diagnosis (repo survey evidence)
+## How we adapt AI-DLC for a solo systems project
 
-The loops come from these causes, which AI-DLC is designed to address:
+- **Inception → Construction → Operations:** Each phase passes structured, high-signal context to the next:
+  1. **Inception & Plan (Gate A+B):** Define what "done" means (happy path, failure/boundary case, and integration contract) and the exact file plan before writing code.
+  2. **Construction (Gate C → Implement → Gate D):** Lock automated tests or live cluster verification probes first (Gate C), implement autonomously within bounded retries, and review the final bolt summary (Gate D).
+  3. **Operations:** Update living context (`UNITS.md`, `PROJECT_CONTEXT.md`) and feed completed unit records into formal milestone deliverables (`docs/reports/`).
+- **GitHub Epics ↔ Repo Bolts:** High-level work packages and milestone roadmaps live in GitHub Issues and GitHub Project #6; concrete 1-day implementation bolts live in `docs/aidlc/units/`.
+- **AI Proposes, Human Validates:** The agent challenges assumptions, proposes designs, and batches clarifying questions; Khem holds final authority at every gate.
 
-1. **"Done" is vague & "False Affirmation" tests:** Starting from high-level goals without concrete specs, building only the happy path, and running narrow surface tests that pass. Hardware/cluster edge cases (GPU time-slicing, NFS `subPath` mounts, Traefik ForwardAuth headers) cause repeated post-merge breakage.
-2. **The 50% Rework Tax:** Discovering in the *next* sprint that previously "finished" features weren't properly integrated, consuming half of every new sprint fixing old work.
-3. **Context bloat & competing sources of truth:** `docs/` grew to 42 markdown files (~724 KB). Multiple files recorded conflicting versions of reality (`WORK_PACKAGES.md`, `INCREMENT_LOG.md`, individual spec files). New agent sessions made assumptions that drifted from earlier decisions.
-4. **Units of work too big or fuzzy:** Work packages spanned multiple days, mixing infrastructure, container builds, security policies, and application code.
-5. **No stop rule:** When an attempt failed, the agent kept retrying endlessly instead of stopping after 3 attempts to re-examine the constraint or spec.
+## What we deliberately do NOT do
 
-## Intent (what I want)
+- **No multi-person ceremony:** Team rituals (Mob Elaboration / Mob Construction) are replaced by direct, high-signal Q&A and gate approvals between Khem and Antigravity.
+- **No upfront waterfall specs:** Detailed unit specifications in `docs/aidlc/units/` are created **just in time** when a bolt begins.
+- **No unchecked autonomy:** The agent works autonomously *only* inside an approved bolt against locked Gate C tests, and must stop and escalate after 3 failed attempts.
+- **No documentation bloat:** Every file in `docs/aidlc/` is capped at roughly one page. If a document is not actively read or maintained, it gets deleted.
 
-- Move my effort from **babysitting implementation** to **making decisions and approving work**.
-- Make the project **resumable by a fresh agent session** from the repo alone.
-- Replace open-ended loops with **small, verifiable bolts** that end in a clear pass/fail.
-- Keep a record of **why** decisions were made, not only what the code does.
+## What healthy operation looks like
 
-## Purpose of adopting AI-DLC specifically
-
-- **Inception → Construction → Operations** as phases, with each phase passing richer context to the next.
-- **GitHub Issues/Project (Epics) ↔ Repo Units (1-day bolts):** High-level roadmap lives on GitHub; concrete 1-day execution bolts live in `docs/aidlc/units/`.
-- **The AI proposes and asks; I validate:** The agent drafts specs/plans, asks clarifying questions in batches, and implements only after Gate A+B approval.
-- **Persistent context:** Standard 1-page files carry decisions between sessions.
-- **Verification at every step:** Dual-path testing (cloud static/unit tests + in-cluster hardware verification probes) derived from acceptance criteria.
-
-## What I'm deliberately NOT doing
-
-- Not adopting team rituals (Mob Elaboration/Mob Construction) as formal meetings. For me they become short Q&A and approval exchanges with the agent.
-- Not rewriting the whole project or writing specs for everything up front. Detail is added **just in time, per unit**.
-- Not going fully hands-off. The agent can work autonomously **inside a bolt, against approved tests**, but I stay in the loop at the gates defined in the working agreement.
-- Not producing heavy documentation. Docs stay short (~1 page max) and are updated as part of finishing a bolt, or they get deleted.
-
-## Project facts
-
-- **What the project does:** **AI Sandbox** is a turnkey AI engineering platform for students. It provides a single web portal to launch browser-based interactive workspaces (JupyterLab, VS Code, Bash) and submit batch GPU/CPU jobs (Slurm + Apptainer), connected to shared central services (vLLM inference, MLflow experiment tracking, curated datasets/models, and planned Qdrant vector search).
-- **Main components:**
-  1. **Web Portal (`portal/`):** Go 1.24 + Echo service managing user login, HMAC Bearer tokens, dynamic Kubernetes interactive session Pods (`workload` namespace), and Slurm batch job dispatch (`sbatch`).
-  2. **Compute & Orchestration (`k8s/`, `helm/`):** Multi-node K3s cluster on Proxmox (with 1x NVIDIA L40 46GB GPU; Kind supported for local dev) running SchedMD **Slinky** (`slurm-operator`, `slurmctld`, `slurmd` NodeSets, `slurmdbd` + MariaDB) and **Traefik** ingress with ForwardAuth.
-  3. **Central AI Services (`k8s/`, `services` namespace):** **vLLM** (`v0.31.0` serving Qwen 3.5 / Qwen 2.5 / Gemma 4 with rate-limiting), **MLflow** (Gunicorn WSGI + PostgreSQL 16 + proxied artifacts), in-cluster **OCI Registry** (`registry:2`), and planned **Qdrant** vector DB.
-  4. **Shared Storage (`storage/` → `/mnt/storage`):** Host/NFS storage isolated via Kubernetes `subPath` mounts (`projects/<team>`, `scratch`, read-only `datasets`, `models`, and `common/etc`).
-- **Stack and test tooling:**
-  - **Portal:** Go 1.24 (`go test ./...`, `golangci-lint`).
-  - **Cluster & Services:** Empirical bash/Python verification suites in `scripts/` (`test-student-golden-path.sh`, `verify-llm.sh`, `verify-mlflow.sh`, `verify-security.sh`, `verify-isolation.sh`, `verify-storage.sh`, `verify-backend-complete.sh`).
-  - **Agent & Rules:** Google Antigravity (`AGENTS.md` and specialized `pro` subagent skills `audit-spec` and `verify` in `.agents/`).
-- **Fixed decisions not to revisit:**
-  1. **Two-path workload execution:** Interactive sessions run as native Kubernetes OCI Pods (`workload` namespace); Batch jobs run via Slurm `sbatch` + Apptainer `.sif`.
-  2. **Zero LDAP/SSSD:** Container UID/GID identity uses `libnss-extrausers` (`/var/lib/extrausers` mounted read-only from `/mnt/storage/common/etc`) plus non-root `PodSecurityContext` (`mode 2770` + `umask 0002` for project directories).
-  3. **Scoped `subPath` VFS isolation:** Student pods only mount their specific project `subPath` and approved shared folders — never the root `/mnt/storage` volume.
-  4. **Single-L40 (46GB) GPU sharing:** Time-slicing (`replicas: 4`) for concurrent interactive/vLLM (`0.65` VRAM cap), with scripted vLLM scale-down when exclusive Slurm `batch-gpu` jobs run.
-  5. **Interactive Pair Engineering:** Direct execution by Khem + Antigravity on the live cluster (asynchronous cloud agent Jules is retired).
-
-## Success looks like
-
-In a few bolts I should see: fewer agent attempts per task, less rework after "done," fewer surprises at review, regressions caught by tests, and a fresh session that can pick up the work without me re-explaining the project.
+Fewer agent attempts per bolt, zero unapproved scope creep, regressions caught automatically by Stage 1 (code) and Stage 2 (live cluster) tests, effortless compilation of supervisor milestone reports, and instant session continuity.

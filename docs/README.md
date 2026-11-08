@@ -7,8 +7,10 @@ This repository separates documentation into three distinct functional areas:
 - [Project Context](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md) — 1-page current architecture, constraints, and test conventions.
 - [Units of Work](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/UNITS.md) — Active and completed code-level units linked to parent GitHub Work Packages.
 - [Working Agreement](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/WORKING_AGREEMENT.md) — Gate A+B, Gate C, Gate D, and 3-strike escalation rules.
+- [Intent & Purpose](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/INTENT_AND_PURPOSE.md) — Core AI-DLC philosophy and operating principles.
 - [Architecture Decisions](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/) — Concise 1-page records of architectural invariants.
 - [Templates](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/TEMPLATES.md) & [Checklist](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/ADOPTION_CHECKLIST.md) — Standard formats for specs, ADRs, and health metrics.
+- [Transformation Playbook (Temporary)](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/TRANSFORMATION_PLAYBOOK.md) — Legacy remediation protocol and `pre-aidlc` historical spec lookup (retire once legacy work is fully verified).
 
 ## 2. Academic Deliverables & Milestone Reports (`docs/reports/`)
 **Target Audience:** University Supervisor & Academic Evaluators  
