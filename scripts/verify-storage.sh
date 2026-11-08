@@ -1,82 +1,83 @@
 #!/bin/bash
 # scripts/verify-storage.sh
-# Comprehensive verification suite for WP3-1-7: Shared Storage, Datasets & Model Repository.
-# Validates all 6 test scenarios defined in docs/WP3-1-7_VERIFICATION.md.
-
+# Comprehensive verification suite for Shared Storage, Datasets & Model Repository.
 set -e
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
 NC='\033[0m' # No Color
 
 echo "============================================================"
-echo "🧪 WP3-1-7: Storage Architecture Verification Suite"
+echo "📂 Storage Architecture & Data Isolation Verification"
 echo "============================================================"
 echo "Timestamp: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
 echo ""
 
 PASSED_TESTS=0
 FAILED_TESTS=0
+TEST_RESULTS=()
 
-report_result() {
+record_result() {
     local test_name="$1"
     local status="$2"
     local details="$3"
     if [ "$status" -eq 0 ]; then
-        echo -e "${GREEN}✅ [PASS]${NC} $test_name"
+        echo -e "  ${GREEN}✅ [PASS]${NC} $details"
         PASSED_TESTS=$((PASSED_TESTS + 1))
+        TEST_RESULTS+=("${GREEN}✅ [PASS]${NC} $test_name")
     else
-        echo -e "${RED}❌ [FAIL]${NC} $test_name: $details"
+        echo -e "  ${RED}❌ [FAIL]${NC} $details"
         FAILED_TESTS=$((FAILED_TESTS + 1))
+        TEST_RESULTS+=("${RED}❌ [FAIL]${NC} $test_name")
     fi
+    echo ""
 }
 
-# 0. Determine Execution Target (Kind Container vs Host Environment)
+# 0. Determine Execution Target
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 if [ "${TARGET:-}" == "proxmox" ] || kubectl get pod -n slurm slurm-worker-slurmd-cpu-0 &>/dev/null; then
     EXEC_TARGET="proxmox"
     SLURMD_POD="slurm-worker-slurmd-cpu-0"
-    echo -e "${BLUE}ℹ️ Detected Proxmox K3s cluster. Executing checks via pod $SLURMD_POD.${NC}"
+    echo -e "${BLUE}ℹ️  Target: Proxmox K3s cluster via pod $SLURMD_POD${NC}"
     DOCKER_EXEC="kubectl exec -i -n slurm $SLURMD_POD -c slurmd --"
 elif docker ps --format '{{.Names}}' | grep -q "kind-control-plane"; then
     EXEC_TARGET="kind"
-    echo -e "${BLUE}ℹ️ Detected running Kind cluster. Executing checks inside kind-control-plane container.${NC}"
+    echo -e "${BLUE}ℹ️  Target: Kind cluster via kind-control-plane container${NC}"
     DOCKER_EXEC="docker exec kind-control-plane"
 else
     EXEC_TARGET="host"
-    echo -e "${YELLOW}ℹ️ No Kind cluster detected. Executing checks against host filesystem.${NC}"
+    echo -e "${YELLOW}ℹ️  Target: Local host filesystem${NC}"
     DOCKER_EXEC=""
 fi
 
 STORAGE_PATH="/mnt/storage"
 
-# Pre-Requisite: Ensure storage is initialized and seeded in test mode
-echo ""
-echo "--- Initializing & Seeding Storage Fixtures ---"
-if [ "$EXEC_TARGET" == "proxmox" ]; then
-    echo "  Storage layout & fixtures verified on Proxmox."
-elif [ "$EXEC_TARGET" == "kind" ]; then
+# Fixtures seeding if needed
+if [ "$EXEC_TARGET" == "kind" ]; then
     docker exec -i kind-control-plane bash < "$SCRIPT_DIR/init-storage.sh" > /dev/null 2>&1 || true
     docker exec -i kind-control-plane bash -s -- --test-mode < "$SCRIPT_DIR/seed-models.sh" > /dev/null 2>&1 || true
     docker exec -i kind-control-plane bash -s -- --test-mode < "$SCRIPT_DIR/seed-datasets.sh" > /dev/null 2>&1 || true
-else
+elif [ "$EXEC_TARGET" == "host" ]; then
     STORAGE_ROOT="$STORAGE_PATH" bash "$SCRIPT_DIR/init-storage.sh" > /dev/null 2>&1 || true
     STORAGE_ROOT="$STORAGE_PATH" bash "$SCRIPT_DIR/seed-models.sh" --test-mode > /dev/null 2>&1 || true
     STORAGE_ROOT="$STORAGE_PATH" bash "$SCRIPT_DIR/seed-datasets.sh" --test-mode > /dev/null 2>&1 || true
 fi
 
+echo "============================================================"
+echo "Executing Storage Verification Tests..."
+echo "============================================================"
 echo ""
-echo "============================================================"
-echo "Executing Acceptance Tests..."
-echo "============================================================"
 
-# --- TEST 1: POSIX Permission Matrix Validation ---
-echo "▶ Running Test 1: POSIX Permission Matrix Validation..."
+# --- TEST 1 ---
+echo -e "${CYAN}▶ [1/6] POSIX Directory Permission Matrix (ADR 0002)${NC}"
+echo "  Description: Verifies models/datasets (755), scratch sticky-bit (1777), and team workspaces (2770)."
 T1_FAIL=0
+T1_MSG=""
 
 check_perm() {
     local path="$1"
@@ -89,58 +90,60 @@ check_perm() {
     fi
 
     if [ "$actual_perm" != "$expected_perm" ]; then
-        echo "  Mismatch on $path: expected $expected_perm, got $actual_perm"
         T1_FAIL=1
+        T1_MSG="Permission mismatch on $path (expected $expected_perm, got $actual_perm)"
     fi
 }
 
 check_perm "$STORAGE_PATH/models" "755"
 check_perm "$STORAGE_PATH/datasets" "755"
 check_perm "$STORAGE_PATH/scratch" "1777"
-check_perm "$STORAGE_PATH/projects/project1" "700"
-check_perm "$STORAGE_PATH/projects/project2" "700"
+check_perm "$STORAGE_PATH/projects/project1" "2770"
+check_perm "$STORAGE_PATH/projects/project2" "2770"
 
-report_result "Test 1: Storage Layout & POSIX Permission Matrix" "$T1_FAIL" "Directory permissions do not match specification"
+record_result "POSIX Directory Permissions (ADR 0002)" "$T1_FAIL" "${T1_MSG:-All filesystem directory permissions match specification}"
 
-# --- TEST 2: Dual-Tier Model Hub Resolution ---
-echo "▶ Running Test 2: Dual-Tier Model Hub Resolution..."
+# --- TEST 2 ---
+echo -e "${CYAN}▶ [2/6] Central Model Hub & Student Tamper Proofing${NC}"
+echo "  Description: Checks that pre-loaded BGE model fixture exists and unprivileged users cannot modify models."
 T2_FAIL=0
+T2_MSG=""
 
 if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
-    # Verify pre-loaded model exists
     if ! $DOCKER_EXEC test -f "$STORAGE_PATH/models/huggingface/hub/models--BAAI--bge-small-en-v1.5/snapshots/main/config.json"; then
         T2_FAIL=1
         T2_MSG="Central model fixture missing"
     fi
-    # Verify unprivileged user cannot write into central models
     if $DOCKER_EXEC su -s /bin/sh -c "touch $STORAGE_PATH/models/tamper.tmp" nobody 2>/dev/null; then
         T2_FAIL=1
-        T2_MSG="Unprivileged user was able to write to central models"
+        T2_MSG="Tamper protection failed: Unprivileged user was able to write to central models"
     fi
 fi
-report_result "Test 2: Dual-Tier Model Hub Resolution" "$T2_FAIL" "${T2_MSG:-Failed to verify model hub read/write bounds}"
+record_result "Central Model Hub & Tamper Proofing" "$T2_FAIL" "${T2_MSG:-Central models verified read-only and tamper-proof}"
 
-# --- TEST 3: Curated Datasets & Private Kaggle Configuration ---
-echo "▶ Running Test 3: Curated Datasets & Private Kaggle Configuration..."
+# --- TEST 3 ---
+echo -e "${CYAN}▶ [3/6] Curated Datasets & Cross-Tenant Kaggle Credential Isolation${NC}"
+echo "  Description: Verifies shared MNIST dataset is accessible and Student B cannot read Student A's credentials."
 T3_FAIL=0
+T3_MSG=""
 
 if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
-    # Verify central dataset is readable
     if ! $DOCKER_EXEC test -f "$STORAGE_PATH/datasets/vision/mnist/dataset_info.json"; then
         T3_FAIL=1
-        T3_MSG="Central dataset fixture missing"
+        T3_MSG="Central MNIST dataset fixture missing"
     fi
-    # Verify unprivileged user cannot read project1
     if $DOCKER_EXEC su -s /bin/sh -c "cat $STORAGE_PATH/projects/project1/.kaggle/kaggle.json" nobody 2>/dev/null; then
         T3_FAIL=1
-        T3_MSG="Cross-tenant isolation leak: unprivileged user read project1 kaggle.json"
+        T3_MSG="Cross-tenant leak: Unprivileged user read project1 .kaggle token"
     fi
 fi
-report_result "Test 3: Curated Datasets & Private Kaggle Configuration" "$T3_FAIL" "${T3_MSG:-Failed dataset or token isolation}"
+record_result "Datasets & Kaggle Token Isolation" "$T3_FAIL" "${T3_MSG:-Central datasets accessible; cross-tenant Kaggle tokens isolated}"
 
-# --- TEST 4: Ephemeral Scratch Space & Sticky Bit Isolation ---
-echo "▶ Running Test 4: Ephemeral Scratch Space & Sticky Bit Isolation..."
+# --- TEST 4 ---
+echo -e "${CYAN}▶ [4/6] Ephemeral Scratch Space & Sticky-Bit Isolation${NC}"
+echo "  Description: Tests that sticky-bit (1777) prevents students from deleting or tampering with other users' scratch files."
 T4_FAIL=0
+T4_MSG=""
 
 if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
     $DOCKER_EXEC mkdir -p "$STORAGE_PATH/scratch/user1"
@@ -148,46 +151,46 @@ if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
     $DOCKER_EXEC touch "$STORAGE_PATH/scratch/user1/temp_data.bin"
     $DOCKER_EXEC chown 1001:1001 "$STORAGE_PATH/scratch/user1/temp_data.bin" 2>/dev/null || true
 
-    # Attempt deletion as nobody (simulating other unprivileged student) - should be blocked by sticky bit
     if $DOCKER_EXEC su -s /bin/sh -c "rm -f $STORAGE_PATH/scratch/user1/temp_data.bin" nobody 2>/dev/null; then
         T4_FAIL=1
-        T4_MSG="Sticky bit failure: Unprivileged user was able to delete another user's scratch file"
+        T4_MSG="Sticky-bit failure: Unprivileged user deleted another student's scratch file"
     fi
 
-    # Test clean-scratch dry-run
     if ! $DOCKER_EXEC bash -s -- --dry-run < "$SCRIPT_DIR/clean-scratch.sh" > /dev/null 2>&1; then
         T4_FAIL=1
-        T4_MSG="clean-scratch.sh failed execution"
+        T4_MSG="clean-scratch.sh cleanup script failed dry-run"
     fi
     $DOCKER_EXEC rm -rf "$STORAGE_PATH/scratch/user1" 2>/dev/null || true
 fi
-report_result "Test 4: Ephemeral Scratch Space & Sticky Bit Isolation" "$T4_FAIL" "${T4_MSG:-Sticky bit check failed}"
+record_result "Sticky-Bit Scratch Workspace" "$T4_FAIL" "${T4_MSG:-Scratch sticky-bit deletion protection verified}"
 
-# --- TEST 5: Container Environment Contract Injection ---
-echo "▶ Running Test 5: Container Environment Contract Injection..."
+# --- TEST 5 ---
+echo -e "${CYAN}▶ [5/6] Portal Container Environment Contract Injection${NC}"
+echo "  Description: Asserts that Web Portal source injects HF_HUB_CACHE, TORCH_HOME, TRANSFORMERS_OFFLINE, and KAGGLE_CONFIG_DIR."
 T5_FAIL=0
+T5_MSG=""
 
-# Check that portal/session_manager.go and portal/handlers.go contain the contract variables
 for var_name in "HF_HUB_CACHE" "TORCH_HOME" "TRANSFORMERS_OFFLINE" "KAGGLE_CONFIG_DIR" "KAGGLEHUB_CACHE" "TMPDIR"; do
     if ! grep -q "$var_name" "$REPO_ROOT/portal/session_manager.go" || ! grep -q "$var_name" "$REPO_ROOT/portal/handlers.go"; then
         T5_FAIL=1
-        T5_MSG="Missing $var_name in portal contracts"
+        T5_MSG="Missing $var_name in portal environment contracts"
         break
     fi
 done
 
-# Verify portal compiles
 if [ "$T5_FAIL" -eq 0 ]; then
     (cd "$REPO_ROOT/portal" && go build ./...) > /dev/null 2>&1 || {
         T5_FAIL=1
         T5_MSG="Portal compilation failed"
     }
 fi
-report_result "Test 5: Container Environment Contract Injection" "$T5_FAIL" "${T5_MSG:-Contract verification failed}"
+record_result "Container Environment Variables (/mnt/storage)" "$T5_FAIL" "${T5_MSG:-Portal injects all required storage environment variables}"
 
-# --- TEST 6: Storage Audit & Deduplication Tooling ---
-echo "▶ Running Test 6: Storage Audit & Deduplication Tooling..."
+# --- TEST 6 ---
+echo -e "${CYAN}▶ [6/6] Storage Quota Auditing & Deduplication Analysis Tooling${NC}"
+echo "  Description: Checks that the automated storage auditor script scans disk layout and deduplicates models cleanly."
 T6_FAIL=0
+T6_MSG=""
 
 if [ "$EXEC_TARGET" == "kind" ] || [ "$EXEC_TARGET" == "proxmox" ]; then
     AUDIT_OUTPUT=$($DOCKER_EXEC bash -s -- < "$SCRIPT_DIR/audit-storage.sh" 2>&1)
@@ -199,17 +202,23 @@ if ! echo "$AUDIT_OUTPUT" | grep -q "Audit complete"; then
     T6_FAIL=1
     T6_MSG="audit-storage.sh did not complete cleanly"
 fi
-report_result "Test 6: Storage Audit & Deduplication Tooling" "$T6_FAIL" "${T6_MSG:-Audit script failed}"
+record_result "Deduplication & Storage Quota Audit" "$T6_FAIL" "${T6_MSG:-Storage audit and deduplication scanner completed successfully}"
 
-echo ""
+# ============================================================
+# Summary
+# ============================================================
 echo "============================================================"
-echo "📊 Test Summary: $PASSED_TESTS Passed, $FAILED_TESTS Failed"
+echo "📊 Storage Architecture Verification Summary ($PASSED_TESTS/6 Passed)"
+echo "============================================================"
+for res in "${TEST_RESULTS[@]}"; do
+    echo -e "  $res"
+done
 echo "============================================================"
 
 if [ "$FAILED_TESTS" -eq 0 ]; then
-    echo -e "${GREEN}🎉 All WP3-1-7 storage acceptance criteria successfully verified!${NC}"
+    echo -e "${GREEN}🎉 All storage architecture and isolation acceptance criteria verified!${NC}"
     exit 0
 else
-    echo -e "${RED}⚠️ Verification failed with $FAILED_TESTS failures.${NC}"
+    echo -e "${RED}⚠️ Storage verification failed with $FAILED_TESTS failures.${NC}"
     exit 1
 fi

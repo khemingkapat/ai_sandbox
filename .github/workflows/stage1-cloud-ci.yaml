@@ -1,0 +1,82 @@
+name: Stage 1 — Cloud Linters & Unit Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+concurrency:
+  group: cloud-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint-docs-and-mermaid:
+    name: Docs & Mermaid Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Lint Mermaid Diagrams (Syntax AST)
+        run: |
+          python3 scripts/lint-mermaid.py
+
+  lint-shell:
+    name: Shell Scripts Syntax & ShellCheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check Bash Syntax (bash -n)
+        run: |
+          bash -n scripts/*.sh
+
+      - name: Run ShellCheck
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: "./scripts"
+          severity: error
+
+  test-portal-go:
+    name: Go Portal Unit Tests & Race Detector
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: portal/go.sum
+
+      - name: Go Vet
+        run: |
+          cd portal && go vet ./...
+
+      - name: Go Unit Tests with Race Detector
+        run: |
+          cd portal && go test -v -race ./...
+
+  lint-k8s:
+    name: Kubernetes Manifest Schema Validation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Kubeconform
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/
+
+      - name: Validate Kubernetes Manifests
+        run: |
+          bash scripts/lint-k8s.sh
