@@ -101,6 +101,13 @@ func handleVLLMAuth(c echo.Context) error {
 }
 
 // handleGetInferenceToken generates or returns a 30-day inference API token for the logged-in user.
+// @Summary Get inference API token
+// @Description Generates or returns an HMAC-SHA256 signed Bearer token for central vLLM inference API access.
+// @Tags student
+// @Produce json
+// @Success 200 {object} map[string]string
+// @Failure 401 {object} map[string]string
+// @Router /api/tokens/inference [get]
 func handleGetInferenceToken(c echo.Context) error {
 	userToken, ok := c.Get("user").(*jwt.Token)
 	if !ok || userToken == nil {
@@ -156,6 +163,14 @@ func indexPage(c echo.Context) error {
 }
 
 // apiUserJobs returns a list of Slurm jobs belonging to the current user.
+// @Summary List current user's batch jobs
+// @Description Returns a list of all Slurm batch jobs submitted by the authenticated user.
+// @Tags student
+// @Produce json
+// @Success 200 {array} map[string]interface{}
+// @Failure 401 {string} string "Unauthorized"
+// @Failure 500 {string} string "Slurm API Error"
+// @Router /api/jobs [get]
 func apiUserJobs(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
 	claims := userToken.Claims.(jwt.MapClaims)
@@ -183,6 +198,14 @@ func apiUserJobs(c echo.Context) error {
 }
 
 // apiClusterStatus returns global cluster metrics and resource availability.
+// @Summary Cluster job and node status
+// @Description Returns active Slurm jobs, pending queue depth, and available CPU nodes.
+// @Tags student
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Failure 401 {string} string "Unauthorized"
+// @Failure 500 {string} string "Slurm Client Error"
+// @Router /api/cluster/status [get]
 func apiClusterStatus(c echo.Context) error {
 	userToken := c.Get("user").(*jwt.Token)
 	tokenString := userToken.Raw

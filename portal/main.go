@@ -8,12 +8,23 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	echoSwagger "github.com/swaggo/echo-swagger"
+
+	_ "portal/docs"
 )
+
+// @title AI Sandbox Portal API
+// @version 1.0
+// @description AI Sandbox student workloads and cluster telemetry API.
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
 
 var (
 	// slurmRestURL is the URL of the Slurm REST API.
@@ -26,6 +37,8 @@ var (
 	portManager *PortManager
 	// sessionManager manages interactive OCI sessions.
 	sessionManager *SessionManager
+	// telemetryScraper manages telemetry cache and background probes.
+	telemetryScraper *TelemetryScraper
 )
 
 func main() {
@@ -45,6 +58,10 @@ func main() {
 		fmt.Printf("Warning: Failed to initialize session manager: %v\n", err)
 	}
 
+	telemetryTTL, _ := strconv.Atoi(getEnv("TELEMETRY_CACHE_TTL_SEC", "30"))
+	telemetryToken := getEnv("TELEMETRY_TOKEN", "")
+	telemetryScraper = NewTelemetryScraper(time.Duration(telemetryTTL)*time.Second, telemetryToken)
+
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
@@ -58,6 +75,10 @@ func main() {
 			"upper": strings.ToUpper,
 		}).ParseGlob(tmplGlob)),
 	}
+
+	e.GET("/healthz", handleHealthz)
+	e.GET("/api/v1/telemetry", telemetryScraper.HandleTelemetry)
+	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	e.POST("/api/internal/allocate-port", handleAllocatePort)
 	e.POST("/api/internal/release-port", handleReleasePort)
