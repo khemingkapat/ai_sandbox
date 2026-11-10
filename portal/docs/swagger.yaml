@@ -1,0 +1,148 @@
+definitions:
+  main.TelemetryResponse:
+    properties:
+      active_users:
+        example: 2
+        type: integer
+      services:
+        additionalProperties:
+          type: string
+        type: object
+      status:
+        example: healthy
+        type: string
+      timestamp:
+        type: string
+      workloads:
+        $ref: '#/definitions/main.WorkloadMetrics'
+    type: object
+  main.WorkloadMetrics:
+    properties:
+      interactive_sessions:
+        example: 1
+        type: integer
+      queue_depth:
+        example: 0
+        type: integer
+      running_jobs:
+        example: 1
+        type: integer
+    type: object
+info:
+  contact: {}
+  description: AI Sandbox student workloads and cluster telemetry API.
+  title: AI Sandbox Portal API
+  version: "1.0"
+paths:
+  /api/cluster/status:
+    get:
+      description: Returns active Slurm jobs, pending queue depth, and available CPU
+        nodes.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "500":
+          description: Slurm Client Error
+          schema:
+            type: string
+      summary: Cluster job and node status
+      tags:
+      - student
+  /api/jobs:
+    get:
+      description: Returns a list of all Slurm batch jobs submitted by the authenticated
+        user.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              additionalProperties: true
+              type: object
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+        "500":
+          description: Slurm API Error
+          schema:
+            type: string
+      summary: List current user's batch jobs
+      tags:
+      - student
+  /api/tokens/inference:
+    get:
+      description: Generates or returns an HMAC-SHA256 signed Bearer token for central
+        vLLM inference API access.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "401":
+          description: Unauthorized
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Get inference API token
+      tags:
+      - student
+  /api/v1/telemetry:
+    get:
+      description: Returns aggregate status, active user headcount, queue depth, and
+        service health.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/main.TelemetryResponse'
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Cluster health & telemetry
+      tags:
+      - telemetry
+  /healthz:
+    get:
+      description: Instant zero-allocation health check. Does not touch downstream
+        network or storage.
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+      summary: Kubelet liveness probe
+      tags:
+      - telemetry
+securityDefinitions:
+  BearerAuth:
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"
