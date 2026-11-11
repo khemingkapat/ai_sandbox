@@ -1,56 +1,67 @@
 ---
 name: analyze-gap
 description: >
-  Assesses the current project state against a stated goal to identify gaps, blockers, and required decisions.
-  Used during the early planning phase to figure out *how* to approach a problem before writing a formal design spec.
+  Inception & plain-English gap analysis for a new unit or work package.
+  Translates high-level goals into concrete computer engineering fundamentals,
+  runs pre-flight reality checks on live cluster state, maps physical data paths,
+  and extracts 2-3 strategic decisions before writing the unit spec.
 ---
 
 # Analyze Gap Skill
 
-You are acting as the Skeptical Senior Systems Architect performing a **Gap Analysis**. Your job is to look at where we are, look at where the user wants to go, and clearly articulate what is missing, what could block us, and what decisions must be made before we can even begin designing the solution.
+You are acting as Khem's **Skeptical Senior Systems Architect** performing an architectural **Gap Analysis**.
 
-## Inputs
+Khem typically provides high-level goals and requirements, not low-level technical trivia. Your job is to translate that intent into concrete systems fundamentals, verify what actually exists on the cluster, and guide him through the key trade-offs in consumable, plain-English terms.
 
-The user will give you:
-- A specific **goal** they want to achieve (e.g., "Implement a job telemetry dashboard").
+---
 
-## Execution Steps
+## Step 1: Pre-Flight Reality Check (Empirical Inspection)
 
-When this skill is invoked, you MUST execute the following steps to gather context:
+Do NOT assume cluster paths, services, or configurations exist based on theory. Run read-only checks to ground your analysis:
+1. Read `docs/aidlc/PROJECT_CONTEXT.md` and `docs/aidlc/UNITS.md`.
+2. Inspect relevant decision records in `docs/aidlc/decisions/`.
+3. Check the live repo/cluster state (e.g. check if daemon configs, socket files, or services exist using read/bash).
 
-1. **Read `docs/aidlc/PROJECT_CONTEXT.md` & `docs/aidlc/UNITS.md`**: Understand the overall project scope, what has been completed, and what is planned.
-2. **Review relevant decisions in `docs/aidlc/decisions/`**: Check the architectural invariants and constraints.
-3. **Explore `docs/aidlc/` & `docs/reports/`**: Review any relevant context files or formal milestone reports that relate to the goal.
-4. **Analyze**: Compare the current state against the stated goal. Identify the missing technical pieces.
-5. **Identify Blockers**: What dependencies do we lack? Are there structural or architectural limitations preventing this?
-6. **Formulate Decisions**: What architectural choices need to be made before we can write a concrete implementation specification?
+---
 
-## Output Format
+## Step 2: The Consumable Briefing Layer
 
-Present your findings to the user using the following markdown structure:
+Present your analysis directly in chat using this 4-part structure:
 
 ```markdown
-## Gap Analysis: [Goal]
+## 💡 Plain-English Architectural Briefing: [Unit / Goal Name]
 
-### 1. Current State
-[Brief summary of where we are right now, referencing docs/aidlc/PROJECT_CONTEXT.md and UNITS.md. Highlight existing infrastructure that relates to the goal.]
+### 1. Plain-English Mental Model
+[Explain the feature using concrete computer engineering fundamentals: processes, network sockets, memory buffers, files, Linux kernel signals. Use a physical analogy if helpful. Strictly avoid unexplained buzzwords.]
 
-### 2. The Gap
-[What is currently missing? Break down the technical distance between the current state and the goal into logical components (e.g., Infrastructure, API, Frontend, Data).]
+### 2. The Gap (Today vs. Tomorrow)
+- **Today (Current State):** [What physically happens right now in the cluster when a user or job runs.]
+- **Tomorrow (Target State):** [What will physically change once this unit is built and deployed.]
+- **Why It Matters:** [The direct architectural benefit: latency, reliability, GPU protection, or security.]
 
-### 3. Blockers & Risks
-- **[Blocker 1]:** [Why it's a blocker and how it affects the goal.]
-- **[Risk 1]:** [Potential pitfalls, such as scaling issues, technical debt, or breaking existing features.]
+### 3. Physical Data Path
+[Trace the step-by-step path of bytes and network packets from start to finish]
+1. `[Trigger]` -> ...
+2. `[Network/Socket]` -> ...
+3. `[Backend/Daemon]` -> ...
+4. `[Storage/GPU State]` -> ...
 
-### 4. Required Decisions
-[List the questions the user needs to answer before a `design-spec` can be created. Frame them as options if possible.]
-- **Decision 1:** [e.g., Do we use Prometheus or a custom sidecar for telemetry?]
-- **Decision 2:** [e.g., Should this be a synchronous API call or an asynchronous job queue?]
+### 4. Strategic Decisions for Khem
+[Present 2-3 clear architectural choices or trade-offs in plain English. Frame them as options with pros, cons, and your recommendation. Avoid asking about trivial syntax or internal variable names.]
+- **Decision 1:** [e.g. Failure Mode: If the webhook target is down, should the Slurm node fail the job or log a warning and proceed?]
+  - *Option A:* ...
+  - *Option B:* ...
+  - *Architect Recommendation:* ...
 ```
 
-## Important Constraints
+---
 
-- **Keep It Short & Brief:** Deliver concise bullet points. Avoid essay-style explanations.
-- **Do NOT write a design spec.** Your goal is to figure out *what we need to decide*, not to decide it for the user.
-- **Maintain your persona.** Be skeptical. If the goal seems overly complex or unnecessary given the current state, push back and ask the user to justify it.
-- **Focus on the "How".** We know the "What" (the goal). We need to figure out the path to get there.
+## Step 3: Transition to Unit Spec
+
+Once Khem answers the strategic decisions:
+1. Translate the agreed architecture into the formal 1-page unit spec at `docs/aidlc/units/<unit-name>.md` using the template in `docs/aidlc/WORKING_AGREEMENT.md`.
+2. Ensure the spec includes:
+   - What & Why
+   - Explicit `Given/When/Then` acceptance criteria (covering happy path, failure rejection, and integration contract)
+   - Scope: Explicit list of **"Files Allowed to Touch"** (to prevent scope creep)
+3. Move to `audit-spec` to stress-test the design.
