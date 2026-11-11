@@ -78,10 +78,12 @@ func main() {
 
 	e.GET("/healthz", handleHealthz)
 	e.GET("/api/v1/telemetry", telemetryScraper.HandleTelemetry)
+	e.GET("/api/v1/telemetry/incidents", telemetryScraper.HandleTelemetryIncidents)
 	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	e.POST("/api/internal/allocate-port", handleAllocatePort)
 	e.POST("/api/internal/release-port", handleReleasePort)
+	e.POST("/api/internal/webhook/slurm", telemetryScraper.HandleSlurmWebhook)
 	e.GET("/api/auth/vllm", handleVLLMAuth)
 	e.POST("/api/auth/vllm", handleVLLMAuth)
 

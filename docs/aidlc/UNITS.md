@@ -21,7 +21,7 @@ This table tracks completed baseline capabilities and upcoming work packages. Hi
 | CI01 | Dual-Path CI/CD Pipeline | #0 | Cloud Linter + In-Cluster Runner | done | Verified locally & live cluster probe in `docs/aidlc/units/ci01-dual-path-pipeline.md` |
 | WP12 | Web Portal Enhancements | #12 | Model Picker & Slurm Integration | planned | Core K8s/Slurm dispatch active in `portal/`; UI additions remaining |
 | WP13-A | Health Telemetry & Swagger UI | #13 / #0 | Cluster Telemetry & OpenAPI | done | Verified by `portal/telemetry_test.go` with `-race` (8/8 checks) in `docs/aidlc/units/wp13-health-telemetry-swagger.md` |
-| WP13 | Monitoring & Telemetry | #13 | Epilog Webhook & Ring Buffer | planned | Slurm incident telemetry & observability dashboards |
+| WP13 | Monitoring & Telemetry | #13 | Epilog Webhook & Ring Buffer | done | Verified by `portal/telemetry_test.go` with `-race` (15/15 checks) and `scripts/slurm_epilog_webhook.sh` in `docs/aidlc/units/wp13-slurm-epilog-webhook.md` |
 | WP14 | Qdrant Vector DB & Labs | #14 | Central Vector Search & Curricula | planned | Central Qdrant service in `services` + 5 starter lab notebooks |
 | WP15 | Student Documentation | #15 | Onboarding & Usage Guides | planned | Student quickstart, tool catalog, and GPU usage guide |
 | WP16 | Sysadmin Runbooks | #16 | Operations & Upgrades Runbook | planned | Cluster bootstrap, backup/restore, and incident playbook |

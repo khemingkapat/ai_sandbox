@@ -1,4 +1,39 @@
 definitions:
+  main.SlurmIncident:
+    properties:
+      account:
+        example: nlp-project
+        type: string
+      entity_id:
+        example: "1042"
+        type: string
+      exit_code:
+        example: 137
+        type: integer
+      incident_id:
+        example: inc-1042-1729934400
+        type: string
+      log_tail:
+        example: 'torch.cuda.OutOfMemoryError: CUDA out of memory'
+        type: string
+      partition:
+        example: batch-gpu
+        type: string
+      source_type:
+        example: slurm_job
+        type: string
+      status:
+        example: FAILED
+        type: string
+      summary:
+        example: Job terminated with non-zero exit code (137)
+        type: string
+      timestamp:
+        type: string
+      user:
+        example: student01
+        type: string
+    type: object
   main.TelemetryResponse:
     properties:
       active_users:
@@ -122,6 +157,37 @@ paths:
       security:
       - BearerAuth: []
       summary: Cluster health & telemetry
+      tags:
+      - telemetry
+  /api/v1/telemetry/incidents:
+    get:
+      description: Returns recent Slurm batch failure incidents stored in the in-memory
+        circular ring buffer.
+      parameters:
+      - description: Filter incidents occurring after RFC3339 timestamp
+        in: query
+        name: since
+        type: string
+      - description: 'Max incidents to return (default: 50, max: 200)'
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/main.SlurmIncident'
+            type: array
+        "401":
+          description: Unauthorized
+          schema:
+            type: string
+      security:
+      - BearerAuth: []
+      summary: Cluster batch incidents
       tags:
       - telemetry
   /healthz:
