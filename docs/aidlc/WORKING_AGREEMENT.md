@@ -53,6 +53,7 @@ This is a lightweight, solo adaptation of AI-DLC. Follow it for every unit of wo
 3. **Bolt summary & empirical verification:**
    - Agent runs `verify` skill: attaches test execution receipts, checks untampered test hashes, verifies 0 out-of-scope edits, and confirms L40 GPU and Slurm cluster invariants.
    - **Gate D (me):** Interactive checkpoint via `checkpoint_gate`. Option to inspect raw receipts and git diff in `$EDITOR` (`nvim`). Accept bolt and flip status in `UNITS.md`.
+   - **Automatic PR Creation:** Upon Gate D acceptance, agent commits the finalized docs/bolt log, pushes the feature branch (`feat/<unit>`), and creates a GitHub Pull Request via `gh pr create` for human review in the web UI.
 
 ### Phase 3: Operations / feedback
 
