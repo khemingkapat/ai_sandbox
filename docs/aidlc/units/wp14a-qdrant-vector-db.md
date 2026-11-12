@@ -1,6 +1,6 @@
 # Unit: WP14-A — Central Qdrant Vector Database & Network Isolation
 
-Status: in-progress (Phase 1 — Gate A+B)
+Status: done (Gate D)
 Parent GitHub WP: #14
 Exploratory? no
 
@@ -90,3 +90,6 @@ Deploy **Qdrant** (`qdrant/qdrant:v1.12.6`) as the final Tier 2 central shared m
 
 ## Bolt log
 - 2026-11-12: Phase 1 Inception (`analyze-gap`) completed; 3 strategic decisions confirmed by Khem. Switched to `feat/wp14a-qdrant-vector-db`, drafted unit spec `docs/aidlc/units/wp14a-qdrant-vector-db.md`, and completed Red-Team `audit-spec` review.
+- 2026-11-12: Phase 2 Gate C locked verification probe `scripts/verify-qdrant.sh` with negative proof across 8 assertions against unbuilt infrastructure.
+- 2026-11-12: Phase 3 construction completed: deployed `k8s/qdrant/01-storage.yaml` (20Gi PVC), `k8s/qdrant/02-statefulset.yaml` (`qdrant/qdrant:v1.12.6` on `ai-worker1`, 4Gi RAM, 0 GPU), `k8s/network-policies/allow-qdrant-egress.yaml` (pinhole to 6333/6334), and `k8s/traefik-security-configmap.yaml` (`/qdrant` with `stripPrefix`).
+- 2026-11-12: Phase 4 Gate D empirical verification: all 9/9 verification checks passed (`Qdrant StatefulSet Ready`, `Database Isolated`, `Internal REST /healthz`, `Traefik /qdrant/healthz`, `Traefik /qdrant/dashboard`, `Collection Creation`, `Vector Point Upsert`, `Cosine Similarity Search`, and `Storage Persistence on PVC`). Manifest intact, zero out-of-scope code edits. Bolt complete.
