@@ -41,25 +41,86 @@ prologSlurmctldScripts: {}
 epilogSlurmctldScripts: {}
 prologScripts: {}
 epilogScripts:
-  01-webhook.sh: "#!/bin/bash\n# Slurm Epilog script to send job metrics to the central\
-    \ portal\n# Try reaching the host machine using host.minikube.internal or a known\
-    \ docker bridge IP.\n# Usually in kind/minikube, 10.0.2.2 or host.minikube.internal\
-    \ works, or the actual node IP.\nCENTRAL_PORTAL_URL=\"http://172.17.0.1:8080/api/webhook/slurm\"\
-    \n# or just try reaching the portal container if the python server runs on the\
-    \ host?\n# Actually, we can use the k8s node IP or host machine IP. Let's use\
-    \ the env variables.\n\nJOB_ID=${SLURM_JOB_ID:-unknown}\nUSER_ID=${SLURM_JOB_USER:-unknown}\n\
-    ACCOUNT=${SLURM_JOB_ACCOUNT:-unknown}\nPARTITION=${SLURM_JOB_PARTITION:-unknown}\n\
-    NODELIST=${SLURM_JOB_NODELIST:-unknown}\n\nPAYLOAD=$(cat <<EOF\n{\n  \"job_id\"\
-    : \"$JOB_ID\",\n  \"user\": \"$USER_ID\",\n  \"account\": \"$ACCOUNT\",\n  \"\
-    partition\": \"$PARTITION\",\n  \"nodelist\": \"$NODELIST\",\n  \"event\": \"\
-    job_completed\",\n  \"timestamp\": \"$(date -u +\"%Y-%m-%dT%H:%M:%SZ\")\"\n}\n\
-    EOF\n)\n\ncurl -X POST -H \"Content-Type: application/json\" -d \"$PAYLOAD\" \"\
-    http://host.k3d.internal:8080/api/webhook/slurm\" --max-time 5 || true\ncurl -X\
-    \ POST -H \"Content-Type: application/json\" -d \"$PAYLOAD\" \"http://host.minikube.internal:8080/api/webhook/slurm\"\
-    \ --max-time 5 || true\ncurl -X POST -H \"Content-Type: application/json\" -d\
-    \ \"$PAYLOAD\" \"http://172.17.0.1:8080/api/webhook/slurm\" --max-time 5 || true\n\
-    curl -X POST -H \"Content-Type: application/json\" -d \"$PAYLOAD\" \"http://localhost:8080/api/webhook/slurm\"\
-    \ --max-time 5 || true\n"
+  01-webhook.sh: |
+    #!/bin/bash
+    # Hardened Slurm Epilog Incident Webhook
+    (
+      JOB_ID="${SLURM_JOB_ID:-unknown}"
+      USER_ID="${SLURM_JOB_USER:-unknown}"
+      ACCOUNT="${SLURM_JOB_ACCOUNT:-unknown}"
+      PARTITION="${SLURM_JOB_PARTITION:-unknown}"
+      NODELIST="${SLURM_JOB_NODELIST:-$(hostname)}"
+      RAW_EXIT_CODE="${SLURM_JOB_EXIT_CODE:-0}"
+      JOB_STATE="${SLURM_JOB_STATE:-FAILED}"
+
+      EXIT_CODE="${RAW_EXIT_CODE%%:*}"
+      if ! [[ "${EXIT_CODE}" =~ ^-?[0-9]+$ ]]; then
+        EXIT_CODE=0
+      fi
+
+      if [ "${EXIT_CODE}" -eq 0 ] && [ "${JOB_STATE}" = "COMPLETED" ]; then
+        exit 0
+      fi
+
+      PORTAL_URL="${CENTRAL_PORTAL_URL:-http://portal.slurm.svc.cluster.local:8080/api/internal/webhook/slurm}"
+      TOKEN="${TELEMETRY_TOKEN:-${TELEMETRY_SECRET:-}}"
+
+      LOG_TAIL=""
+      PROJECT_LOG_DIR="/mnt/storage/projects/${ACCOUNT}/logs"
+
+      if [ -d "${PROJECT_LOG_DIR}" ]; then
+        REAL_LOG_DIR="$(realpath "${PROJECT_LOG_DIR}" 2>/dev/null || true)"
+        for CANDIDATE in "${PROJECT_LOG_DIR}"/*_"${JOB_ID}".err "${PROJECT_LOG_DIR}"/*_"${JOB_ID}".out; do
+          if [ -f "${CANDIDATE}" ] && [ ! -L "${CANDIDATE}" ]; then
+            REAL_CANDIDATE="$(realpath "${CANDIDATE}" 2>/dev/null || true)"
+            if [[ -n "${REAL_LOG_DIR}" && "${REAL_CANDIDATE}" == "${REAL_LOG_DIR}"* ]]; then
+              LOG_TAIL="$(tail -n 50 "${CANDIDATE}" 2>/dev/null | tail -c 4096 | tr -d '\000-\010\013\014\016-\037' || true)"
+              if [ -n "${LOG_TAIL}" ]; then
+                break
+              fi
+            fi
+          fi
+        done
+      fi
+
+      if command -v python3 >/dev/null 2>&1; then
+        PAYLOAD=$(JOB_ID="${JOB_ID}" USER_ID="${USER_ID}" ACCOUNT="${ACCOUNT}" \
+          PARTITION="${PARTITION}" NODELIST="${NODELIST}" EXIT_CODE="${EXIT_CODE}" \
+          JOB_STATE="${JOB_STATE}" LOG_TAIL="${LOG_TAIL}" python3 -c '
+    import os, json
+    payload = {
+        "job_id": os.environ.get("JOB_ID", "unknown"),
+        "user": os.environ.get("USER_ID", "unknown"),
+        "account": os.environ.get("ACCOUNT", "unknown"),
+        "partition": os.environ.get("PARTITION", "unknown"),
+        "nodelist": os.environ.get("NODELIST", "unknown"),
+        "exit_code": int(os.environ.get("EXIT_CODE", 0)),
+        "status": os.environ.get("JOB_STATE", "FAILED"),
+        "log_tail": os.environ.get("LOG_TAIL", "")
+    }
+    print(json.dumps(payload))
+    ' 2>/dev/null)
+      fi
+
+      if [ -z "${PAYLOAD:-}" ]; then
+        ESCAPED_LOG="${LOG_TAIL//\\/\\\\}"
+        ESCAPED_LOG="${ESCAPED_LOG//\"/\\\"}"
+        PAYLOAD="{\"job_id\":\"${JOB_ID}\",\"user\":\"${USER_ID}\",\"account\":\"${ACCOUNT}\",\"partition\":\"${PARTITION}\",\"nodelist\":\"${NODELIST}\",\"exit_code\":${EXIT_CODE},\"status\":\"${JOB_STATE}\",\"log_tail\":\"${ESCAPED_LOG}\"}"
+      fi
+
+      AUTH_HEADER=()
+      if [ -n "${TOKEN}" ]; then
+        AUTH_HEADER=(-H "Authorization: Bearer ${TOKEN}")
+      fi
+
+      curl -s -S -X POST \
+        -H "Content-Type: application/json" \
+        "${AUTH_HEADER[@]}" \
+        -d "${PAYLOAD}" \
+        "${PORTAL_URL}" \
+        --max-time 2 >/dev/null 2>&1 || true
+    ) </dev/null >/dev/null 2>&1 &
+    exit 0
 controller:
   external: false
   externalConfig:

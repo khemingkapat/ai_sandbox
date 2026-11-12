@@ -147,6 +147,54 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/telemetry/incidents": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "Returns recent Slurm batch failure incidents stored in the in-memory circular ring buffer.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "telemetry"
+                ],
+                "summary": "Cluster batch incidents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Filter incidents occurring after RFC3339 timestamp",
+                        "name": "since",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Max incidents to return (default: 50, max: 200)",
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/main.SlurmIncident"
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/healthz": {
             "get": {
                 "description": "Instant zero-allocation health check. Does not touch downstream network or storage.",
@@ -172,6 +220,54 @@ const docTemplate = `{
         }
     },
     "definitions": {
+        "main.SlurmIncident": {
+            "type": "object",
+            "properties": {
+                "account": {
+                    "type": "string",
+                    "example": "nlp-project"
+                },
+                "entity_id": {
+                    "type": "string",
+                    "example": "1042"
+                },
+                "exit_code": {
+                    "type": "integer",
+                    "example": 137
+                },
+                "incident_id": {
+                    "type": "string",
+                    "example": "inc-1042-1729934400"
+                },
+                "log_tail": {
+                    "type": "string",
+                    "example": "torch.cuda.OutOfMemoryError: CUDA out of memory"
+                },
+                "partition": {
+                    "type": "string",
+                    "example": "batch-gpu"
+                },
+                "source_type": {
+                    "type": "string",
+                    "example": "slurm_job"
+                },
+                "status": {
+                    "type": "string",
+                    "example": "FAILED"
+                },
+                "summary": {
+                    "type": "string",
+                    "example": "Job terminated with non-zero exit code (137)"
+                },
+                "timestamp": {
+                    "type": "string"
+                },
+                "user": {
+                    "type": "string",
+                    "example": "student01"
+                }
+            }
+        },
         "main.TelemetryResponse": {
             "type": "object",
             "properties": {

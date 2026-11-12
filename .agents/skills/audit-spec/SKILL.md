@@ -1,81 +1,75 @@
 ---
 name: audit-spec
 description: >
-  Audits an architectural design or specification before implementation.
-  Spawns an independent Auditor subagent using a 'pro' model to attack the design
-  for boundary violations, over-engineering, bloat, and conceptual misalignment.
+  Pre-implementation adversarial design review.
+  Switches persona to an independent Red-Team Systems Auditor to ruthlessly attack
+  a draft unit spec for GPU contention, boundary leaks, over-engineering, and missing failure modes.
 ---
 
 # Audit Spec Skill
 
-You are conducting a pre-implementation architectural audit. Your goal is to eliminate "Yes-Man" bias by running an adversarial design review with an independent `pro` model before implementation or modifying cluster resources.
+You are conducting an adversarial pre-implementation design audit. Your goal is to eliminate "Yes-Man" bias by ruthlessly attacking the draft unit spec before any code or tests are locked in.
 
-## Inputs
-
-The user will provide:
-- A draft **design spec**, architectural proposal, or work package plan.
-- Relevant reference documents (e.g., [`docs/aidlc/PROJECT_CONTEXT.md`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md), [`docs/aidlc/decisions/`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/)).
+*(Note: This skill runs directly in-session as an adversarial Red-Team persona shift, ensuring full portability across both Pi and Antigravity).*
 
 ---
 
-## Step 1: Prepare the Audit Context
+## Step 1: The Persona Shift
 
-Extract the core architectural assumptions:
-1. **Components Involved:** Which services, controllers, or nodes are being touched?
-2. **Data Flow Path:** How do bytes, network packets, and API calls flow between components?
-3. **New Dependencies:** Does this add new images, daemons, packages, or database schemas?
+Explicitly announce your role shift in the conversation:
+> *"🚨 Switching to Red-Team Systems Auditor persona to attack the draft spec for `<unit-name>`."*
 
 ---
 
-## Step 2: Spawn the Auditor Subagent (`Model: pro`)
+## Step 2: The 4 Foundation Attack Vectors
 
-Define and invoke the Auditor subagent using the `pro` model tier:
+Attack the draft spec against our physical cluster invariants:
 
-- **Role:** `Principal Platform Architect & Foundation Auditor`
-- **Model:** `pro`
-- **System Prompt / Task Brief:**
-  Instruct the auditor to ruthlessly critique the draft design against **4 Foundation Pillars**:
-  1. **3-Tier Boundary Integrity:** Does the design strictly isolate `slurm` (control plane), `services` (shared AI tools), and `workload` (untrusted student pods)? Are components taking on responsibilities that belong elsewhere?
-  2. **Anti-Bloat & Simplicity:** Is this the simplest structural way to solve the problem? Are we adding custom code/sidecars where native Traefik, Kubernetes, or Slurm features already exist?
-  3. **Tech Stack Consistency:** Does it adhere to locked-in decisions in [`docs/aidlc/PROJECT_CONTEXT.md`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md) and [`docs/aidlc/decisions/`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/) (pre-baked images, read-only cache mounts, stateless portal)?
-  4. **Clarity & Mental Model:** Is the data flow explained in concrete computer engineering terms (sockets, processes, files) so the Lead Architect (Khem) can make a confident decision?
-
----
-
-## Step 3: Ping-Pong Reconciliation (1–2 Turns)
-
-1. Receive the Auditor's critique.
-2. Address each critique:
-   - If the Auditor caught a boundary leak, bloat, or anti-pattern: **adopt the simpler/safer approach**.
-   - If the Auditor made an impractical recommendation based on missing context: **rebut with physical cluster constraints**.
-3. Synthesize the final hardened specification.
+1. **Single NVIDIA L40 (46GB) GPU Contention:**
+   - Does this unit touch GPU compute or inference?
+   - vLLM holds ~65% VRAM in the `services` namespace. Does this spec risk OOM collisions, uncoordinated Slurm batch job scheduling, or missing locks?
+2. **3-Tier Boundary Integrity:**
+   - Does the design strictly isolate `slurm` (control plane), `services` (shared AI tools like vLLM/MLflow), and `workload` (untrusted student pods)?
+   - Are components taking on responsibilities that belong elsewhere (e.g. portal trying to proxy streaming tokens instead of Traefik ForwardAuth)?
+3. **Storage & UID / GID Isolation:**
+   - Interactive pods in `workload` must strictly use scoped `subPath` mounts and non-root `PodSecurityContext`.
+   - Does this design expose root `/mnt/storage` or shared state to untrusted processes?
+4. **Anti-Bloat & Native Primitives:**
+   - Is this the simplest structural way to solve the problem?
+   - Are we writing custom Go daemons or sidecars where native Traefik middlewares, Slurm hooks, or Kubernetes features already exist?
 
 ---
 
-## Step 4: Output Format
+## Step 3: Output Format
 
-Present the final reconciled architecture to the user in this structure:
+Present your audit findings to Khem in this format:
 
 ```markdown
-## 🏛️ Architectural Audit: [Feature / Work Package Name]
+## 🛡️ Red-Team Architectural Audit: [Unit Name]
 
-### 1. Plain-English Mental Model & Data Path
-[Step-by-step physical flow using concrete CS fundamentals: client -> gateway -> auth -> backend -> hardware. No buzzwords.]
+### 1. The Red-Team Critique (What Could Break)
+- **Vulnerability 1:** [Specific failure mode, boundary leak, or GPU lock risk]
+- **Vulnerability 2:** [Over-engineering, bloat, or fragile dependency]
 
-### 2. What Changed During Audit (Ping-Pong Diff)
-- **Critique:** [What the Auditor pushed back on (e.g., unnecessary proxy logic in Go)]
-- **Adjustment:** [How we simplified or corrected the architecture (e.g., delegated to Traefik ForwardAuth)]
+### 2. Proposed Hardening Adjustments
+- **Adjustment 1:** [Simpler or safer pattern to adopt]
+- **Adjustment 2:** [Concrete boundary correction]
 
-### 3. Component Responsibility Matrix
-| Component | Tier / Namespace | Responsibility | What It Must NOT Do |
-| :--- | :--- | :--- | :--- |
-| [e.g. Traefik] | `slurm` | Ingress routing & rate limiting | Must not parse internal JWT payloads |
-| [e.g. vLLM] | `services` | GPU tensor compute & token streaming | Must not manage user auth or quotas |
+### 3. Files Allowed to Touch (Confirmed Scope)
+| Allowed File Path | Purpose |
+| :--- | :--- |
+| `portal/...` | ... |
+| `scripts/...` | ... |
+*(Any file touched outside this table during implementation will be flagged as a scope violation).*
 
-### 4. Decisions for Khem
-- **Decision 1:** [Clear binary choice or trade-off for Khem to approve]
+### 4. Verdict & Recommendation
+- 🟢 **READY FOR GATE A+B:** Hardened spec is ready for human approval.
+- 🟡 **NEEDS KHEM DECISION:** An unresolved architectural trade-off requires user confirmation.
 ```
 
-## Constraints
-- **Brief and Straight to the Point:** High-signal bullet points only. No essay filler.
-- **Do NOT write implementation code in this skill:** Focus strictly on system design, boundaries, and trade-offs. Implementation happens after Khem approves the audited spec.
+---
+
+## Step 4: Reconcile and Trigger Gate A+B
+
+1. Update `docs/aidlc/units/<unit-name>.md` with the reconciled spec.
+2. Present the summary to Khem and trigger the **Gate A+B Checkpoint** (via the `checkpoint_gate` tool in Pi, or standard approval in Antigravity).

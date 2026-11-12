@@ -1,113 +1,78 @@
 ---
 name: verify
 description: >
-  Checks a PR or set of changes against functional acceptance criteria AND
-  runs an architectural result audit using an independent 'pro' model subagent.
-  Triggered when the user wants to assess whether an implementation is ready to merge.
+  Empirical verification and architectural acceptance audit for Gate D.
+  Audits the finished implementation against the unit spec, checks locked test integrity,
+  verifies live cluster receipts, flags out-of-scope diffs, and checks cluster invariants.
 ---
 
-# Verify Skill
+# Verify Skill (Gate D Acceptance)
 
-You are performing a two-tier review of an implementation:
-1. **Functional QA:** Do the build, lint, and acceptance tests pass?
-2. **Architectural Result Audit (with `pro` Auditor):** Did the implementation introduce silent bloat, boundary leaks, or technical debt?
+You are performing an empirical verification audit of a completed unit bolt before final acceptance at **Gate D**.
 
-## Inputs
-
-The user will provide:
-- A **PR number** or a description of the changes/branch to verify.
-- The **spec** or **GitHub Issue** to check against (or you'll find it from the PR).
+Your goal is to eliminate the **Rework Tax** caused by LLM overconfidence or unverified claims. You must provide concrete empirical proof, not verbal assertions.
 
 ---
 
-## Step 1: Get the Spec & Changes
+## Step 1: Scope & Test Integrity Verification
 
-1. Run `gh pr view <number>` to find the linked Issue.
-2. Run `gh issue view <number>` to get the spec and acceptance criteria.
-3. Run `gh pr diff <number>` (or `git diff`) to inspect all changed files.
-
----
-
-## Step 2: Functional Verification
-
-Work through the mechanical and functional checks:
-```bash
-# Build check
-go build ./...
-
-# Lint check
-go vet ./...
-
-# Infrastructure verification (if applicable)
-./scripts/verify-infrastructure.sh
-```
-Confirm each acceptance criterion from the spec passes.
+1. **Verify Locked Test Hashes:**
+   Check the SHA-256 checksums in `.aidlc/gate_c_<unit>.manifest`. Confirm that zero Gate C test files or verification scripts were tampered with during implementation.
+2. **Scope Diff Check:**
+   Compare the touched files in `git status --porcelain` against the approved **"Files Allowed to Touch"** list from `docs/aidlc/units/<unit>.md`.
+   Flag any out-of-scope edits immediately.
 
 ---
 
-## Step 3: Scope Check
+## Step 2: Empirical Proof-of-Work (Test Receipts)
 
-Verify the PR didn't touch files it shouldn't have:
-- Read "Files NOT to Touch" from the Issue.
-- Flag any out-of-scope edits.
-
----
-
-## Step 4: Architectural Result Audit (`Model: pro`)
-
-Spawn an Auditor subagent using `Model: pro` to inspect the full diff against [`docs/aidlc/PROJECT_CONTEXT.md`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/PROJECT_CONTEXT.md) and [`docs/aidlc/decisions/`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/):
-
-- **Role:** `Principal Systems Integrator & Result Auditor`
-- **Model:** `pro`
-- **Audit Focus:**
-  1. **Boundary Integrity:** Did the code cross the 3-tier boundary? *(e.g. Workload pod directly contacting internal database, portal attempting to proxy raw vLLM streaming responses).*
-  2. **Hidden Bloat & Runtime Hacks:** Did the PR introduce runtime `pip install`, dynamic image builds, unapproved external libraries, or redundant sidecars?
-  3. **Architectural Drift:** Does the code take short-term shortcuts that contradict our foundational stack decisions?
-
-Capture the Auditor's verdict:
-- 🟢 **CLEAN:** Adheres strictly to system architecture and boundaries.
-- 🟡 **WARNING:** Works functionally, but introduces minor architectural debt to address.
-- 🔴 **BLOCKING VIOLATION:** Violates core boundaries (security leak, unapproved service coupling, or severe bloat).
+Do not claim tests pass without pointing to an empirical execution receipt:
+1. Fast local checks: `go test -v ./...`, `go vet ./...`, `bash -n`.
+2. Live cluster probe execution logs: Check the execution log at `.aidlc/runs/<unit>-*.log` (or run `./scripts/verify-<unit>.sh` under flock).
+3. **Negative Proof Check:** Confirm that at least one negative or boundary rejection case (e.g. invalid auth token returns 401, duplicate submission handled idempotently) was executed and succeeded.
 
 ---
 
-## Step 5: Context & Units Check
+## Step 3: Cluster Invariant Sanity Probe
 
-- Confirm that the unit spec under `docs/aidlc/units/<unit>.md` has its `## Bolt log` updated at the bottom.
-- Confirm that `docs/aidlc/UNITS.md` has the unit status updated.
+Verify that the bolt did not degrade surrounding cluster components:
+1. **L40 GPU Health:** vLLM pod in `services` namespace is healthy and responsive (no CUDA OOM).
+2. **Slurm Nodes:** Slurm compute nodes are in `idle` or `alloc` (no nodes stuck in `drain` or `down`).
+3. **K8s Workloads:** No pods in `CrashLoopBackOff`.
 
 ---
 
-## Output Format
+## Step 4: The Consumable "Before & After" Report
 
-Present your verification to the user in this structure:
+Present your Gate D audit findings to Khem in this human-readable format:
 
 ```markdown
-## 🔍 Verification & Audit: PR #[number] — [PR title]
+## 🏁 Empirical Gate D Verification: [Unit Name]
 
-**Spec:** Issue #[number]  
-**Functional Verdict:** PASS / NEEDS REVISION  
-**Architectural Verdict:** 🟢 CLEAN / 🟡 DEBT WARNING / 🔴 BLOCKING VIOLATION
+### 1. Consumable "Before & After" Summary
+- **Before:** [What the system did or lacked prior to this bolt]
+- **After:** [What physically happens now in plain English]
+- **Exact Code Footprint:** [X files changed, +Y insertions, -Z deletions]
 
-### 1. Functional QA Check
-| Criterion | Status | Notes |
-| :--- | :---: | :--- |
-| Build passes (`go build ./...`) | ✅ / ❌ | |
-| Lint clean (`go vet ./...`) | ✅ / ❌ | |
-| [Functional criteria from spec] | ✅ / ❌ | |
-| No out-of-scope file edits | ✅ / ❌ | [list violations] |
-| Unit Bolt log & UNITS.md updated | ✅ / ❌ | |
+### 2. Empirical Verification Receipts
+- **Locked Tests Untampered:** ✅ SHA-256 verified against `.aidlc/gate_c_<unit>.manifest`
+- **Scope Integrity:** ✅ Only approved files touched (0 out-of-scope edits)
+- **Local Unit Tests:** ✅ `go test` passed (receipt attached)
+- **Cluster Hardware Probe:** ✅ `scripts/verify-<unit>.sh` passed on live Slurm/k8s (Log: `.aidlc/runs/<unit>-<timestamp>.log`)
+- **Negative Proof Verified:** ✅ Rejection of invalid inputs confirmed
 
-### 2. Architectural Result Audit (pro Model Review)
-- **Boundary Integrity:** [Clean / Details on boundary leak]
-- **Bloat & Dependency Check:** [Zero new bloat / Flagged runtime dependencies]
-- **Stack Alignment:** [Matches docs/aidlc/PROJECT_CONTEXT.md & decisions/ / Notes on shortcuts]
+### 3. Cluster Invariant State
+- **NVIDIA L40 GPU:** 🟢 Healthy (vLLM running, VRAM nominal)
+- **Slurm Nodes:** 🟢 All nodes operational (no drains)
 
-### 3. Issues & Required Actions
-[List any functional bugs or architectural changes required before merge. If clean: "None — ready to merge."]
+### 4. Architectural Debt Check
+- Any runtime hacks, temporary debug flags, or unapproved dependencies? (Report None or list items).
 ```
 
-## Constraints
-- **Brief and Straight to the Point:** High-signal bullet points. Avoid essay filler.
-- Do not merge PRs — that is always the user's call.
-- Do not request changes for personal style preferences — only spec failures and architectural boundary violations.
+---
+
+## Step 5: Trigger Gate D Checkpoint
+
+Trigger the **Gate D Checkpoint** (via the `checkpoint_gate` tool in Pi, or standard approval in Antigravity).
+Offer options to inspect the full Git diff or raw test receipts in `$EDITOR` (`nvim`) before final approval.
+Once approved, update the Bolt Log in `docs/aidlc/units/<unit>.md` and flip the status to `DONE` in `UNITS.md`.

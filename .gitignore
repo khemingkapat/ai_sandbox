@@ -40,3 +40,5 @@ portal/*.log
 /storage/projects/**/.config/
 /storage/projects/**/.kaggle/
 data/models_cache/
+.aidlc/
+.pi/
