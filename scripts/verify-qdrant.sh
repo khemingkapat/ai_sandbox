@@ -106,7 +106,7 @@ fi
 # 5. Traefik External Gateway: Web UI Dashboard Routing
 echo -e "${BLUE}▶ Checking Traefik Ingress Gateway /qdrant/dashboard Web UI...${NC}"
 GW_UI=$(kubectl -n slurm exec deploy/hpc-portal -c portal -- curl -s -k -m 5 https://127.0.0.1:443/qdrant/dashboard 2>/dev/null || true)
-if echo "$GW_UI" | grep -qi "<title>Qdrant"; then
+if echo "$GW_UI" | grep -qiE "<title>.*Qdrant"; then
     report_pass "Traefik Gateway /qdrant/dashboard" "Web UI HTML loaded"
 else
     report_fail "Traefik Gateway /qdrant/dashboard" "Failed to retrieve Qdrant Dashboard HTML (Output: $(echo "$GW_UI" | head -n 2))"
