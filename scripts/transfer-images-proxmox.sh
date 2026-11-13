@@ -29,8 +29,12 @@ echo "📦 [3/4] Transferring hpc-portal:local -> ai-control..."
 docker save hpc-portal:local | ssh "$SSH_USER@$CTRL_IP" "sudo k3s ctr -n k8s.io images import -"
 
 # 4. Transfer slurmd-custom to ai-worker1
-echo "📦 [4/4] Transferring slurmd-custom:latest -> ai-worker1..."
+echo "📦 [4/5] Transferring slurmd-custom:latest -> ai-worker1..."
 docker save slurmd-custom:latest | ssh "$SSH_USER@$WORKER_IP" "sudo k3s ctr -n k8s.io images import -"
+
+# 5. Transfer interactive-jupyter to ai-worker1
+echo "📦 [5/5] Transferring interactive-jupyter:latest -> ai-worker1..."
+docker save interactive-jupyter:latest | ssh "$SSH_USER@$WORKER_IP" "sudo k3s ctr -n k8s.io images import -"
 
 echo ""
 echo "✅ All custom images successfully imported into K3s containerd!"

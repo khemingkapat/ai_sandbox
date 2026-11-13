@@ -107,6 +107,7 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 						{Name: "KAGGLEHUB_CACHE", Value: fmt.Sprintf("%s/.cache/kagglehub", workspace)},
 						{Name: "TMPDIR", Value: "/mnt/storage/scratch"},
 						{Name: "MLFLOW_TRACKING_URI", Value: "http://mlflow.services.svc.cluster.local:5000"},
+						{Name: "QDRANT_URL", Value: "http://qdrant.services.svc.cluster.local:6333"},
 						{Name: "NB_UMASK", Value: "0002"},
 						{Name: "UMASK", Value: "0002"},
 					},
