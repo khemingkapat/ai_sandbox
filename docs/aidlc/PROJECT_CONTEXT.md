@@ -9,7 +9,7 @@ The **AI Sandbox** provides students with a turnkey, browser-accessible platform
 - **Interactive Workspaces:** Web-based JupyterLab, VS Code, and Bash sessions launched on-demand as Kubernetes Pods via Traefik Ingress with ForwardAuth (`workload` namespace) — **status: done**
 - **Batch HPC Workloads:** Slurm job scheduling across CPU and GPU partitions using containerized Apptainer `.sif` execution over `/mnt/storage` — **status: done**
 - **Central AI Services:** Shared LLM inference (vLLM serving Qwen 3.5 / 2.5 / Gemma 4), experiment tracking (MLflow + Postgres 16), in-cluster OCI registry (`services` namespace) — **status: done**
-- **Vector Search & Starter Labs:** Central Qdrant vector database (`services` namespace) — **status: done (WP14-A)**; 5-part starter curriculum notebooks — **status: planned (WP14-B)**
+- **Vector Search & Starter Labs:** Central Qdrant vector database (`services` namespace) — **status: done (WP14-A)**; 5-part starter curriculum notebooks & pre-baked SDKs — **status: done (WP14-B)**
 - **Monitoring & Telemetry:** Slurm incident telemetry epilog hook, Prometheus, Grafana, and portal observability — **status: planned**
 
 ## Architecture as it stands

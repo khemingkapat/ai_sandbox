@@ -1,6 +1,6 @@
 # Unit: WP14-B — Pre-Baked Client SDKs & 5 Starter Curriculum Labs
 
-Status: in-progress (Phase 1 — Gate A+B)
+Status: done (Gate D)
 Parent GitHub WP: #14
 Exploratory? no
 
@@ -94,3 +94,6 @@ Implement the client-side half of Work Package 14 by pre-baking the required Dat
 
 ## Bolt log
 - 2026-11-13: Phase 1 Inception (`analyze-gap`) completed; 3 strategic decisions resolved by Khem. Created branch `feat/wp14b`, drafted `docs/aidlc/units/wp14b.md`, and completed `audit-spec` review.
+- 2026-11-13: Phase 2 Gate C locked verification probe `scripts/verify-starter-labs.sh` and unit test `portal/session_manager_test.go` with negative proof across 9 assertions against unbuilt infrastructure.
+- 2026-11-13: Phase 3 construction completed: injected `QDRANT_URL` in `portal/session_manager.go`, pre-baked `polars[rtcompat]`, `dask[dataframe]`, `qdrant-client`, `llama-index-core`, `torch`, `transformers`, and `peft` in `images/jupyterlab/Dockerfile` and loaded into K3s `containerd`, and authored the 5 starter notebooks under `templates/projects/project1/starter_labs/`.
+- 2026-11-13: Phase 4 Gate D empirical verification: all 10/10 verification checks passed (`Portal Session Env Injection`, `Canonical Starter Notebooks Present`, `Seeded Storage Layout & Permissions (1001:2001, mode 2770)`, `Pre-Baked SDK Availability`, `Storage & Network Boundary Rejection (EROFS & TCP 5432 block)`, and headless execution of Labs 01, 02, 03, 04, and 05 against live cluster storage, MLflow, and Qdrant). Manifest intact, zero out-of-scope edits. Bolt complete.
