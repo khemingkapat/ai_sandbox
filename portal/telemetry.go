@@ -322,11 +322,12 @@ func (s *TelemetryScraper) computeTelemetry(probes SubsystemProbes) *TelemetryRe
 	services := make(map[string]string)
 
 	// vLLM with ADR 0003 batch yield handling
-	if probes.VLLMReachable {
+	switch {
+	case probes.VLLMReachable:
 		services["vllm"] = "healthy"
-	} else if probes.BatchGPURunning {
+	case probes.BatchGPURunning:
 		services["vllm"] = "yielded_for_batch"
-	} else {
+	default:
 		services["vllm"] = "error"
 	}
 
@@ -410,7 +411,7 @@ func (s *TelemetryScraper) probeHTTP(ctx context.Context, url string) bool {
 	if err != nil {
 		return false
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	return resp.StatusCode >= 200 && resp.StatusCode < 400
 }
 
@@ -418,7 +419,7 @@ func (s *TelemetryScraper) probeHTTP(ctx context.Context, url string) bool {
 func (s *TelemetryScraper) probeStorage(path string) bool {
 	// First check /proc/mounts for the mount point if Linux
 	if file, err := os.Open("/proc/mounts"); err == nil {
-		defer file.Close()
+		defer func() { _ = file.Close() }()
 		scanner := bufio.NewScanner(file)
 		for scanner.Scan() {
 			fields := strings.Fields(scanner.Text())

@@ -596,7 +596,9 @@ func handleReleasePort(c echo.Context) error {
 		return err
 	}
 	jID, _ := strconv.Atoi(req.JobID)
-	portManager.ReleasePort(jID)
+	if err := portManager.ReleasePort(jID); err != nil {
+		c.Logger().Warnf("failed to release port for job %d: %v", jID, err)
+	}
 	return c.JSON(http.StatusOK, map[string]string{"status": "released"})
 }
 

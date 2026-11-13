@@ -15,6 +15,7 @@ This table tracks completed baseline capabilities and upcoming work packages. Hi
 | WP07 | Shared Storage & Isolation | #7 | Central Storage & Datasets | done | Verified by `scripts/verify-storage.sh` |
 | WP08 | Network & Security Baseline | #8 | NetworkPolicies, Traefik TLS | done | Verified by `scripts/verify-security.sh` & `scripts/verify-isolation.sh` |
 | WP09 | LLM Inference Server | #9 | vLLM Deployment & Rate Limiting | done | Verified by `scripts/verify-llm.sh` (22/22 checks) |
+| WP09-B | Two-Tier LiteLLM Gateway | #9 | Token Quotas & Student Key Pooling | planned | Implements ADR 0006; dual-model serving & LiteLLM proxy |
 | WP10 | Curated Model Catalog | #10 | Model Matrix & Deterministic Swap | done | Verified by `docs/MODEL_CATALOG.json` & `scripts/swap-model.sh` |
 | WP11 | Experiment Tracking | #11 | Central MLflow & Proxied Artifacts | done | Verified by `scripts/verify-mlflow.sh` (9/9 checks) |
 | WP17 | Integration Golden Path | #17 | End-to-End Student Smoke Test | done | Verified by `scripts/test-student-golden-path.sh` |
@@ -22,7 +23,8 @@ This table tracks completed baseline capabilities and upcoming work packages. Hi
 | WP12 | Web Portal Enhancements | #12 | Model Picker & Slurm Integration | planned | Core K8s/Slurm dispatch active in `portal/`; UI additions remaining |
 | WP13-A | Health Telemetry & Swagger UI | #13 / #0 | Cluster Telemetry & OpenAPI | done | Verified by `portal/telemetry_test.go` with `-race` (8/8 checks) in `docs/aidlc/units/wp13-health-telemetry-swagger.md` |
 | WP13 | Monitoring & Telemetry | #13 | Epilog Webhook & Ring Buffer | done | Verified by `portal/telemetry_test.go` with `-race` (15/15 checks) and `scripts/slurm_epilog_webhook.sh` in `docs/aidlc/units/wp13-slurm-epilog-webhook.md` |
-| WP14 | Qdrant Vector DB & Labs | #14 | Central Vector Search & Curricula | planned | Central Qdrant service in `services` + 5 starter lab notebooks |
+| WP14-A | Central Qdrant Vector DB | #14 | Central Vector Search & Storage | done | Verified by `scripts/verify-qdrant.sh` (9/9 checks) in `docs/aidlc/units/wp14a-qdrant-vector-db.md` |
+| WP14-B | Starter Labs & Tooling | #14 | Client SDKs & 5 Starter Curricula | planned | LlamaIndex, Polars, Dask image baking + starter notebooks |
 | WP15 | Student Documentation | #15 | Onboarding & Usage Guides | planned | Student quickstart, tool catalog, and GPU usage guide |
 | WP16 | Sysadmin Runbooks | #16 | Operations & Upgrades Runbook | planned | Cluster bootstrap, backup/restore, and incident playbook |
 | WP18 | Early Adopter Pilot | #18 | Validation with Real Cohort | planned | Depends on WP12–WP16 completion |
@@ -34,4 +36,5 @@ This table tracks completed baseline capabilities and upcoming work packages. Hi
 Candidate bolts for the next **Phase 1: Inception & Plan (Gate A+B)** cycle:
 - **Unit WP13 (Monitoring & Slurm Incident Telemetry):** Epilog webhook (`scripts/slurm_epilog_webhook.sh`) and portal in-memory incident ring buffer.
 - **Unit CI01 (Dual-Path CI/CD Pipeline):** Stage 1 GitHub Cloud static/unit checks + Stage 2 self-hosted in-cluster verification runner (`concurrency: 1`).
+- **Unit WP09-B (Two-Tier LiteLLM Gateway & Student Token Quotas):** LiteLLM proxy in `services` namespace, per-student virtual keys/quotas, dual-model serving on GPU #1, and stateless project router documentation (see `docs/aidlc/decisions/0006-two-tier-llm-routing-and-token-quota.md`).
 - **Unit WP00 (Interactive API & Cluster Documentation Tooling):** Portal OpenAPI/Swagger UI (`swaggo`) + Traefik dashboard & K8s topology tooling.

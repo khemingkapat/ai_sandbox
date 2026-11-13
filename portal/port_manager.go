@@ -200,7 +200,7 @@ func (pm *PortManager) updateTraefikRoutes() {
 		log.Println("Error reading active leases:", err)
 		return
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	config := TraefikConfig{}
 	config.HTTP.Routers = make(map[string]map[string]interface{})

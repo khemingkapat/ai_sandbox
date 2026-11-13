@@ -1,0 +1,30 @@
+# Storage for Qdrant Central Vector DB (WAL and In-Memory Snapshots)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: qdrant-data-pv
+  labels:
+    app.kubernetes.io/name: qdrant
+    type: local
+spec:
+  storageClassName: manual
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /mnt/storage/qdrant
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: qdrant-data-pvc
+  namespace: services
+spec:
+  storageClassName: manual
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  volumeName: qdrant-data-pv

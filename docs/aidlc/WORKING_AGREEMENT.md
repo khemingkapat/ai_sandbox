@@ -17,10 +17,10 @@ This is a lightweight, solo adaptation of AI-DLC. Follow it for every unit of wo
    - **Stage 1 (Cloud fast checks):** `go test -race`, `golangci-lint`, `bash -n`, `kubeconform`.
    - **Stage 2 (In-Cluster hardware verification):** Locked verification scripts (`scripts/verify-*.sh` or `test-student-golden-path.sh`) run on the live cluster (concurrency = 1 to protect the single NVIDIA L40 GPU).
    Approved Gate C tests/probes are locked via SHA-256 manifest; the harness interceptor enforces that test files cannot be modified during construction.
-6. **Tiered Model Strategy:**
-   - **Phase 1 (Inception & Audit):** Use reasoning flagship `gemini-argon` for deep architectural stress testing, edge case detection, and boundary validation.
-   - **Phase 2 & 3 (Test Locking & Construction):** Use daily workhorse `gemini-flash` (free AI Studio first, with LiteLLM automatic spillover to Vertex AI credits on rate limits) for token-efficient, fast test writing and implementation loops.
-   - **Phase 4 (Gate D Acceptance):** Use `gemini-flash` for empirical verification and log inspection.
+6. **Tiered Model Strategy (Capability Tiers):**
+   - **Phase 1 (Inception & Audit):** Use a **High-Capability Reasoning Model** (Flagship / Frontier Tier) for deep architectural stress testing, edge case detection, and boundary validation.
+   - **Phase 2 & 3 (Test Locking & Construction):** Use a **Fast Execution / Workhorse Model** (High Throughput / Low Latency Tier) for token-efficient, fast test writing, precise file edits, and rapid implementation loops.
+   - **Phase 4 (Gate D Acceptance):** Use the workhorse tier (or reasoning tier for subtle regressions) for empirical verification and log inspection.
 7. **Stop rule (3-Strike escalation):** If the same failure happens 3 times, stop and ask with hypothesis and options. Do not spiral.
 8. **Keep context true (Gate D):** Finishing a bolt requires empirical proof (untampered tests, scope check, live cluster run receipts, cluster invariants), updating the unit's Bolt Log in `docs/aidlc/units/<unit>.md`, flipping status in `UNITS.md`, and updating decisions if boundaries changed. *(When auditing or remediating legacy components built prior to AI-DLC adoption, follow [`TRANSFORMATION_PLAYBOOK.md`](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/TRANSFORMATION_PLAYBOOK.md)).*
 
@@ -28,7 +28,7 @@ This is a lightweight, solo adaptation of AI-DLC. Follow it for every unit of wo
 
 ### Phase 1: Inception & Plan (bundled per unit)
 
-- **Model:** `gemini-argon` (flagship reasoning).
+- **Model Tier:** High-Capability Reasoning / Flagship Tier.
 - Agent runs `analyze-gap` to explain the concept in plain English, map the physical data path, verify live cluster state, and ask 2-3 strategic decisions.
 - Agent drafts a 1-page unit file `docs/aidlc/units/<unit-name>.md` using the template:
   - **What & Why (Spec):** intent, scope, non-goals, constraints, concrete acceptance criteria (Given/When/Then).
@@ -40,7 +40,7 @@ This is a lightweight, solo adaptation of AI-DLC. Follow it for every unit of wo
 
 ### Phase 2: Construction (the bolt)
 
-- **Model:** `gemini-flash` (daily workhorse).
+- **Model Tier:** Fast Execution / Workhorse Tier.
 1. **Tests / Verification Probes first:**
    - For **Go portal / code logic**, agent writes automated unit tests (`go test`) derived from acceptance criteria.
    - For **Kubernetes / Slurm / Infrastructure**, agent writes or updates verification probes (`scripts/verify-<unit>.sh`).
@@ -53,6 +53,7 @@ This is a lightweight, solo adaptation of AI-DLC. Follow it for every unit of wo
 3. **Bolt summary & empirical verification:**
    - Agent runs `verify` skill: attaches test execution receipts, checks untampered test hashes, verifies 0 out-of-scope edits, and confirms L40 GPU and Slurm cluster invariants.
    - **Gate D (me):** Interactive checkpoint via `checkpoint_gate`. Option to inspect raw receipts and git diff in `$EDITOR` (`nvim`). Accept bolt and flip status in `UNITS.md`.
+   - **Automatic PR Creation:** Upon Gate D acceptance, agent commits the finalized docs/bolt log, pushes the feature branch (`feat/<unit>`), and creates a GitHub Pull Request via `gh pr create` for human review in the web UI.
 
 ### Phase 3: Operations / feedback
 

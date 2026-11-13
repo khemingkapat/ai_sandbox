@@ -32,6 +32,15 @@ data:
           rule: "PathPrefix(`/mlflow`) || PathPrefix(`/api/2.0`) || PathPrefix(`/ajax-api`) || PathPrefix(`/get-artifact`)"
           service: mlflow-backend
           priority: 50
+        qdrant:
+          entryPoints:
+            - web
+            - websecure
+          rule: "PathPrefix(`/qdrant`)"
+          service: qdrant-backend
+          priority: 50
+          middlewares:
+            - qdrant-stripprefix
         portal:
           entryPoints:
             - websecure
@@ -59,11 +68,19 @@ data:
           loadBalancer:
             servers:
               - url: "http://mlflow.services.svc.cluster.local:5000"
+        qdrant-backend:
+          loadBalancer:
+            servers:
+              - url: "http://qdrant.services.svc.cluster.local:6333"
       middlewares:
         redirect-to-https:
           redirectScheme:
             scheme: https
             permanent: true
+        qdrant-stripprefix:
+          stripPrefix:
+            prefixes:
+              - "/qdrant"
         security-headers:
           headers:
             contentTypeNosniff: true
