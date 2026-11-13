@@ -48,6 +48,17 @@ else
   exit 1
 fi
 
+if command -v kube-linter >/dev/null 2>&1; then
+  echo ""
+  echo "Using kube-linter for security and best-practice checks..."
+  if kube-linter lint --config "$ROOT_DIR/.kube-linter.yaml" "$ROOT_DIR/k8s"; then
+    echo "  ✅ Security and best-practice checks passed."
+  else
+    echo "  ❌ kube-linter reported policy violations."
+    FAILURES=$((FAILURES + 1))
+  fi
+fi
+
 if [ "$FAILURES" -gt 0 ]; then
   echo "❌ $FAILURES manifest(s) failed validation."
   exit 1

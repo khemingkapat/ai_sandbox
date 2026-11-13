@@ -17,8 +17,17 @@ linters-settings:
         disabled: false
       - name: var-naming
         disabled: false
+  goconst:
+    min-len: 3
+    min-occurrences: 10
 
 issues:
   exclude-use-default: false
   max-issues-per-linter: 0
   max-same-issues: 0
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - staticcheck
+

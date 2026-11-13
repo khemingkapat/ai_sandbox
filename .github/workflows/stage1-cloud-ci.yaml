@@ -45,7 +45,7 @@ jobs:
           severity: error
 
   test-portal-go:
-    name: Go Portal Unit Tests & Race Detector
+    name: Go Portal Linters & Unit Tests
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -61,12 +61,17 @@ jobs:
         run: |
           cd portal && go vet ./...
 
+      - name: Golangci-lint
+        run: |
+          go install github.com/golangci/golangci-lint/cmd/golangci-lint@v1.64.8
+          cd portal && golangci-lint run
+
       - name: Go Unit Tests with Race Detector
         run: |
           cd portal && go test -v -race ./...
 
   lint-k8s:
-    name: Kubernetes Manifest Schema Validation
+    name: Kubernetes Manifest Schema & Security Validation
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -74,8 +79,13 @@ jobs:
 
       - name: Set up Kubeconform
         run: |
-          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz kubeconform
           sudo mv kubeconform /usr/local/bin/
+
+      - name: Set up Kube-linter
+        run: |
+          curl -sL https://github.com/stackrox/kube-linter/releases/download/v0.7.2/kube-linter-linux.tar.gz | tar xz kube-linter
+          sudo mv kube-linter /usr/local/bin/
 
       - name: Validate Kubernetes Manifests
         run: |

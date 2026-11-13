@@ -1,0 +1,8 @@
+checks:
+  doNotAutoAddDefaults: true
+  include:
+    - "privileged-container"
+    - "privilege-escalation-container"
+    - "sensitive-host-mounts"
+    - "docker-sock"
+    - "duplicate-env-var"
