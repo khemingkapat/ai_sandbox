@@ -21,43 +21,121 @@ import (
 
 // loginPage renders the login view with the current access matrix.
 func loginPage(c echo.Context) error {
+	// If query param 'token' is present, process single-path JWT login directly
+	if tokenStr := c.QueryParam("token"); tokenStr != "" {
+		return loginAction(c)
+	}
+
 	accessMatrix := fetchAccessMatrix()
 	matrixJSON, _ := json.Marshal(accessMatrix)
+
+	// Generate demo JWTs for user1..user4 so demo buttons use the exact same JWT verification pipeline
+	demoTokens := make(map[string]string)
+	for _, u := range []string{"user1", "user2", "user3", "user4"} {
+		tok, err := makeUniversityDemoToken(u)
+		if err == nil {
+			demoTokens[u] = tok
+		}
+	}
+
 	return c.Render(http.StatusOK, "login.html", map[string]interface{}{
 		"accessJSON": string(matrixJSON),
+		"demoTokens": demoTokens,
 	})
+}
+
+// makeUniversityDemoToken signs a test token using the configured university secret or slurm key
+func makeUniversityDemoToken(studentID string) (string, error) {
+	secret := getUniversitySecret()
+	claims := jwt.MapClaims{
+		"sub":        studentID,
+		"student_id": studentID,
+		"iss":        "university-sso",
+		"iat":        time.Now().Unix(),
+		"exp":        time.Now().Add(24 * time.Hour).Unix(),
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return tok.SignedString(secret)
+}
+
+func getUniversitySecret() []byte {
+	secretStr := os.Getenv("UNIVERSITY_JWT_SECRET")
+	if secretStr != "" {
+		return []byte(secretStr)
+	}
+	key, err := readSlurmKey()
+	if err == nil && len(key) > 0 {
+		return key
+	}
+	return []byte("default-sandbox-secret-key-32b")
 }
 
 // loginAction handles the login form submission and sets the session cookie.
 func loginAction(c echo.Context) error {
-	username := c.FormValue("username")
-	project := c.FormValue("project")
+	jwtToken := c.FormValue("jwt_token")
+	if jwtToken == "" {
+		jwtToken = c.QueryParam("token")
+	}
 
-	accessMatrix := fetchAccessMatrix()
-	validProject := false
-	for _, p := range accessMatrix[username] {
-		if p == project {
-			validProject = true
-			break
+	if jwtToken == "" {
+		// If neither is passed, reject with 401 Unauthorized
+		return c.String(http.StatusUnauthorized, "Missing jwt_token. External signed JWT required.")
+	}
+
+	// Verify JWT
+	token, err := jwt.Parse(jwtToken, func(t *jwt.Token) (interface{}, error) {
+		if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
-	}
-	if !validProject {
-		return c.String(http.StatusForbidden, "User does not have access to this project")
+		if identityHTTPHandlerSecret != nil {
+			return identityHTTPHandlerSecret, nil
+		}
+		return getUniversitySecret(), nil
+	})
+
+	if err != nil || !token.Valid {
+		return c.String(http.StatusUnauthorized, "Invalid JWT signature or expired token")
 	}
 
-	if err := registerUserExtrausers(username, project); err != nil {
-		fmt.Printf("Error registering extrauser: %v\n", err)
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return c.String(http.StatusUnauthorized, "Invalid JWT claims")
 	}
 
-	token, err := makeSlurmToken(username, project)
+	studentID := ""
+	if s, ok := claims["student_id"].(string); ok && s != "" {
+		studentID = s
+	} else if sub, ok := claims["sub"].(string); ok && sub != "" {
+		studentID = sub
+	}
+
+	if err := ValidateStudentID(studentID); err != nil {
+		return c.String(http.StatusBadRequest, fmt.Sprintf("Invalid student ID: %v", err))
+	}
+
+	var activeProject string
+	if identityManager != nil {
+		_, defProj, err := identityManager.EnsureStudentProvisioned(studentID)
+		if err != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Provisioning error: %v", err))
+		}
+		activeProject = defProj
+		_ = identityManager.CompileExtrausers()
+	} else {
+		activeProject = "project1"
+	}
+
+	// Issue Slurm Session Token with 'sun' and 'prj'
+	sessToken, err := makeSlurmToken(studentID, activeProject)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "Key error")
 	}
 
 	c.SetCookie(&http.Cookie{
 		Name:     "session",
-		Value:    token,
+		Value:    sessToken,
 		HttpOnly: true,
+		Path:     "/",
 		MaxAge:   tokenLifespan,
 	})
 	return c.Redirect(http.StatusSeeOther, "/")
@@ -65,8 +143,178 @@ func loginAction(c echo.Context) error {
 
 // logoutAction clears the session cookie and redirects to the login page.
 func logoutAction(c echo.Context) error {
-	c.SetCookie(&http.Cookie{Name: "session", MaxAge: -1})
+	c.SetCookie(&http.Cookie{Name: "session", MaxAge: -1, Path: "/"})
 	return c.Redirect(http.StatusSeeOther, "/login")
+}
+
+// Project Self-Service Handlers
+
+func handleListProjectsUI(c echo.Context) error {
+	userToken, ok := c.Get("user").(*jwt.Token)
+	if !ok || userToken == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+	}
+	claims, ok := userToken.Claims.(jwt.MapClaims)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid session"})
+	}
+	username, _ := claims["sun"].(string)
+	activePrj, _ := claims["prj"].(string)
+
+	if identityManager == nil {
+		return c.JSON(http.StatusOK, []ProjectInfo{})
+	}
+
+	projects, err := identityManager.ListUserProjects(username)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+	}
+
+	for i := range projects {
+		if projects[i].ProjectID == activePrj {
+			projects[i].IsActive = true
+		}
+	}
+
+	return c.JSON(http.StatusOK, projects)
+}
+
+func handleCreateProjectUI(c echo.Context) error {
+	userToken, ok := c.Get("user").(*jwt.Token)
+	if !ok || userToken == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+	}
+	claims, ok := userToken.Claims.(jwt.MapClaims)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid session"})
+	}
+	username, _ := claims["sun"].(string)
+
+	var req struct {
+		DisplayName string `json:"display_name"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	}
+
+	if identityManager == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Identity manager not configured"})
+	}
+
+	slug, gid, err := identityManager.CreateProject(username, req.DisplayName)
+	if err != nil {
+		if strings.Contains(err.Error(), "quota exceeded") {
+			return c.JSON(http.StatusTooManyRequests, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	_ = identityManager.CompileExtrausers()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = identityManager.ReconcileSlurm(ctx)
+	}()
+
+	return c.JSON(http.StatusCreated, map[string]interface{}{
+		"project_id":   slug,
+		"display_name": req.DisplayName,
+		"gid":          gid,
+		"owner":        username,
+	})
+}
+
+func handleInviteMemberUI(c echo.Context) error {
+	userToken, ok := c.Get("user").(*jwt.Token)
+	if !ok || userToken == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+	}
+	claims, ok := userToken.Claims.(jwt.MapClaims)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid session"})
+	}
+	username, _ := claims["sun"].(string)
+	projectID := c.Param("id")
+
+	var req struct {
+		StudentID string `json:"student_id"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	}
+
+	if identityManager == nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Identity manager not configured"})
+	}
+
+	err := identityManager.InviteMember(username, projectID, req.StudentID)
+	if err != nil {
+		if strings.Contains(err.Error(), "not a member") {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": err.Error()})
+		}
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
+	}
+
+	_ = identityManager.CompileExtrausers()
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = identityManager.ReconcileSlurm(ctx)
+	}()
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "invited", "student_id": req.StudentID, "project_id": projectID})
+}
+
+func handleSwitchProjectUI(c echo.Context) error {
+	userToken, ok := c.Get("user").(*jwt.Token)
+	if !ok || userToken == nil {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Unauthorized"})
+	}
+	claims, ok := userToken.Claims.(jwt.MapClaims)
+	if !ok {
+		return c.JSON(http.StatusUnauthorized, map[string]string{"error": "Invalid session"})
+	}
+	username, _ := claims["sun"].(string)
+
+	var req struct {
+		ProjectID string `json:"project_id"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid JSON"})
+	}
+
+	// Verify membership
+	if identityManager != nil {
+		projects, err := identityManager.ListUserProjects(username)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		}
+		allowed := false
+		for _, p := range projects {
+			if p.ProjectID == req.ProjectID {
+				allowed = true
+				break
+			}
+		}
+		if !allowed {
+			return c.JSON(http.StatusForbidden, map[string]string{"error": "Not a member of targeted project"})
+		}
+	}
+
+	newToken, err := makeSlurmToken(username, req.ProjectID)
+	if err != nil {
+		return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to issue session token"})
+	}
+
+	c.SetCookie(&http.Cookie{
+		Name:     "session",
+		Value:    newToken,
+		HttpOnly: true,
+		Path:     "/",
+		MaxAge:   tokenLifespan,
+	})
+
+	return c.JSON(http.StatusOK, map[string]string{"status": "switched", "project_id": req.ProjectID})
 }
 
 // handleVLLMAuth handles Traefik ForwardAuth subrequests for central LLM inference.

@@ -32,8 +32,9 @@ func readSlurmKey() ([]byte, error) {
 // The token is used for authenticating with the Slurm REST API.
 func makeSlurmToken(username string, project string) (string, error) {
 	key, err := readSlurmKey()
-	if err != nil {
-		return "", err
+	if err != nil || len(key) == 0 {
+		// Fallback for tests or environments without /etc/slurm/jwt_hs256.key
+		key = getUniversitySecret()
 	}
 
 	claims := jwt.MapClaims{

@@ -38,6 +38,14 @@ spec:
           value: "/etc/traefik/dynamic"
         - name: PORT_DB_PATH
           value: "/var/lib/portal/leases.db"
+        - name: DATABASE_URL
+          value: "postgres://mlflow:mlflowpassword@mlflow-postgres.services.svc.cluster.local:5432/mlflow?sslmode=disable"
+        - name: EXTRAUSERS_DIR
+          value: "/mnt/storage/common/etc"
+        - name: PROJECTS_DIR
+          value: "/mnt/storage/projects"
+        - name: UNIVERSITY_JWT_SECRET
+          value: "mock-university-jwt-secret-shared-with-portal"
         volumeMounts:
         - name: storage
           mountPath: /mnt/storage

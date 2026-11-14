@@ -64,12 +64,14 @@ else
   report_check "Baseline user1 (UID 1001) preserved in /mnt/storage/common/etc/passwd" 1 "user1 not found in extrausers"
 fi
 
-# 6. Check slurmrestd API endpoints for accounts and associations
-SLURMRESTD_STATUS=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -s -o /dev/null -w "%{http_code}" http://slurm-restapi:6820/slurm/v0.0.42/ping || echo "000")
-if [ "${SLURMRESTD_STATUS}" = "200" ]; then
-  report_check "slurmrestd ping endpoint reachable from portal container" 0
+# 6. Check slurmrestd API endpoint with a valid signed Slurm JWT
+SLURM_ROOT_TOKEN=$(kubectl exec -n slurm slurm-controller-0 -c slurmctld -- scontrol token username=root 2>/dev/null | sed 's/^SLURM_JWT=//' || true)
+SLURMRESTD_BODY=$(kubectl exec -n slurm deploy/hpc-portal -c portal -- curl -s -w "\nHTTP_CODE:%{http_code}" -H "X-SLURM-USER-TOKEN: ${SLURM_ROOT_TOKEN}" -H "X-SLURM-USER-NAME: root" http://slurm-restapi:6820/slurm/v0.0.42/ping 2>/dev/null || echo "HTTP_CODE:000")
+SLURMRESTD_STATUS=$(echo "${SLURMRESTD_BODY}" | sed -n 's/^HTTP_CODE://p')
+if [ "${SLURMRESTD_STATUS}" = "200" ] && echo "${SLURMRESTD_BODY}" | grep -q '"pinged": "UP"'; then
+  report_check "slurmrestd ping endpoint reachable and authenticated from portal container" 0
 else
-  report_check "slurmrestd ping endpoint reachable from portal container" 1 "HTTP status: ${SLURMRESTD_STATUS}"
+  report_check "slurmrestd ping endpoint reachable and authenticated from portal container" 1 "HTTP status: ${SLURMRESTD_STATUS}"
 fi
 
 echo "=== [WP05-B Probe Summary] Passed: ${PASS_COUNT}/${TOTAL_COUNT} checks ==="
