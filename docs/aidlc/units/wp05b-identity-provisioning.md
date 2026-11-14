@@ -1,6 +1,6 @@
 # Unit: WP05-B — Self-Service Identity Resolution & Dynamic Project Provisioning
 
-Status: in-progress (Phase 1 — Gate A+B)
+Status: done (Gate D verified)
 Parent GitHub WP: #5
 Exploratory? no
 
@@ -118,3 +118,5 @@ Implement the **Portal-Driven Self-Service Provisioning** architecture defined i
 
 ## Bolt log
 - 2026-11-14: Phase 1 Inception (`analyze-gap`) completed; 3 strategic decisions confirmed by Khem (Postgres 16 store, strict single-path JWT login with seeded `user1..4`, and REST API + UI controls). Drafted unit spec and completed Red-Team `audit-spec` review on branch `feat/wp05b-identity-provisioning`.
+- 2026-11-14: Gate C tests & probe locked (`17d4b90`). Fixed two auth bugs during live verification: (1) `portal/identity.go` (`postSlurmrestd`) now dynamically signs a root Slurm JWT via `makeSlurmToken("root", "root")` instead of sending the raw `jwt.key` secret from `SLURM_JWT`, and (2) `scripts/verify-wp05b.sh` Check 6 mints a real `scontrol token username=root` and asserts both HTTP `200` and `"pinged": "UP"`.
+- 2026-11-14: Gate D empirical verification passed: `go test -v -race ./...` (22/22 tests), `go vet ./...`, `bash -n scripts/verify-wp05b.sh`, and live cluster probe `scripts/verify-wp05b.sh` (6/6 checks, receipt `.aidlc/runs/wp05b-verify.log`).

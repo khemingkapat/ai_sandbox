@@ -1,7 +1,7 @@
 # 0007 — Self-Service Identity Resolution & Dynamic Project Provisioning
 
 Date: 2026-11-14
-Status: proposed
+Status: accepted
 Extends: [ADR 0002 — Storage Isolation, Identity & UID Security](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0002-storage-and-uid-isolation.md)
 
 ## Context
