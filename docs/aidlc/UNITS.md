@@ -11,6 +11,7 @@ This table tracks completed baseline capabilities and upcoming work packages. Hi
 | WP03 | Architecture & Tech Stack | #3 | Technology Selection (ADRs) | done | Recorded in `docs/aidlc/decisions/0001..0004.md` |
 | WP04 | Slinky Cluster Deployment | #4 | Slurm-on-K8s Orchestration | done | Verified by `scripts/verify-infrastructure.sh` |
 | WP05 | Slurm Policy Configuration | #5 | Fairshare, Multi-node, Partitions | done | Verified in `k8s/values.yaml` and `scripts/verify-multi-user-jobs.sh` |
+| WP05-B | Self-Service Identity & Project Sync | #5 | Dynamic Student UID/GID & Slurm Sync | planned | Implements ADR 0007; JWT login, Postgres state, `extrausers` + `slurmrestd` reconciler |
 | WP06 | Container Environments | #6 | Interactive OCI & Apptainer Batch | done | Verified by `scripts/build-oci-images.sh` & Apptainer batch tests |
 | WP07 | Shared Storage & Isolation | #7 | Central Storage & Datasets | done | Verified by `scripts/verify-storage.sh` |
 | WP08 | Network & Security Baseline | #8 | NetworkPolicies, Traefik TLS | done | Verified by `scripts/verify-security.sh` & `scripts/verify-isolation.sh` |
