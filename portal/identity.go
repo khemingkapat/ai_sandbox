@@ -39,6 +39,9 @@ var (
 	}
 )
 
+const sqliteDriver = "sqlite3"
+
+// ProjectInfo describes a portal project and its current membership list.
 type ProjectInfo struct {
 	ProjectID   string   `json:"project_id"`
 	DisplayName string   `json:"display_name"`
@@ -48,6 +51,7 @@ type ProjectInfo struct {
 	IsActive    bool     `json:"is_active"`
 }
 
+// IdentityManager manages student UIDs, project GIDs, extrausers compilation, and Slurm sync.
 type IdentityManager struct {
 	db            *sql.DB
 	driver        string
@@ -60,9 +64,10 @@ type IdentityManager struct {
 	mu            sync.Mutex
 }
 
+// NewIdentityManager initializes the identity store, schema, and baseline accounts.
 func NewIdentityManager(driver, dsn, extrausersDir, projectsDir, slurmURL string) (*IdentityManager, error) {
 	if driver == "" {
-		driver = "sqlite3"
+		driver = sqliteDriver
 	}
 	db, err := sql.Open(driver, dsn)
 	if err != nil {
@@ -85,18 +90,19 @@ func NewIdentityManager(driver, dsn, extrausersDir, projectsDir, slurmURL string
 	}
 
 	if err := im.initSchema(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to init schema: %w", err)
 	}
 
 	if err := im.seedBaseline(); err != nil {
-		db.Close()
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to seed baseline accounts: %w", err)
 	}
 
 	return im, nil
 }
 
+// Close releases the underlying database connection.
 func (im *IdentityManager) Close() error {
 	if im.db != nil {
 		return im.db.Close()
@@ -195,6 +201,7 @@ func (im *IdentityManager) seedBaseline() error {
 	return nil
 }
 
+// ValidateStudentID enforces POSIX-safe student identifier syntax and blocks reserved names.
 func ValidateStudentID(studentID string) error {
 	if len(studentID) == 0 || len(studentID) > 32 {
 		return fmt.Errorf("invalid student_id length: %q", studentID)
@@ -208,12 +215,13 @@ func ValidateStudentID(studentID string) error {
 	return nil
 }
 
+// GetUserUID returns the Linux UID assigned to the given student_id.
 func (im *IdentityManager) GetUserUID(username string) (int, error) {
 	im.mu.Lock()
 	defer im.mu.Unlock()
 	var uid int
 	row := im.db.QueryRow("SELECT uid FROM portal_users WHERE student_id = $1;", username)
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		row = im.db.QueryRow("SELECT uid FROM portal_users WHERE student_id = ?;", username)
 	}
 	if err := row.Scan(&uid); err != nil {
@@ -222,12 +230,13 @@ func (im *IdentityManager) GetUserUID(username string) (int, error) {
 	return uid, nil
 }
 
+// GetProjectGID returns the Linux GID assigned to the given project_id.
 func (im *IdentityManager) GetProjectGID(project string) (int, error) {
 	im.mu.Lock()
 	defer im.mu.Unlock()
 	var gid int
 	row := im.db.QueryRow("SELECT gid FROM portal_projects WHERE project_id = $1;", project)
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		row = im.db.QueryRow("SELECT gid FROM portal_projects WHERE project_id = ?;", project)
 	}
 	if err := row.Scan(&gid); err != nil {
@@ -236,6 +245,7 @@ func (im *IdentityManager) GetProjectGID(project string) (int, error) {
 	return gid, nil
 }
 
+// EnsureStudentProvisioned returns or allocates a student's UID and default project.
 func (im *IdentityManager) EnsureStudentProvisioned(studentID string) (int, string, error) {
 	if err := ValidateStudentID(studentID); err != nil {
 		return 0, "", err
@@ -246,7 +256,7 @@ func (im *IdentityManager) EnsureStudentProvisioned(studentID string) (int, stri
 
 	var existingUID int
 	query := "SELECT uid FROM portal_users WHERE student_id = $1;"
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		query = "SELECT uid FROM portal_users WHERE student_id = ?;"
 	}
 	err := im.db.QueryRow(query, studentID).Scan(&existingUID)
@@ -254,7 +264,7 @@ func (im *IdentityManager) EnsureStudentProvisioned(studentID string) (int, stri
 		// Existing user - find their first project or default project
 		var projID string
 		pQuery := "SELECT project_id FROM portal_memberships WHERE student_id = $1 ORDER BY created_at ASC LIMIT 1;"
-		if im.driver == "sqlite3" {
+		if im.driver == sqliteDriver {
 			pQuery = "SELECT project_id FROM portal_memberships WHERE student_id = ? ORDER BY created_at ASC LIMIT 1;"
 		}
 		pErr := im.db.QueryRow(pQuery, studentID).Scan(&projID)
@@ -279,7 +289,7 @@ func (im *IdentityManager) EnsureStudentProvisioned(studentID string) (int, stri
 	}
 
 	insertUser := "INSERT INTO portal_users (student_id, uid) VALUES ($1, $2);"
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		insertUser = "INSERT INTO portal_users (student_id, uid) VALUES (?, ?);"
 	}
 	if _, err := im.db.Exec(insertUser, studentID, newUID); err != nil {
@@ -294,6 +304,7 @@ func (im *IdentityManager) EnsureStudentProvisioned(studentID string) (int, stri
 	return newUID, defaultProjSlug, nil
 }
 
+// CreateProject creates a new project for ownerStudentID within quota limits.
 func (im *IdentityManager) CreateProject(ownerStudentID, displayName string) (string, int, error) {
 	if err := ValidateStudentID(ownerStudentID); err != nil {
 		return "", 0, err
@@ -309,7 +320,7 @@ func (im *IdentityManager) CreateProject(ownerStudentID, displayName string) (st
 	// Enforce quota
 	var ownedCount int
 	countQuery := "SELECT COUNT(*) FROM portal_projects WHERE owner_student_id = $1;"
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		countQuery = "SELECT COUNT(*) FROM portal_projects WHERE owner_student_id = ?;"
 	}
 	if err := im.db.QueryRow(countQuery, ownerStudentID).Scan(&ownedCount); err != nil {
@@ -339,7 +350,7 @@ func (im *IdentityManager) createProjectInternal(ownerStudentID, displayName, sl
 
 	insertProj := "INSERT INTO portal_projects (project_id, display_name, gid, owner_student_id) VALUES ($1, $2, $3, $4);"
 	insertMem := "INSERT INTO portal_memberships (project_id, student_id) VALUES ($1, $2);"
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		insertProj = "INSERT INTO portal_projects (project_id, display_name, gid, owner_student_id) VALUES (?, ?, ?, ?);"
 		insertMem = "INSERT INTO portal_memberships (project_id, student_id) VALUES (?, ?);"
 	}
@@ -366,6 +377,7 @@ func (im *IdentityManager) createProjectInternal(ownerStudentID, displayName, sl
 	return slug, newGID, nil
 }
 
+// InviteMember adds targetStudentID to projectID after verifying caller membership.
 func (im *IdentityManager) InviteMember(callerStudentID, projectID, targetStudentID string) error {
 	if err := ValidateStudentID(callerStudentID); err != nil {
 		return err
@@ -380,7 +392,7 @@ func (im *IdentityManager) InviteMember(callerStudentID, projectID, targetStuden
 	// Verify caller is a member of projectID
 	var callerIsMember int
 	mQuery := "SELECT COUNT(*) FROM portal_memberships WHERE project_id = $1 AND student_id = $2;"
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		mQuery = "SELECT COUNT(*) FROM portal_memberships WHERE project_id = ? AND student_id = ?;"
 	}
 	if err := im.db.QueryRow(mQuery, projectID, callerStudentID).Scan(&callerIsMember); err != nil || callerIsMember == 0 {
@@ -390,7 +402,7 @@ func (im *IdentityManager) InviteMember(callerStudentID, projectID, targetStuden
 	// Ensure target student exists in portal_users (pre-provision if necessary)
 	var targetUID int
 	uQuery := "SELECT uid FROM portal_users WHERE student_id = $1;"
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		uQuery = "SELECT uid FROM portal_users WHERE student_id = ?;"
 	}
 	err := im.db.QueryRow(uQuery, targetStudentID).Scan(&targetUID)
@@ -402,7 +414,7 @@ func (im *IdentityManager) InviteMember(callerStudentID, projectID, targetStuden
 			newUID = int(maxUID.Int64) + 1
 		}
 		insUser := "INSERT INTO portal_users (student_id, uid) VALUES ($1, $2);"
-		if im.driver == "sqlite3" {
+		if im.driver == sqliteDriver {
 			insUser = "INSERT INTO portal_users (student_id, uid) VALUES (?, ?);"
 		}
 		if _, err := im.db.Exec(insUser, targetStudentID, newUID); err != nil {
@@ -414,7 +426,7 @@ func (im *IdentityManager) InviteMember(callerStudentID, projectID, targetStuden
 
 	// Insert membership
 	insMem := "INSERT INTO portal_memberships (project_id, student_id) VALUES ($1, $2) ON CONFLICT (project_id, student_id) DO NOTHING;"
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		insMem = "INSERT OR IGNORE INTO portal_memberships (project_id, student_id) VALUES (?, ?);"
 	}
 	if _, err := im.db.Exec(insMem, projectID, targetStudentID); err != nil {
@@ -424,6 +436,7 @@ func (im *IdentityManager) InviteMember(callerStudentID, projectID, targetStuden
 	return nil
 }
 
+// ListUserProjects returns all projects the given student belongs to.
 func (im *IdentityManager) ListUserProjects(studentID string) ([]ProjectInfo, error) {
 	im.mu.Lock()
 	defer im.mu.Unlock()
@@ -434,7 +447,7 @@ func (im *IdentityManager) ListUserProjects(studentID string) ([]ProjectInfo, er
 		WHERE m.student_id = $1
 		ORDER BY p.created_at ASC;
 	`
-	if im.driver == "sqlite3" {
+	if im.driver == sqliteDriver {
 		query = `
 			SELECT p.project_id, p.display_name, p.gid, p.owner_student_id
 			FROM portal_projects p
@@ -448,7 +461,7 @@ func (im *IdentityManager) ListUserProjects(studentID string) ([]ProjectInfo, er
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var projects []ProjectInfo
 	for rows.Next() {
@@ -462,7 +475,7 @@ func (im *IdentityManager) ListUserProjects(studentID string) ([]ProjectInfo, er
 	// Fetch members for each project
 	for i := range projects {
 		mQuery := "SELECT student_id FROM portal_memberships WHERE project_id = $1 ORDER BY student_id ASC;"
-		if im.driver == "sqlite3" {
+		if im.driver == sqliteDriver {
 			mQuery = "SELECT student_id FROM portal_memberships WHERE project_id = ? ORDER BY student_id ASC;"
 		}
 		mRows, err := im.db.Query(mQuery, projects[i].ProjectID)
@@ -475,12 +488,13 @@ func (im *IdentityManager) ListUserProjects(studentID string) ([]ProjectInfo, er
 				projects[i].Members = append(projects[i].Members, m)
 			}
 		}
-		mRows.Close()
+		_ = mRows.Close()
 	}
 
 	return projects, nil
 }
 
+// CompileExtrausers atomically writes passwd and group files under an exclusive flock.
 func (im *IdentityManager) CompileExtrausers() error {
 	if im.extrausersDir == "" {
 		return nil
@@ -497,19 +511,19 @@ func (im *IdentityManager) CompileExtrausers() error {
 	if err != nil {
 		return fmt.Errorf("failed to open lockfile: %w", err)
 	}
-	defer lockFd.Close()
+	defer func() { _ = lockFd.Close() }()
 
 	if err := syscall.Flock(int(lockFd.Fd()), syscall.LOCK_EX); err != nil {
 		return fmt.Errorf("failed to flock: %w", err)
 	}
-	defer syscall.Flock(int(lockFd.Fd()), syscall.LOCK_UN)
+	defer func() { _ = syscall.Flock(int(lockFd.Fd()), syscall.LOCK_UN) }()
 
 	// Read all users
 	uRows, err := im.db.Query("SELECT student_id, uid FROM portal_users ORDER BY uid ASC;")
 	if err != nil {
 		return err
 	}
-	defer uRows.Close()
+	defer func() { _ = uRows.Close() }()
 
 	var passwdBuf bytes.Buffer
 	for uRows.Next() {
@@ -527,7 +541,7 @@ func (im *IdentityManager) CompileExtrausers() error {
 	if err != nil {
 		return err
 	}
-	defer pRows.Close()
+	defer func() { _ = pRows.Close() }()
 
 	var groupBuf bytes.Buffer
 	for pRows.Next() {
@@ -538,7 +552,7 @@ func (im *IdentityManager) CompileExtrausers() error {
 		}
 
 		mQuery := "SELECT student_id FROM portal_memberships WHERE project_id = $1 ORDER BY student_id ASC;"
-		if im.driver == "sqlite3" {
+		if im.driver == sqliteDriver {
 			mQuery = "SELECT student_id FROM portal_memberships WHERE project_id = ? ORDER BY student_id ASC;"
 		}
 		mRows, err := im.db.Query(mQuery, projID)
@@ -550,7 +564,7 @@ func (im *IdentityManager) CompileExtrausers() error {
 					members = append(members, s)
 				}
 			}
-			mRows.Close()
+			_ = mRows.Close()
 		}
 		// proj_id:x:gid:member1,member2
 		fmt.Fprintf(&groupBuf, "%s:x:%d:%s\n", projID, gid, strings.Join(members, ","))
@@ -577,6 +591,7 @@ func (im *IdentityManager) CompileExtrausers() error {
 	return nil
 }
 
+// ReconcileSlurm synchronizes projects, users, and associations to slurmrestd.
 func (im *IdentityManager) ReconcileSlurm(ctx context.Context) error {
 	if im.slurmURL == "" {
 		return nil
@@ -600,7 +615,7 @@ func (im *IdentityManager) ReconcileSlurm(ctx context.Context) error {
 			projects = append(projects, p)
 		}
 	}
-	pRows.Close()
+	_ = pRows.Close()
 
 	for _, p := range projects {
 		accPayload := map[string]interface{}{
@@ -627,7 +642,7 @@ func (im *IdentityManager) ReconcileSlurm(ctx context.Context) error {
 			users = append(users, u)
 		}
 	}
-	uRows.Close()
+	_ = uRows.Close()
 
 	for _, u := range users {
 		userPayload := map[string]interface{}{
@@ -656,7 +671,7 @@ func (im *IdentityManager) ReconcileSlurm(ctx context.Context) error {
 			})
 		}
 	}
-	mRows.Close()
+	_ = mRows.Close()
 
 	if len(assocs) > 0 {
 		assocPayload := map[string]interface{}{
@@ -696,23 +711,26 @@ func (im *IdentityManager) postSlurmrestd(ctx context.Context, endpoint string, 
 	if err != nil {
 		return
 	}
-	io.Copy(io.Discard, resp.Body)
-	resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
 }
 
 var identityHTTPHandlerSecret []byte
 
+// IdentityHTTPHandler exposes HTTP endpoints for JWT login and project management.
 type IdentityHTTPHandler struct {
 	im        *IdentityManager
 	jwtSecret []byte
 }
 
+// HandleLogin processes external JWT authentication requests.
 func (h *IdentityHTTPHandler) HandleLogin(c echo.Context) error {
 	identityHTTPHandlerSecret = h.jwtSecret
 	identityManager = h.im
 	return loginAction(c)
 }
 
+// HandleListProjects returns the authenticated student's projects as JSON.
 func (h *IdentityHTTPHandler) HandleListProjects(c echo.Context) error {
 	studentID, ok := c.Get("user_student_id").(string)
 	if !ok || studentID == "" {
