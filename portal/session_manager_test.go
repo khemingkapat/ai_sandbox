@@ -83,6 +83,27 @@ func TestCreateSession_ScopedSubPathsAndSecurityContext(t *testing.T) {
 	if mountsFound != len(expectedMounts) {
 		t.Errorf("expected %d scoped subPath mounts, found %d", len(expectedMounts), mountsFound)
 	}
+
+	// 3. Check Central Services Environment Injection (WP11 MLflow & WP14 Qdrant)
+	expectedEnvs := map[string]string{
+		"MLFLOW_TRACKING_URI": "http://mlflow.services.svc.cluster.local:5000",
+		"QDRANT_URL":          "http://qdrant.services.svc.cluster.local:6333",
+	}
+	for expK, expV := range expectedEnvs {
+		found := false
+		for _, env := range container.Env {
+			if env.Name == expK {
+				found = true
+				if env.Value != expV {
+					t.Errorf("expected env %s=%s, got %s", expK, expV, env.Value)
+				}
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected env %s=%s to be injected into session container, but not found", expK, expV)
+		}
+	}
 }
 
 func TestResolveUserSecurityContext(t *testing.T) {
