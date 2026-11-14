@@ -14,6 +14,12 @@ spec:
     - podSelector:
         matchLabels:
           app.kubernetes.io/name: mlflow
+    - namespaceSelector:
+        matchLabels:
+          kubernetes.io/metadata.name: slurm
+      podSelector:
+        matchLabels:
+          app: hpc-portal
     ports:
     - protocol: TCP
       port: 5432

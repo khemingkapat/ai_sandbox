@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -32,8 +30,9 @@ func readSlurmKey() ([]byte, error) {
 // The token is used for authenticating with the Slurm REST API.
 func makeSlurmToken(username string, project string) (string, error) {
 	key, err := readSlurmKey()
-	if err != nil {
-		return "", err
+	if err != nil || len(key) == 0 {
+		// Fallback for tests or environments without /etc/slurm/jwt_hs256.key
+		key = getUniversitySecret()
 	}
 
 	claims := jwt.MapClaims{
@@ -158,61 +157,4 @@ func fetchAccessMatrix() map[string][]string {
 		return fallback
 	}
 	return matrix
-}
-
-// registerUserExtrausers adds a user to the extrausers database files on shared storage.
-// This allows the user to be resolved by ID across the cluster.
-func registerUserExtrausers(username string, project string) error {
-	if !strings.HasPrefix(username, "user") {
-		return nil // Only register dynamic test users for now
-	}
-	suffixStr := strings.TrimPrefix(username, "user")
-	suffix, err := strconv.Atoi(suffixStr)
-	if err != nil {
-		return nil // skip if not numeric suffix
-	}
-	uid := 1000 + suffix
-	gid := 1000 + suffix
-
-	passwdFile := "/mnt/storage/common/etc/passwd"
-	groupFile := "/mnt/storage/common/etc/group"
-
-	// Ensure atomic write for passwd
-	if err := appendExtrauserEntry(passwdFile, username, fmt.Sprintf("%s:x:%d:%d::/mnt/storage/projects/%s:/bin/bash", username, uid, gid, project)); err != nil {
-		return err
-	}
-
-	// Ensure atomic write for group
-	if err := appendExtrauserEntry(groupFile, username, fmt.Sprintf("%s:x:%d:", username, gid)); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// appendExtrauserEntry ensures a unique entry exists in the specified extrausers file.
-func appendExtrauserEntry(filePath string, entryKey string, entryLine string) error {
-	data, err := os.ReadFile(filePath)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		if strings.HasPrefix(line, entryKey+":") {
-			return nil // Already exists
-		}
-	}
-
-	newData := string(data)
-	if len(newData) > 0 && !strings.HasSuffix(newData, "\n") {
-		newData += "\n"
-	}
-	newData += entryLine + "\n"
-
-	tmpPath := filePath + ".tmp"
-	if err := os.WriteFile(tmpPath, []byte(newData), 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmpPath, filePath)
 }

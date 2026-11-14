@@ -490,11 +490,32 @@
         <div class="session-dot" id="session-dot"></div>
         <span>{{ .username }}</span>
         <span>·</span>
+        <span style="color: var(--accent); font-weight: 600;" id="active-project-label">{{ .project }}</span>
+        <span>·</span>
         <span id="session-timer">--:--</span>
       </div>
       <a href="/logout" class="btn-logout">end session</a>
     </div>
   </header>
+
+  <!-- Project Management & Teammate Bar -->
+  <section class="project-bar-section" style="margin-bottom: 24px;">
+    <div style="border: 1px solid var(--border); background: var(--surface); padding: 16px 20px; border-radius: 2px; display: flex; flex-direction: column; gap: 12px;">
+      <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div class="section-label" style="margin: 0; color: var(--accent);">// Active Workspace Project</div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn-secondary" onclick="openCreateProjectModal()" style="font-size: 11px; padding: 6px 12px;">+ New Project</button>
+          <button class="btn-secondary" onclick="openInviteModal()" style="font-size: 11px; padding: 6px 12px;">+ Invite Teammate</button>
+        </div>
+      </div>
+      <div style="display: flex; gap: 12px; align-items: center;">
+        <select id="project-selector" onchange="switchActiveProject(this.value)" style="flex: 1; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 8px 12px; font-family: var(--mono); font-size: 12px; border-radius: 2px;">
+          <option value="{{ .project }}" selected>{{ .project }} (Active)</option>
+        </select>
+        <span id="project-details" style="font-size: 11px; font-family: var(--mono); color: var(--text-dim);">Loading projects...</span>
+      </div>
+    </div>
+  </section>
 
   <!-- Central LLM API Token Panel -->
   <section class="llm-token-section" style="margin-bottom: 24px;">
@@ -927,6 +948,105 @@
       showToast('Inference token copied to clipboard');
     });
   }
+
+  // --- Dynamic Project Self-Service & Teammate Management ---
+  async function loadUserProjects() {
+    try {
+      const resp = await fetch('/api/projects');
+      if (!resp.ok) return;
+      const projects = await resp.json();
+      const sel = document.getElementById('project-selector');
+      sel.innerHTML = '';
+      
+      const currentPrj = '{{ .project }}';
+      let activePrjObj = null;
+
+      projects.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.project_id;
+        opt.textContent = `${p.display_name} (${p.project_id}) [GID: ${p.gid}]`;
+        if (p.project_id === currentPrj || p.is_active) {
+          opt.selected = true;
+          activePrjObj = p;
+        }
+        sel.appendChild(opt);
+      });
+
+      const details = document.getElementById('project-details');
+      if (activePrjObj) {
+        details.textContent = `Owner: ${activePrjObj.owner} | Members: ${activePrjObj.members ? activePrjObj.members.join(', ') : 'none'}`;
+      } else {
+        details.textContent = `Total Projects: ${projects.length}`;
+      }
+    } catch (e) {
+      console.error('Failed to load projects', e);
+    }
+  }
+
+  async function switchActiveProject(projectId) {
+    try {
+      const resp = await fetch('/api/projects/switch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ project_id: projectId })
+      });
+      if (resp.ok) {
+        window.location.reload();
+      } else {
+        const err = await resp.json();
+        showToast('Failed to switch project: ' + (err.error || 'Unknown error'));
+      }
+    } catch (e) {
+      showToast('Network error switching project: ' + e.message);
+    }
+  }
+
+  async function openCreateProjectModal() {
+    const name = prompt("Enter new project display name (e.g. Distributed Training):");
+    if (!name || !name.trim()) return;
+    try {
+      const resp = await fetch('/api/projects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: name.trim() })
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        showToast(`Project created: ${data.project_id}`);
+        await switchActiveProject(data.project_id);
+      } else {
+        showToast('Create project failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (e) {
+      showToast('Network error: ' + e.message);
+    }
+  }
+
+  async function openInviteModal() {
+    const studentId = prompt("Enter student_id to invite (e.g. user2):");
+    if (!studentId || !studentId.trim()) return;
+    const currentPrj = document.getElementById('project-selector').value;
+    try {
+      const resp = await fetch(`/api/projects/${currentPrj}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ student_id: studentId.trim() })
+      });
+      const data = await resp.json();
+      if (resp.ok) {
+        showToast(`Invited ${studentId} to ${currentPrj}`);
+        loadUserProjects();
+      } else {
+        showToast('Invite failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (e) {
+      showToast('Network error: ' + e.message);
+    }
+  }
+
+  window.addEventListener('DOMContentLoaded', () => {
+    loadUserProjects();
+  });
 </script>
 </body>
 </html>

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"html/template"
 	"net/http"
@@ -39,6 +40,8 @@ var (
 	sessionManager *SessionManager
 	// telemetryScraper manages telemetry cache and background probes.
 	telemetryScraper *TelemetryScraper
+	// identityManager manages dynamic identity, project allocation and extrausers sync.
+	identityManager *IdentityManager
 )
 
 func main() {
@@ -61,6 +64,49 @@ func main() {
 	telemetryTTL, _ := strconv.Atoi(getEnv("TELEMETRY_CACHE_TTL_SEC", "30"))
 	telemetryToken := getEnv("TELEMETRY_TOKEN", "")
 	telemetryScraper = NewTelemetryScraper(time.Duration(telemetryTTL)*time.Second, telemetryToken)
+
+	// Initialize IdentityManager backed by Postgres 16 (or local fallback)
+	dbDriver := getEnv("IDENTITY_DB_DRIVER", "")
+	dbURL := getEnv("DATABASE_URL", "")
+	extrausersDir := getEnv("EXTRAUSERS_DIR", "/mnt/storage/common/etc")
+	projectsDir := getEnv("PROJECTS_DIR", "/mnt/storage/projects")
+
+	if dbURL != "" {
+		if strings.HasPrefix(dbURL, "postgres://") || strings.HasPrefix(dbURL, "postgresql://") {
+			dbDriver = "postgres"
+		}
+	} else {
+		dbDriver = "sqlite3"
+		dbURL = "/var/lib/portal/identity.db"
+	}
+
+	// Retry connecting to DB on boot (e.g. CNI netpol sync latency)
+	var im *IdentityManager
+	for attempts := 1; attempts <= 10; attempts++ {
+		im, err = NewIdentityManager(dbDriver, dbURL, extrausersDir, projectsDir, slurmRestURL)
+		if err == nil {
+			break
+		}
+		fmt.Printf("Attempt %d: failed to initialize IdentityManager: %v (retrying in 2s)\n", attempts, err)
+		time.Sleep(2 * time.Second)
+	}
+
+	if err != nil {
+		fmt.Printf("Warning: failed to initialize IdentityManager after retries: %v\n", err)
+	} else {
+		identityManager = im
+		// Initial compile to ensure extrausers exists
+		_ = identityManager.CompileExtrausers()
+		// Start background reconciler ticker (every 60s)
+		go func() {
+			ticker := time.NewTicker(60 * time.Second)
+			for range ticker.C {
+				ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+				_ = identityManager.ReconcileSlurm(ctx)
+				cancel()
+			}
+		}()
+	}
 
 	e := echo.New()
 	e.Use(middleware.Logger())
@@ -103,6 +149,10 @@ func main() {
 	}))
 
 	ui.GET("/", indexPage)
+	ui.GET("/api/projects", handleListProjectsUI)
+	ui.POST("/api/projects", handleCreateProjectUI)
+	ui.POST("/api/projects/:id/members", handleInviteMemberUI)
+	ui.POST("/api/projects/switch", handleSwitchProjectUI)
 	ui.GET("/api/tokens/inference", handleGetInferenceToken)
 	ui.POST("/api/tokens/inference", handleGetInferenceToken)
 	ui.POST("/jobs/submit", submitJob)
