@@ -1,6 +1,6 @@
 # Unit: WP12-A — Unified JWT v1.2.0, SSO Bridge & 3-Tier RBAC
 
-Status: approved (Gate A+B)
+Status: done (Gate D)
 Parent GitHub WP: #12
 Exploratory? no
 
@@ -87,4 +87,10 @@ Align `portal/` authentication and authorization with the **CPE Sandboxes Unifie
 - Stage 2: `bash scripts/verify-unified-jwt.sh`
 
 ## Bolt log (Updated at Gate D)
-- (Pending Gate A+B approval)
+- 2026-11-22: Completed Unit WP12-A implementation.
+  - Implemented `UnifiedJWTVerifier` in `portal/auth.go` supporting RS256 (JWKS with in-memory TTL caching and KID lookup, PEM public key) and HS256 dev fallback. Validates mandatory claims (`iss`, `sub`, `aud: cpe-ai-sandbox | cpe-sandbox`, `iat`, `exp`) and normalizes claims (`student_id`, `tenant_id`, `role: student|instructor|admin`).
+  - Added SSO bridge handlers in `portal/handlers.go`: `GET /api/auth/sso?token=...&redirect=...` and `POST /api/auth/sso` with relative URL sanitization preventing open redirects, student provisioning via `WP05-B`, and `sandbox_token` cookie issuance.
+  - Added Traefik ForwardAuth endpoint `GET /api/auth/verify` returning `200 OK` with `X-User-Id` and `X-User-Role` headers, `302` redirect to `/login` for browser `Accept: text/html`, and `401` for API clients.
+  - Added 3-tier RBAC (`RequireRole("instructor")`, `RequireRole("admin")`) and `/api/admin/status` endpoint.
+  - Added `TenantIsolationMiddleware()` on `/:user/:app` proxy routes enforcing `student_id == :user` unless role is `admin`, returning `403 Forbidden` with `X-Denial-Reason: cross-tenant-isolation` on mismatch.
+  - Verified with locked Gate C tests (`portal/auth_unified_test.go`) passing with `-race` (6/6 test groups) and live cluster probe (`scripts/verify-unified-jwt.sh`) (6/6 checks passed).
