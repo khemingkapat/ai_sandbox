@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -138,13 +139,221 @@ func loginAction(c echo.Context) error {
 		Path:     "/",
 		MaxAge:   tokenLifespan,
 	})
+	c.SetCookie(&http.Cookie{
+		Name:     "sandbox_token",
+		Value:    jwtToken,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+		MaxAge:   tokenLifespan,
+	})
 	return c.Redirect(http.StatusSeeOther, "/")
 }
 
-// logoutAction clears the session cookie and redirects to the login page.
+// logoutAction clears session and sandbox_token cookies and redirects to the login page.
 func logoutAction(c echo.Context) error {
 	c.SetCookie(&http.Cookie{Name: "session", MaxAge: -1, Path: "/"})
+	c.SetCookie(&http.Cookie{Name: "sandbox_token", MaxAge: -1, Path: "/"})
 	return c.Redirect(http.StatusSeeOther, "/login")
+}
+
+// SanitizeRedirect ensures redirect targets are strictly relative paths starting with /
+// and prevents open-redirect vulnerabilities (//evil.com, https://..., backslashes, schemes).
+func SanitizeRedirect(redirect string) string {
+	if redirect == "" {
+		return "/"
+	}
+	if unescaped, err := url.QueryUnescape(redirect); err == nil {
+		redirect = unescaped
+	}
+	redirect = strings.TrimSpace(redirect)
+	if !strings.HasPrefix(redirect, "/") {
+		return "/"
+	}
+	if strings.HasPrefix(redirect, "//") {
+		return "/"
+	}
+	if strings.Contains(redirect, "\\") {
+		return "/"
+	}
+	if strings.Contains(redirect, ":") {
+		return "/"
+	}
+	return redirect
+}
+
+func (app *AppServer) handleSSO(c echo.Context) error {
+	tokenStr := c.QueryParam("token")
+	if tokenStr == "" {
+		tokenStr = c.FormValue("token")
+		if tokenStr == "" {
+			tokenStr = c.FormValue("jwt_token")
+		}
+	}
+	if tokenStr == "" && strings.HasPrefix(c.Request().Header.Get("Authorization"), "Bearer ") {
+		tokenStr = strings.TrimPrefix(c.Request().Header.Get("Authorization"), "Bearer ")
+	}
+	if tokenStr == "" && c.Request().Body != nil {
+		var body struct {
+			Token string `json:"token"`
+		}
+		_ = json.NewDecoder(c.Request().Body).Decode(&body)
+		if body.Token != "" {
+			tokenStr = body.Token
+		}
+	}
+
+	if tokenStr == "" {
+		return c.String(http.StatusUnauthorized, "Missing token")
+	}
+
+	if app.jwtVerifier == nil {
+		return c.String(http.StatusInternalServerError, "JWT verifier not initialized")
+	}
+
+	userCtx, err := app.jwtVerifier.VerifyUnifiedToken(tokenStr)
+	if err != nil {
+		return c.String(http.StatusUnauthorized, fmt.Sprintf("Invalid token: %v", err))
+	}
+
+	var activeProject string
+	if identityManager != nil {
+		_, defProj, pErr := identityManager.EnsureStudentProvisioned(userCtx.StudentID)
+		if pErr != nil {
+			return c.String(http.StatusInternalServerError, fmt.Sprintf("Provisioning error: %v", pErr))
+		}
+		activeProject = defProj
+		_ = identityManager.CompileExtrausers()
+	} else {
+		activeProject = "project1"
+	}
+
+	cookieDomain := os.Getenv("COOKIE_DOMAIN")
+	cookieSecure := os.Getenv("COOKIE_SECURE") == "true"
+
+	c.SetCookie(&http.Cookie{
+		Name:     "sandbox_token",
+		Value:    tokenStr,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+		Domain:   cookieDomain,
+		Secure:   cookieSecure,
+		MaxAge:   tokenLifespan,
+	})
+
+	sessToken, err := makeSlurmToken(userCtx.StudentID, activeProject)
+	if err == nil {
+		c.SetCookie(&http.Cookie{
+			Name:     "session",
+			Value:    sessToken,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Path:     "/",
+			Domain:   cookieDomain,
+			Secure:   cookieSecure,
+			MaxAge:   tokenLifespan,
+		})
+	}
+
+	redirectPath := SanitizeRedirect(c.QueryParam("redirect"))
+	return c.Redirect(http.StatusFound, redirectPath)
+}
+
+func (app *AppServer) handleAuthVerify(c echo.Context) error {
+	tokenStr := ""
+	if ck, err := c.Cookie("sandbox_token"); err == nil && ck.Value != "" {
+		tokenStr = ck.Value
+	}
+	if tokenStr == "" {
+		authHdr := c.Request().Header.Get("Authorization")
+		if strings.HasPrefix(authHdr, "Bearer ") {
+			tokenStr = strings.TrimPrefix(authHdr, "Bearer ")
+		}
+	}
+	if tokenStr == "" {
+		if ck, err := c.Cookie("session"); err == nil && ck.Value != "" {
+			tokenStr = ck.Value
+		}
+	}
+
+	if tokenStr == "" {
+		return app.handleUnauthenticatedVerify(c)
+	}
+
+	if app.jwtVerifier == nil {
+		return c.String(http.StatusInternalServerError, "JWT verifier uninitialized")
+	}
+
+	userCtx, err := app.jwtVerifier.VerifyUnifiedToken(tokenStr)
+	if err != nil {
+		// Fallback check for Slurm session token
+		if slurmKey, kErr := readSlurmKey(); kErr == nil && len(slurmKey) > 0 {
+			stk, pErr := jwt.Parse(tokenStr, func(t *jwt.Token) (interface{}, error) {
+				return slurmKey, nil
+			})
+			if pErr == nil && stk.Valid {
+				if clm, ok := stk.Claims.(jwt.MapClaims); ok {
+					sun, _ := clm["sun"].(string)
+					if sun != "" {
+						userCtx = &UnifiedUserContext{
+							StudentID: sun,
+							TenantID:  sun,
+							Role:      "student",
+						}
+					}
+				}
+			}
+		}
+	}
+
+	if userCtx == nil {
+		return app.handleUnauthenticatedVerify(c)
+	}
+
+	c.Response().Header().Set("X-User-Id", userCtx.StudentID)
+	c.Response().Header().Set("X-User-Role", userCtx.Role)
+	return c.NoContent(http.StatusOK)
+}
+
+func (app *AppServer) handleUnauthenticatedVerify(c echo.Context) error {
+	accept := c.Request().Header.Get("Accept")
+	if strings.Contains(accept, "text/html") {
+		loginURL := os.Getenv("SSO_LOGIN_URL")
+		if loginURL == "" {
+			loginURL = "/login"
+		}
+		return c.Redirect(http.StatusFound, loginURL)
+	}
+	return c.String(http.StatusUnauthorized, "Unauthorized")
+}
+
+func handleSSO(c echo.Context) error {
+	if globalAppServer != nil {
+		return globalAppServer.handleSSO(c)
+	}
+	return c.String(http.StatusInternalServerError, "Server not initialized")
+}
+
+func handleAuthVerify(c echo.Context) error {
+	if globalAppServer != nil {
+		return globalAppServer.handleAuthVerify(c)
+	}
+	return c.String(http.StatusInternalServerError, "Server not initialized")
+}
+
+func handleAdminStatus(c echo.Context) error {
+	status := map[string]interface{}{
+		"status":    "ok",
+		"timestamp": time.Now().Format(time.RFC3339),
+		"cluster":   "slurm_slurm",
+	}
+	if telemetryScraper != nil {
+		ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Second)
+		defer cancel()
+		status["telemetry"] = telemetryScraper.GetTelemetry(ctx)
+	}
+	return c.JSON(http.StatusOK, status)
 }
 
 // Project Self-Service Handlers

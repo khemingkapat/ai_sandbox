@@ -4,15 +4,12 @@ import (
 	"context"
 	"fmt"
 	"html/template"
-	"net/http"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/golang-jwt/jwt/v5"
-	echojwt "github.com/labstack/echo-jwt/v4"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	echoSwagger "github.com/swaggo/echo-swagger"
@@ -108,6 +105,30 @@ func main() {
 		}()
 	}
 
+	// Initialize Unified JWT Verifier (RS256 JWKS/PEM + HS256 Dev fallback)
+	jwksURL := getEnv("JWT_JWKS_URL", "")
+	jwksTTLSec, _ := strconv.Atoi(getEnv("JWT_JWKS_CACHE_TTL_SEC", "3600"))
+	pubKeyPEM := getEnv("JWT_PUBLIC_KEY", "")
+	if pubKeyPath := getEnv("JWT_PUBLIC_KEY_PATH", ""); pubKeyPath != "" {
+		if b, err := os.ReadFile(pubKeyPath); err == nil {
+			pubKeyPEM = string(b)
+		}
+	}
+	devSecret := []byte(getEnv("JWT_SECRET", ""))
+	if len(devSecret) == 0 {
+		devSecret = getUniversitySecret()
+	}
+
+	authCfg := UnifiedAuthConfig{
+		JWKSURL:      jwksURL,
+		JWKSCacheTTL: time.Duration(jwksTTLSec) * time.Second,
+		PublicKeyPEM: pubKeyPEM,
+		DevSecret:    devSecret,
+		AllowedAud:   []string{"cpe-ai-sandbox", "cpe-sandbox"},
+	}
+	jwtVerifier := NewUnifiedJWTVerifier(authCfg)
+	globalAppServer = &AppServer{jwtVerifier: jwtVerifier}
+
 	e := echo.New()
 	e.Use(middleware.Logger())
 	e.Use(middleware.Recover())
@@ -137,16 +158,12 @@ func main() {
 	e.POST("/login", loginAction)
 	e.GET("/logout", logoutAction)
 
+	e.GET("/api/auth/sso", handleSSO)
+	e.POST("/api/auth/sso", handleSSO)
+	e.GET("/api/auth/verify", handleAuthVerify)
+
 	ui := e.Group("")
-	ui.Use(echojwt.WithConfig(echojwt.Config{
-		TokenLookup: "cookie:session",
-		KeyFunc: func(token *jwt.Token) (interface{}, error) {
-			return readSlurmKey()
-		},
-		ErrorHandler: func(c echo.Context, err error) error {
-			return c.Redirect(http.StatusFound, "/login")
-		},
-	}))
+	ui.Use(UnifiedJWTMiddleware(jwtVerifier))
 
 	ui.GET("/", indexPage)
 	ui.GET("/api/projects", handleListProjectsUI)
@@ -163,7 +180,12 @@ func main() {
 	ui.GET("/api/jobs", apiUserJobs)
 	ui.GET("/api/cluster/status", apiClusterStatus)
 
-	// Proxy interactive session requests to the internal Traefik proxy on port 80
+	adminGroup := e.Group("/api/admin")
+	adminGroup.Use(UnifiedJWTMiddleware(jwtVerifier))
+	adminGroup.Use(RequireRole("admin"))
+	adminGroup.GET("/status", handleAdminStatus)
+
+	// Proxy interactive session requests to the internal Traefik proxy on port 80 with tenant isolation
 	url1, err := url.Parse("http://localhost:80")
 	if err != nil {
 		e.Logger.Fatal(err)
@@ -171,7 +193,10 @@ func main() {
 	proxyTarget := middleware.ProxyTarget{
 		URL: url1,
 	}
-	e.Group("/:user/:app").Use(middleware.Proxy(middleware.NewRoundRobinBalancer([]*middleware.ProxyTarget{&proxyTarget})))
+	proxyGroup := e.Group("/:user/:app")
+	proxyGroup.Use(UnifiedJWTMiddleware(jwtVerifier))
+	proxyGroup.Use(TenantIsolationMiddleware())
+	proxyGroup.Use(middleware.Proxy(middleware.NewRoundRobinBalancer([]*middleware.ProxyTarget{&proxyTarget})))
 
 	e.Logger.Fatal(e.Start(":8080"))
 }
