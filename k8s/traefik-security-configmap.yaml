@@ -96,6 +96,13 @@ data:
             trustForwardHeader: true
             authResponseHeaders:
               - "X-User-Id"
+        portal-forwardauth:
+          forwardAuth:
+            address: "http://127.0.0.1:8080/api/auth/verify"
+            trustForwardHeader: true
+            authResponseHeaders:
+              - "X-User-Id"
+              - "X-User-Role"
         vllm-ratelimit:
           rateLimit:
             average: 20
