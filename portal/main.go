@@ -166,6 +166,9 @@ func main() {
 	ui.Use(UnifiedJWTMiddleware(jwtVerifier))
 
 	ui.GET("/", indexPage)
+	ui.GET("/api/labs", handleListLabs)
+	ui.GET("/launch", handleLaunchLab)
+	ui.POST("/api/labs/clone", handleCloneLab)
 	ui.GET("/api/projects", handleListProjectsUI)
 	ui.POST("/api/projects", handleCreateProjectUI)
 	ui.POST("/api/projects/:id/members", handleInviteMemberUI)

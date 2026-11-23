@@ -809,8 +809,12 @@ func submitJob(c echo.Context) error {
 	}
 
 	if targetApp.Type == "interactive" && sessionManager != nil {
+		role := "student"
+		if uCtx, ok := c.Get("unified_user").(*UnifiedUserContext); ok && uCtx != nil && uCtx.Role != "" {
+			role = uCtx.Role
+		}
 		sessionID := fmt.Sprintf("%d", time.Now().UnixMilli())
-		proxyURL, err := sessionManager.CreateSession(context.Background(), targetApp, finalSlurmArgs, username, project, sessionID)
+		proxyURL, err := sessionManager.CreateSession(context.Background(), targetApp, finalSlurmArgs, username, project, sessionID, role)
 		if err != nil {
 			return c.String(http.StatusInternalServerError, "Failed to create interactive session: "+err.Error())
 		}
