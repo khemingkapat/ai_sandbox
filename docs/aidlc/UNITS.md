@@ -10,6 +10,7 @@ This table tracks completed baseline capabilities and upcoming work packages. Hi
 | WP02 | Capacity Planning | #2 | Quotas, Partitions & Sizing | done | Documented in `docs/reports/M1_SYSTEM_ASSESSMENT_AND_PLANNING_REPORT.md` |
 | WP03 | Architecture & Tech Stack | #3 | Technology Selection (ADRs) | done | Recorded in `docs/aidlc/decisions/0001..0004.md` |
 | WP04 | Slinky Cluster Deployment | #4 | Slurm-on-K8s Orchestration | done | Verified by `scripts/verify-infrastructure.sh` |
+| WP04-B | Secondary GPU Compute Node (`ai-sandbox-gpu02`) | #4 / #5 | Heterogeneous Dual-GPU Separation (RTX 3060 Ti) | done | Implements ADR 0008; verified by `scripts/verify-gpu02.sh` (8/8) & ephemeral key revocation |
 | WP05 | Slurm Policy Configuration | #5 | Fairshare, Multi-node, Partitions | done | Verified in `k8s/values.yaml` and `scripts/verify-multi-user-jobs.sh` |
 | WP05-B | Self-Service Identity & Project Sync | #5 | Dynamic Student UID/GID & Slurm Sync | done | Implements ADR 0007; verified by `portal/identity_test.go` (`-race`) & `scripts/verify-wp05b.sh` (6/6) |
 | WP06 | Container Environments | #6 | Interactive OCI & Apptainer Batch | done | Verified by `scripts/build-oci-images.sh` & Apptainer batch tests |

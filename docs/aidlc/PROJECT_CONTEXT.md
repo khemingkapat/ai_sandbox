@@ -1,6 +1,6 @@
 # Project Context: AI Sandbox
 
-Last updated: 2026-11-08
+Last updated: 2026-11-23
 
 ## Purpose
 The **AI Sandbox** provides students with a turnkey, browser-accessible platform for hands-on AI engineering — offering pre-installed tools, managed compute, and a unified web portal — so learners can focus directly on experimentation rather than cluster infrastructure.
@@ -19,7 +19,9 @@ The **AI Sandbox** provides students with a turnkey, browser-accessible platform
 - **Storage Subsystem (`storage/` -> `/mnt/storage`):** Host storage mapped to nodes. Workspaces isolated using scoped Kubernetes `subPath` mounts (`projects/<project>`, `scratch`, read-only `datasets`, `models`, and `common/etc`). Zero LDAP/SSSD dependency via `libnss-extrausers` and non-root `PodSecurityContext` (UID 1001/GID 2001, `mode 2770`, `umask 0002`). See [ADR 0002](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0002-storage-and-uid-isolation.md).
 
 ## Key constraints
-- **GPU Hardware:** Single NVIDIA L40 (46GB) GPU on `ai-worker1`. Managed via K8s Device Plugin time-slicing (`replicas: 4`). vLLM is capped at `0.65` VRAM utilization (~28GB). Exclusive Slurm batch GPU jobs require temporal yield/scale-down of vLLM. See [ADR 0003](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0003-single-l40-gpu-sharing-and-qos.md).
+- **GPU Hardware (Heterogeneous Dual-GPU Split — see [ADR 0008](file:///home/khemi/workspace/ai_sandbox/docs/aidlc/decisions/0008-heterogeneous-dual-gpu-node-separation.md)):**
+  - **Inference Node (`ai-sandbox-gpu-vm`, `10.35.123.40`):** Single NVIDIA L40 (48 GB VRAM, Ada CC 8.9). Labeled `accelerator=nvidia-gpu,gpu-model=l40,gpu-role=inference`. Dedicated exclusively to central LLM inference (`vllm` in `services` namespace). *(Currently offline for scheduled maintenance under `CLUSTER_GPU_MAINTENANCE=true`.)*
+  - **Compute GPU Node (`ai-sandbox-gpu02`, `10.35.123.41`):** Single NVIDIA GeForce RTX 3060 Ti (8 GB VRAM, Ampere CC 8.6), 8 vCPU, 15 GiB RAM, 79 GB root disk, Ubuntu 24.04 LTS (`7.0.0-43-generic`, NVIDIA driver `580.178.04`), `/mnt/storage` NFSv4 mounted. Labeled `accelerator=nvidia-gpu,gpu-model=rtx3060ti,gpu-role=compute`. Runs exclusive `nvidia.com/gpu: 1` via `nvidia-device-plugin-compute` and hosts `slurm-worker-slurmd-gpu-0` (`batch-gpu` partition, `12Gi` memory cap).
 - **Network Boundaries:** Untrusted student pods run strictly in `workload` namespace. Strict CNI NetworkPolicies block access to host networks, MariaDB (3306), and Postgres (5432). All external traffic routes via Traefik.
 - **Stateless Portal:** Web portal does not store persistent database state; it derives cluster state dynamically from Kubernetes APIs and Slurm CLI/REST.
 

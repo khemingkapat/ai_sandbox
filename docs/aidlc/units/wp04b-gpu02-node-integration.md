@@ -1,6 +1,6 @@
 # Unit: WP04-B — Secondary GPU Compute Node Integration (`ai-sandbox-gpu02`)
 
-Status: tests-locked (Gate C)
+Status: done (Gate D)
 Parent GitHub WP: #4 (Slinky Cluster Deployment) / #5 (Slurm Policy Configuration)
 Exploratory? no
 
@@ -75,4 +75,10 @@ Integrate the new GPU VM `ai-sandbox-gpu02` (`10.35.123.41`, NVIDIA GeForce RTX 
   - Manual/scripted SSH revocation check verifying AC #6 on `.50` and `.41`
 
 ## Bolt log (Updated at Gate D)
-- *(Pending Gate A+B approval)*
+- **2026-11-23:**
+  - Bootstrapped `ai-sandbox-gpu02` (`10.35.123.41`): NVIDIA driver `580.178.04` (open HWE module on kernel `7.0.0-43-generic`), `nvidia-container-toolkit 1.20.2-1`, `nfs-common`, UFW perimeter, `/mnt/storage` NFSv4 mount, and `k3s-agent v1.36.4+k3s1`.
+  - Opened `ai-control` (`10.35.123.50`) UFW (`6443/tcp`, `10250/tcp`, `8472/udp`, `2049/tcp`) and mirrored `/etc/exports` for `10.35.123.41`.
+  - Deployed disjoint `nvidia-device-plugin-compute` (`gpu-model=rtx3060ti`, exclusive `nvidia.com/gpu: 1`, no `timeSlicing` block since NVIDIA Device Plugin requires `replicas >= 2` when `timeSlicing` is specified).
+  - Side-loaded `slurmd-custom:latest` onto `ai-sandbox-gpu02`, patched `nodeset/slurm-worker-slurmd-gpu` (`ai-sandbox-gpu02`, `12Gi` memory limit) and `controller/slurm` partitions (`batch-gpu` → `slurmd-gpu`, `inference` → `ai-sandbox-gpu-vm`).
+  - **Empirical Gate D Verification:** Locked `scripts/verify-gpu02.sh` (SHA-256 `7d3d5521...9d3699`, untampered) passed **8/8** including live Slurm job `278` (`COMPLETED` on `NVIDIA GeForce RTX 3060 Ti, 8192 MiB`).
+  - **Security Closure (AC #6):** Revoked ephemeral SSH key `ai-sandbox-temp-bootstrap-20261123` from both `10.35.123.50` and `10.35.123.41`, confirmed `Permission denied (publickey,password)` on both, cleaned `/tmp/*.sh`, and deleted local `~/.ssh/tmp_ai_sandbox_bootstrap_ed25519*`.
