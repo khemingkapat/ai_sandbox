@@ -7,6 +7,7 @@ set -euo pipefail
 
 CTRL_IP="10.35.123.50"
 WORKER_IP="10.35.123.51"
+GPU02_IP="10.35.123.41"
 SSH_USER="admin_ai"
 
 echo "============================================================"
@@ -14,6 +15,7 @@ echo "🚀 Slinky Image Side-Loader for Proxmox K3s"
 echo "============================================================"
 echo "Target Control Plane: $SSH_USER@$CTRL_IP"
 echo "Target Worker Node:   $SSH_USER@$WORKER_IP"
+echo "Target GPU02 Node:    $SSH_USER@$GPU02_IP"
 echo ""
 
 # 1. Transfer slurmctld-custom to ai-control
@@ -33,8 +35,12 @@ echo "📦 [4/5] Transferring slurmd-custom:latest -> ai-worker1..."
 docker save slurmd-custom:latest | ssh "$SSH_USER@$WORKER_IP" "sudo k3s ctr -n k8s.io images import -"
 
 # 5. Transfer interactive-jupyter to ai-worker1
-echo "📦 [5/5] Transferring interactive-jupyter:latest -> ai-worker1..."
+echo "📦 [5/6] Transferring interactive-jupyter:latest -> ai-worker1..."
 docker save interactive-jupyter:latest | ssh "$SSH_USER@$WORKER_IP" "sudo k3s ctr -n k8s.io images import -"
+
+# 6. Transfer slurmd-custom to ai-sandbox-gpu02 (compute GPU node only; skip interactive-jupyter to save root disk)
+echo "📦 [6/6] Transferring slurmd-custom:latest -> ai-sandbox-gpu02..."
+docker save slurmd-custom:latest | ssh "$SSH_USER@$GPU02_IP" "sudo k3s ctr -n k8s.io images import -"
 
 echo ""
 echo "✅ All custom images successfully imported into K3s containerd!"

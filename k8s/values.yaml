@@ -170,9 +170,9 @@ controller:
     NodeName=ai-sandbox-gpu-vm Gres=gpu:1
 
     PartitionName=batch-cpu Nodes=slurmd-cpu,ai-worker1 MaxTime=1-00:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=1 State=UP
-    PartitionName=batch-gpu Nodes=slurmd-cpu,slurmd-gpu,ai-worker1,ai-sandbox-gpu-vm MaxTime=7-00:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=1 State=UP
-    PartitionName=inference Nodes=slurmd-gpu,ai-sandbox-gpu-vm MaxTime=12:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=3 State=UP
-    PartitionName=interactive Nodes=slurmd-cpu,slurmd-gpu,ai-worker1,ai-sandbox-gpu-vm Default=YES MaxTime=02:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=2 State=UP
+    PartitionName=batch-gpu Nodes=slurmd-gpu MaxTime=7-00:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=1 State=UP
+    PartitionName=inference Nodes=ai-sandbox-gpu-vm MaxTime=12:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=3 State=UP
+    PartitionName=interactive Nodes=slurmd-cpu,slurmd-gpu,ai-worker1 Default=YES MaxTime=02:00:00 OverSubscribe=YES PreemptMode=OFF PriorityTier=2 State=UP
   extraConfMap: {}
   metadata: {}
   podSpec:
@@ -399,8 +399,10 @@ nodesets:
       resources:
         limits:
           nvidia.com/gpu: 1
+          memory: 12Gi
         requests:
           nvidia.com/gpu: 1
+          memory: 4Gi
       volumeMounts:
       - name: slinky-storage
         mountPath: /mnt/storage
@@ -419,7 +421,8 @@ nodesets:
       runtimeClassName: nvidia
       initContainers: []
       nodeSelector:
-        kubernetes.io/hostname: ai-sandbox-gpu-vm
+        kubernetes.io/hostname: ai-sandbox-gpu02
+        gpu-model: rtx3060ti
         kubernetes.io/os: linux
       affinity: {}
       tolerations:

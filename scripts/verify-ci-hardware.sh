@@ -77,48 +77,52 @@ if [ "$CORE_FAILURES" -gt 0 ]; then
   exit 1
 fi
 
-# 3. Inspect physical GPU status
+# 3. Inspect physical GPU status (role-aware per ADR 0008)
 echo "🎯 [3/3] Inspecting accelerator (GPU) hardware allocation..."
 GPU_MAINTENANCE="${CLUSTER_GPU_MAINTENANCE:-false}"
-ALLOCATABLE_GPUS=$(kubectl get nodes -o jsonpath='{range .items[*]}{.status.allocatable.nvidia\.com/gpu}{"\n"}{end}' | awk '{s+=$1} END {print s+0}')
+INFERENCE_GPUS=$(kubectl get nodes -l gpu-role=inference -o jsonpath='{range .items[*]}{.status.allocatable.nvidia\.com/gpu}{"\n"}{end}' | awk '{s+=$1} END {print s+0}')
+COMPUTE_GPUS=$(kubectl get nodes -l gpu-role=compute -o jsonpath='{range .items[*]}{.status.allocatable.nvidia\.com/gpu}{"\n"}{end}' | awk '{s+=$1} END {print s+0}')
+TOTAL_GPUS=$((INFERENCE_GPUS + COMPUTE_GPUS))
 
-echo "  Allocatable GPUs detected: $ALLOCATABLE_GPUS"
-echo "  Maintenance mode flag: $GPU_MAINTENANCE"
+echo "  Allocatable Inference GPUs (gpu-role=inference): $INFERENCE_GPUS"
+echo "  Allocatable Compute GPUs   (gpu-role=compute)  : $COMPUTE_GPUS"
+echo "  Total Allocatable GPUs                         : $TOTAL_GPUS"
+echo "  L40 Maintenance mode flag                      : $GPU_MAINTENANCE"
 
-if [ "$ALLOCATABLE_GPUS" -eq 0 ]; then
+echo "▶️  Verifying shared storage and permissions..."
+bash scripts/verify-storage.sh
+
+echo "▶️  Verifying network and security baseline..."
+bash scripts/verify-security.sh
+
+if [ "$COMPUTE_GPUS" -ge 1 ]; then
+  echo "▶️  Compute GPU detected ($COMPUTE_GPUS allocatable). Running Slurm GPU compute probe..."
+  KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}" bash scripts/verify-gpu02.sh
+fi
+
+if [ "$INFERENCE_GPUS" -eq 0 ]; then
   if [ "$GPU_MAINTENANCE" = "true" ]; then
     echo "⚠️  ========================================================================"
-    echo "⚠️  NOTICE: CLUSTER_GPU_MAINTENANCE=true. GPU hardware is offline for maintenance."
-    echo "⚠️  Skipping GPU-dependent verification suites (verify-llm.sh, golden-path GPU)."
-    echo "⚠️  Proceeding with CPU, storage, and network baseline."
+    echo "⚠️  NOTICE: CLUSTER_GPU_MAINTENANCE=true. Inference GPU (L40) is offline."
+    echo "⚠️  Skipping L40-dependent suites (verify-llm.sh, golden-path GPU)."
+    echo "⚠️  CPU, storage, security, and available compute GPU suites passed."
     echo "⚠️  ========================================================================"
-    
-    echo "▶️  Verifying shared storage and permissions..."
-    bash scripts/verify-storage.sh
-    
-    echo "▶️  Verifying network and security baseline..."
-    bash scripts/verify-security.sh
-    
-    echo "=============================================================================="
-    echo "✅ [SUCCESS] In-cluster CPU baseline tests passed (GPU suites skipped in maintenance mode)."
-    echo "=============================================================================="
+    echo "✅ [SUCCESS] In-cluster verification passed (L40 inference suites skipped in maintenance mode)."
     exit 0
   else
     echo "❌ ========================================================================"
-    echo "❌ FATAL: Cluster regression detected! Allocatable nvidia.com/gpu is 0,"
+    echo "❌ FATAL: Cluster regression detected! Inference GPU (gpu-role=inference) is 0,"
     echo "❌ but CLUSTER_GPU_MAINTENANCE is 'false'."
-    echo "❌ Expected NVIDIA GPU online. Possible driver, container-toolkit, or plugin failure."
+    echo "❌ Expected NVIDIA L40 online. Possible driver, container-toolkit, or plugin failure."
     echo "❌ ========================================================================"
     exit 1
   fi
 else
-  echo "🚀 Physical GPU detected ($ALLOCATABLE_GPUS allocatable). Running full hardware suites..."
-  bash scripts/verify-storage.sh
-  bash scripts/verify-security.sh
+  echo "🚀 Inference GPU detected ($INFERENCE_GPUS allocatable). Running full LLM & golden-path suites..."
   bash scripts/verify-llm.sh
   bash scripts/test-student-golden-path.sh
   echo "=============================================================================="
-  echo "✅ [SUCCESS] Full cluster and GPU hardware verification passed."
+  echo "✅ [SUCCESS] Full cluster and dual-GPU hardware verification passed."
   echo "=============================================================================="
   exit 0
 fi
