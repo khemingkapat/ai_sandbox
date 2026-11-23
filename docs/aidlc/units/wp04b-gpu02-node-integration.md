@@ -45,6 +45,7 @@ Integrate the new GPU VM `ai-sandbox-gpu02` (`10.35.123.41`, NVIDIA GeForce RTX 
   - `k8s/values.yaml` (pin `slurmd-gpu` NodeSet to `ai-sandbox-gpu02` + update Slurm partition/node config)
   - `scripts/transfer-images-proxmox.sh` (add `slurmd-custom:latest` side-load target for `ai-sandbox-gpu02`)
   - `scripts/verify-gpu02.sh` (locked Gate C empirical verification probe)
+  - `scripts/verify-ci-hardware.sh` (role-aware dual-GPU Stage 2 CI gating per ADR 0008)
 - **Risks / Edge cases:**
   - **Kernel `7.0.0-43-generic` DKMS compatibility:** Older proprietary NVIDIA drivers (e.g., 535) fail to compile on Linux 7.0; must use the Ubuntu 24.04 open kernel module package matching `ai-sandbox-gpu-vm` (`7.0.0-42-generic`).
   - **Containerd `nvidia` RuntimeClass registration:** K3s auto-detects `nvidia-container-runtime` at agent startup only if `nvidia-container-toolkit` is installed *before* `k3s-agent` starts (or `k3s-agent` is restarted after `nvidia-ctk runtime configure`).
@@ -82,3 +83,4 @@ Integrate the new GPU VM `ai-sandbox-gpu02` (`10.35.123.41`, NVIDIA GeForce RTX 
   - Side-loaded `slurmd-custom:latest` onto `ai-sandbox-gpu02`, patched `nodeset/slurm-worker-slurmd-gpu` (`ai-sandbox-gpu02`, `12Gi` memory limit) and `controller/slurm` partitions (`batch-gpu` → `slurmd-gpu`, `inference` → `ai-sandbox-gpu-vm`).
   - **Empirical Gate D Verification:** Locked `scripts/verify-gpu02.sh` (SHA-256 `7d3d5521...9d3699`, untampered) passed **8/8** including live Slurm job `278` (`COMPLETED` on `NVIDIA GeForce RTX 3060 Ti, 8192 MiB`).
   - **Security Closure (AC #6):** Revoked ephemeral SSH key `ai-sandbox-temp-bootstrap-20261123` from both `10.35.123.50` and `10.35.123.41`, confirmed `Permission denied (publickey,password)` on both, cleaned `/tmp/*.sh`, and deleted local `~/.ssh/tmp_ai_sandbox_bootstrap_ed25519*`.
+  - **Stage 2 CI Dual-GPU Fix:** Updated `scripts/verify-ci-hardware.sh` to separate `gpu-role=compute` (`verify-gpu02.sh`) from `gpu-role=inference` (`verify-llm.sh`, gated by `CLUSTER_GPU_MAINTENANCE`) so Stage 2 CI accommodates the heterogeneous dual-GPU topology cleanly.
