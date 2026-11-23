@@ -1,6 +1,6 @@
 # Unit: WP04-B — Secondary GPU Compute Node Integration (`ai-sandbox-gpu02`)
 
-Status: approved (Gate A+B)
+Status: tests-locked (Gate C)
 Parent GitHub WP: #4 (Slinky Cluster Deployment) / #5 (Slurm Policy Configuration)
 Exploratory? no
 
@@ -65,6 +65,8 @@ Integrate the new GPU VM `ai-sandbox-gpu02` (`10.35.123.41`, NVIDIA GeForce RTX 
 - **Resolved (2026-11-23):** Role = Option 1A (dedicated compute/`slurmd-gpu`, vLLM stays on L40); Time-slicing = Option 2A (`replicas: 1` exclusive); Scope = Option 3A (Infra + Slurm GPU first, Portal UI GPU toggle deferred).
 
 ## Test / Verification plan (Locked at Gate C)
+- **Locked Probe SHA-256:** `7d3d5521f01ae70d38aaf335f92dd86866b5889178b68acab4765231dd9d3699  scripts/verify-gpu02.sh`
+- **Negative Proof (2026-11-23):** Ran `bash scripts/verify-gpu02.sh` pre-implementation → `2 passed, 5 failed` (failed cleanly on AC #1, #2, #4; AC #3 and #5 baseline healthy).
 - **Stage 1 (Static / Cloud fast checks):**
   - `bash -n scripts/verify-gpu02.sh scripts/transfer-images-proxmox.sh`
   - YAML validation of `k8s/nvidia-device-plugin.yaml` and `k8s/values.yaml`
