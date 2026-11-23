@@ -1,6 +1,6 @@
 # Unit: WP12-B — One-Click Lab Launcher & Read-Only Curriculum Mount
 
-Status: approved (Gate A+B)
+Status: tests-locked (Gate C)
 Parent GitHub WP: #12
 Exploratory? no
 Depends on: WP12-A, WP05-B
