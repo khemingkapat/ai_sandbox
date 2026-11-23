@@ -548,6 +548,14 @@
     </div>
   </section>
 
+  <!-- Curriculum Labs Section (WP12-B) -->
+  <section class="labs-section" style="margin-bottom: 40px;">
+    <div class="section-label">// Curriculum Labs (Read-Only Mount &amp; Clone)</div>
+    <div id="curriculum-labs-list" style="border: 1px solid var(--border); background: var(--surface); border-radius: 2px;">
+      <div style="padding: 20px; color: var(--text-dim); font-size: 13px;">Loading curriculum labs...</div>
+    </div>
+  </section>
+
   <section class="apps-section">
     <div class="section-label">// Available applications</div>
     {{ if not .apps }}
@@ -1044,8 +1052,68 @@
     }
   }
 
+  async function loadCurriculumLabs() {
+    const container = document.getElementById('curriculum-labs-list');
+    if (!container) return;
+    try {
+      const res = await fetch('/api/labs');
+      if (!res.ok) {
+        container.innerHTML = '<div style="padding: 20px; color: var(--text-dim); font-size: 13px;">Unable to load curriculum labs.</div>';
+        return;
+      }
+      const data = await res.json();
+      const labs = data.labs || [];
+      if (labs.length === 0) {
+        container.innerHTML = '<div style="padding: 20px; color: var(--text-dim); font-size: 13px;">No curriculum labs found in /mnt/storage/labs.</div>';
+        return;
+      }
+      container.innerHTML = labs.map(lab => {
+        const modBadge = lab.module ? `<span style="font-size: 11px; color: var(--accent); margin-right: 8px;">[${escapeHtml(lab.module)}]</span>` : '';
+        const encodedPath = encodeURIComponent(lab.path);
+        return `
+          <div style="display: flex; align-items: center; justify-content: space-between; padding: 14px 20px; border-bottom: 1px solid var(--border); gap: 12px; flex-wrap: wrap;">
+            <div>
+              <div style="font-size: 14px; font-weight: 600; color: var(--text);">${modBadge}${escapeHtml(lab.title)}</div>
+              <div style="font-size: 12px; color: var(--text-dim); font-family: var(--mono); margin-top: 2px;">labs/${escapeHtml(lab.path)}</div>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <button class="btn-secondary" onclick="cloneLab('${encodedPath}')">Clone to my_labs/</button>
+              <a class="btn-launch" style="text-decoration: none; display: inline-flex; align-items: center;" href="/launch?lab=${encodedPath}" target="_blank" rel="noopener">→ Open (RO)</a>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } catch (e) {
+      container.innerHTML = '<div style="padding: 20px; color: var(--text-dim); font-size: 13px;">Error loading labs.</div>';
+    }
+  }
+
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  }
+
+  async function cloneLab(encodedPath) {
+    const labPath = decodeURIComponent(encodedPath);
+    try {
+      const res = await fetch('/api/labs/clone', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ lab: labPath })
+      });
+      const data = await res.json();
+      if (res.ok) {
+        showToast('Cloned to ' + data.cloned_path + ' (project: ' + data.project + ')');
+      } else {
+        showToast('Clone failed: ' + (data.error || 'Unknown error'));
+      }
+    } catch (e) {
+      showToast('Network error: ' + e.message);
+    }
+  }
+
   window.addEventListener('DOMContentLoaded', () => {
     loadUserProjects();
+    loadCurriculumLabs();
   });
 </script>
 </body>

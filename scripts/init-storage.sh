@@ -28,8 +28,9 @@ mkdir -p "$STORAGE_ROOT/datasets/kaggle/public"
 mkdir -p "$STORAGE_ROOT/datasets/vision"
 mkdir -p "$STORAGE_ROOT/datasets/nlp"
 
-# 4. Ephemeral Scratch Space
+# 4. Ephemeral Scratch Space & Central Read-Only Curriculum Labs
 mkdir -p "$STORAGE_ROOT/scratch"
+mkdir -p "$STORAGE_ROOT/labs"
 
 # 5. Multi-Tenant Student Private Workspaces
 mkdir -p "$STORAGE_ROOT/projects/project1/.cache/huggingface"
@@ -45,11 +46,14 @@ mkdir -p "$STORAGE_ROOT/projects/project3/.kaggle"
 mkdir -p "$STORAGE_ROOT/mlflow/postgres"
 mkdir -p "$STORAGE_ROOT/mlflow/artifacts"
 
-# Seed starter project templates if available
+# Seed starter project templates and central curriculum labs if available
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEMPLATE_DIR="$SCRIPT_DIR/../templates/projects/project1"
 if [ -d "$TEMPLATE_DIR" ]; then
     cp -rn "$TEMPLATE_DIR"/* "$STORAGE_ROOT/projects/project1/" 2>/dev/null || cp -r "$TEMPLATE_DIR"/* "$STORAGE_ROOT/projects/project1/" 2>/dev/null || true
+    if [ -d "$TEMPLATE_DIR/starter_labs" ]; then
+        cp -rn "$TEMPLATE_DIR/starter_labs"/* "$STORAGE_ROOT/labs/" 2>/dev/null || cp -r "$TEMPLATE_DIR/starter_labs"/* "$STORAGE_ROOT/labs/" 2>/dev/null || true
+    fi
 fi
 
 echo "🔐 Setting permissions and ownership boundaries..."
@@ -64,6 +68,11 @@ chmod 755 "$STORAGE_ROOT/registry"
 # Ephemeral Scratch with POSIX Sticky Bit (1777)
 chown 0:0 "$STORAGE_ROOT/scratch"
 chmod 1777 "$STORAGE_ROOT/scratch"
+
+# Central Curriculum Labs (0:2999, setgid 2775 for staff RW / student RO via K8s VolumeMount)
+chown -R 0:2999 "$STORAGE_ROOT/labs"
+find "$STORAGE_ROOT/labs" -type d -exec chmod 2775 {} +
+find "$STORAGE_ROOT/labs" -type f -exec chmod 0664 {} +
 
 # Collaborative student project directories (2770, setgid)
 # project1 -> Owner 1001:2001 (user1, user2)
