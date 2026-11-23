@@ -1,6 +1,6 @@
 # Unit: WP12-B — One-Click Lab Launcher & Read-Only Curriculum Mount
 
-Status: tests-locked (Gate C)
+Status: done (Gate D)
 Parent GitHub WP: #12
 Exploratory? no
 Depends on: WP12-A, WP05-B
@@ -91,4 +91,9 @@ Provide a single deep-link endpoint (`GET /launch?lab=<relpath>`) and Portal Lab
 - Stage 2: `bash scripts/verify-lab-launcher.sh`
 
 ## Bolt log (Updated at Gate D)
-- Pending implementation.
+- 2026-11-23: Completed Unit WP12-B implementation and Gate D empirical verification.
+  - Updated `portal/session_manager.go` with role-aware `subPath: "labs"` mount at `/mnt/storage/projects/<project>/labs` (`ReadOnly: true` for `student`; `ReadOnly: false` + supplemental GID `2999` for `instructor`/`admin`), `role` pod label, `FindActiveSession`, and per-`(user, project)` launch mutex.
+  - Added `portal/labs.go` (`resolveLabPath` with `filepath.Clean` + `EvalSymlinks` containment for flat & nested module labs, `GET /api/labs`, `GET /launch?lab=...` with 20s context-bound readiness poll and `302` redirect, and `POST /api/labs/clone` copying non-clobberingly into `my_labs/` with resolved student UID/GID ownership).
+  - Updated `portal/templates/index.html` with **Curriculum Labs** card (Open RO + Clone to `my_labs/`), `scripts/init-storage.sh` to seed `/mnt/storage/labs/` (`0:2999`, `2775` dirs, `0664` files), and added local-only demo script `scripts/mock-lms.py`.
+  - Stage 1 receipts: `cd portal && go test -count=1 -v -race ./... && go vet ./... && golangci-lint run` (PASS, 0 issues), `bash -n`, `python3 -m py_compile`.
+  - Stage 2 live cluster receipts: `scripts/verify-lab-launcher.sh` passed **6/6 checks** (including student `Read-only file system` write rejection and `my_labs/` clone); `scripts/verify-unified-jwt.sh` regression check passed **6/6 checks**. All Gate C test SHA-256 hashes verified untampered; 0 out-of-scope file edits.
