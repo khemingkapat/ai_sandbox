@@ -97,7 +97,7 @@ bash scripts/verify-security.sh
 
 if [ "$COMPUTE_GPUS" -ge 1 ]; then
   echo "▶️  Compute GPU detected ($COMPUTE_GPUS allocatable). Running Slurm GPU compute probe..."
-  bash scripts/verify-gpu02.sh
+  KUBECONFIG="${KUBECONFIG:-$HOME/.kube/config}" bash scripts/verify-gpu02.sh
 fi
 
 if [ "$INFERENCE_GPUS" -eq 0 ]; then
