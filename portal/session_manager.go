@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 
 	corev1 "k8s.io/api/core/v1"
 	netv1 "k8s.io/api/networking/v1"
@@ -25,7 +26,31 @@ type SessionManager struct {
 	namespace string
 	// traefikDir is the directory where dynamic Traefik YAML configuration files are written.
 	traefikDir string
+	// launchMu protects userLocks for serializing concurrent launch requests per (user, project).
+	launchMu  sync.Mutex
+	userLocks map[string]*sync.Mutex
 }
+
+// lockUserProject acquires a per-(user, project) mutex and returns its unlock function.
+func (sm *SessionManager) lockUserProject(username, project string) func() {
+	key := username + ":" + project
+	sm.launchMu.Lock()
+	if sm.userLocks == nil {
+		sm.userLocks = make(map[string]*sync.Mutex)
+	}
+	mu, ok := sm.userLocks[key]
+	if !ok {
+		mu = &sync.Mutex{}
+		sm.userLocks[key] = mu
+	}
+	sm.launchMu.Unlock()
+
+	mu.Lock()
+	return mu.Unlock
+}
+
+// labsStaffGID is the supplemental group ID granted to instructor/admin pods for RW curriculum authoring.
+const labsStaffGID int64 = 2999
 
 // NewSessionManager initializes a new SessionManager using the in-cluster configuration.
 func NewSessionManager(namespace, traefikDir string) (*SessionManager, error) {
@@ -45,14 +70,18 @@ func NewSessionManager(namespace, traefikDir string) (*SessionManager, error) {
 }
 
 // CreateSession provisions a new interactive session (Pod, Service, and Ingress).
-func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManifest, slurmArgs map[string]string, username, project, sessionID string) (string, error) {
+func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManifest, slurmArgs map[string]string, username, project, sessionID, role string) (string, error) {
+	normalizedRole := NormalizeRole(role)
+	labsReadOnly := RoleLevel(normalizedRole) < 2
+
 	labels := map[string]string{
-		"app":                          "interactive-session",
-		"app-id":                       manifest.ID,
-		"session-id":                   sessionID,
-		"user":                         username,
-		"project":                      project,
-		"sandbox.zone":                 "workload",
+		"app":                         "interactive-session",
+		"app-id":                      manifest.ID,
+		"session-id":                  sessionID,
+		"user":                        username,
+		"project":                     project,
+		"role":                        normalizedRole,
+		"sandbox.zone":                "workload",
 		"app.kubernetes.io/component": "interactive-session",
 	}
 
@@ -70,6 +99,18 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 	falseVal := false
 
 	secContext := resolveUserSecurityContext(username, project)
+	if !labsReadOnly && secContext != nil {
+		hasStaffGID := false
+		for _, g := range secContext.SupplementalGroups {
+			if g == labsStaffGID {
+				hasStaffGID = true
+				break
+			}
+		}
+		if !hasStaffGID {
+			secContext.SupplementalGroups = append(secContext.SupplementalGroups, labsStaffGID)
+		}
+	}
 
 	// 1. Create Pod
 	pod := &corev1.Pod{
@@ -120,6 +161,12 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 							MountPath: fmt.Sprintf("/mnt/storage/projects/%s", project),
 							SubPath:   fmt.Sprintf("projects/%s", project),
 							ReadOnly:  false,
+						},
+						{
+							Name:      "storage",
+							MountPath: fmt.Sprintf("/mnt/storage/projects/%s/labs", project),
+							SubPath:   "labs",
+							ReadOnly:  labsReadOnly,
 						},
 						{
 							Name:      "storage",
@@ -264,6 +311,35 @@ func (sm *SessionManager) CreateSession(ctx context.Context, manifest *AppManife
 	}
 
 	return basePath + "/", nil
+}
+
+// FindActiveSession looks up an existing Running or Pending interactive session matching (user, project, appID, role).
+func (sm *SessionManager) FindActiveSession(ctx context.Context, username, project, appID, role string) (string, string, error) {
+	normalizedRole := NormalizeRole(role)
+	selector := fmt.Sprintf("app=interactive-session,user=%s,project=%s,app-id=%s,role=%s", username, project, appID, normalizedRole)
+
+	pods, err := sm.client.CoreV1().Pods(sm.namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: selector,
+	})
+	if err != nil {
+		return "", "", fmt.Errorf("failed to list active sessions: %w", err)
+	}
+
+	for _, pod := range pods.Items {
+		if pod.DeletionTimestamp != nil {
+			continue
+		}
+		if pod.Status.Phase == corev1.PodRunning || pod.Status.Phase == corev1.PodPending {
+			sid := pod.Labels["session-id"]
+			if sid == "" {
+				continue
+			}
+			proxyPath := fmt.Sprintf("/%s/%s/%s/", username, appID, sid)
+			return sid, proxyPath, nil
+		}
+	}
+
+	return "", "", nil
 }
 
 // GetSessionInfo retrieves the current phase and proxy path of the Pod associated with an interactive session.
